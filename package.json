@@ -1,0 +1,24 @@
+{
+  "name": "shebabingo-multiplayer",
+  "version": "1.0.0",
+  "description": "Complete ShebaBingo multiplayer game system",
+  "private": true,
+  "workspaces": [
+    "shebabingo-backend",
+    "telegram-bot"
+  ],
+  "scripts": {
+    "start": "concurrently \"npm run backend\" \"npm run bot\"",
+    "backend": "cd shebabingo-backend && npm start",
+    "bot": "cd telegram-bot && npm start",
+    "dev": "concurrently \"npm run backend:dev\" \"npm run bot:dev\"",
+    "backend:dev": "cd shebabingo-backend && npm run dev",
+    "bot:dev": "cd telegram-bot && npm run dev"
+  },
+  "devDependencies": {
+    "concurrently": "^8.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
