@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: shebabingo-bot
+    env: node
+    plan: free
+    buildCommand: cd shebabingo-backend && npm install
+    startCommand: cd shebabingo-backend && node server.js
+    healthCheckPath: /api/status
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
