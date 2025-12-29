@@ -1,13 +1,31 @@
 const express = require('express');
 const socketIo = require('socket.io');
 const cors = require('cors');
+require('dotenv').config();
 const db = require('./database.js');
+const axios = require('axios'); // Add axios
 
 const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
-require('dotenv').config();
 
 const app = express();
 const port = process.env.PORT || 3000;
+// Middleware
+app.use(cors());
+app.use(express.json());
+
+// Serve frontend files from parent/public directory
+app.use(express.static(path.join(__dirname, '../public')));
+
+// API routes
+app.get('/api/status', (req, res) => {
+  res.json({ status: 'Server is running', timestamp: new Date() });
+});
+
+// Start server
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
+
 
 // ==================== 1. CONFIGURATION ====================
 const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID || "6297094384";
@@ -796,4 +814,5 @@ process.on('SIGINT', () => {
     db.close();
     server.close();
     process.exit(0);
+
 });
