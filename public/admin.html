@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🔧 ShebaBingo Admin Panel</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        body { background: #f5f7fa; color: #333; line-height: 1.6; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        
+        header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 25px; border-radius: 10px; margin-bottom: 30px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        header h1 { font-size: 28px; margin-bottom: 10px; }
+        header p { opacity: 0.9; }
+        
+        .dashboard-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-bottom: 30px; }
+        .stat-card { background: white; padding: 25px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); text-align: center; transition: transform 0.3s; }
+        .stat-card:hover { transform: translateY(-5px); }
+        .stat-card h3 { font-size: 14px; color: #666; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 1px; }
+        .stat-card .value { font-size: 32px; font-weight: bold; color: #4a5568; }
+        .stat-card .value.positive { color: #38a169; }
+        .stat-card .value.negative { color: #e53e3e; }
+        
+        .section { background: white; border-radius: 10px; padding: 25px; margin-bottom: 30px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
+        .section h2 { color: #4a5568; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 2px solid #edf2f7; }
+        
+        .transaction-item { border: 1px solid #e2e8f0; padding: 20px; margin-bottom: 15px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; }
+        .transaction-item.pending { border-left: 4px solid #d69e2e; background: #fffaf0; }
+        .transaction-item.completed { border-left: 4px solid #38a169; background: #f0fff4; }
+        .transaction-info { flex: 1; }
+        .transaction-actions button { margin-left: 10px; padding: 8px 20px; border: none; border-radius: 5px; cursor: pointer; font-weight: 600; }
+        .btn-approve { background: #38a169; color: white; }
+        .btn-reject { background: #e53e3e; color: white; }
+        .btn-view { background: #4299e1; color: white; }
+        
+        .form-group { margin-bottom: 20px; }
+        .form-group label { display: block; margin-bottom: 8px; color: #4a5568; font-weight: 500; }
+        .form-group input, .form-group select { width: 100%; padding: 12px; border: 1px solid #cbd5e0; border-radius: 5px; font-size: 16px; }
+        .btn-primary { background: #667eea; color: white; border: none; padding: 14px 28px; border-radius: 5px; font-size: 16px; cursor: pointer; font-weight: 600; transition: background 0.3s; }
+        .btn-primary:hover { background: #5a67d8; }
+        
+        .login-container { max-width: 400px; margin: 100px auto; background: white; padding: 40px; border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
+        .login-container h2 { text-align: center; margin-bottom: 30px; color: #4a5568; }
+        
+        #logoutBtn { background: #e53e3e; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; position: absolute; top: 30px; right: 30px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Login Screen (Shows first) -->
+        <div id="loginScreen" class="login-container">
+            <h2>🔒 ShebaBingo Admin Login</h2>
+            <div class="form-group">
+                <label for="adminPassword">Admin Password</label>
+                <input type="password" id="adminPassword" placeholder="Enter admin password">
+            </div>
+            <button class="btn-primary" onclick="login()" style="width: 100%;">Login to Admin Panel</button>
+            <p id="loginError" style="color: #e53e3e; margin-top: 15px; text-align: center; display: none;">❌ Invalid password</p>
+        </div>
+
+        <!-- Main Dashboard (Hidden until login) -->
+        <div id="dashboard" style="display: none;">
+            <header>
+                <h1>🔧 ShebaBingo Admin Panel</h1>
+                <p>Manage deposits, withdrawals, and monitor game activity</p>
+                <button id="logoutBtn" onclick="logout()">Logout</button>
+            </header>
+
+            <!-- Stats Dashboard -->
+            <div class="dashboard-stats">
+                <div class="stat-card">
+                    <h3>💰 Total Balance (All Users)</h3>
+                    <div class="value" id="totalBalance">0 ETB</div>
+                </div>
+                <div class="stat-card">
+                    <h3>📥 Total Deposits</h3>
+                    <div class="value" id="totalDeposits">0 ETB</div>
+                </div>
+                <div class="stat-card">
+                    <h3>👥 Total Users</h3>
+                    <div class="value" id="totalUsers">0</div>
+                </div>
+                <div class="stat-card">
+                    <h3>🎮 Games Played</h3>
+                    <div class="value" id="gamesPlayed">0</div>
+                </div>
+            </div>
+
+            <!-- Pending Deposits Section -->
+            <div class="section">
+                <h2>⏳ Pending Deposit Requests</h2>
+                <!-- In your admin.html, find the pending deposits section -->
+<div id="pendingDeposits">
+  <!-- This gets populated by JavaScript -->
+</div>
+
+<!-- Add this modal for amount verification -->
+<div id="approveModal" style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 20px; border-radius: 10px; z-index: 1000; box-shadow: 0 0 20px rgba(0,0,0,0.3);">
+  <h3>💰 Verify Deposit Amount</h3>
+  <p><strong>User:</strong> <span id="modalUser"></span></p>
+  <p><strong>Requested:</strong> <span id="modalRequested"></span> ETB</p>
+  <p><strong>Payment Method:</strong> <span id="modalMethod"></span></p>
+  
+  <div style="margin: 20px 0;">
+    <label>Enter verified amount from screenshot:</label>
+    <input type="number" id="verifiedAmount" placeholder="e.g., 100" min="10" step="10" style="width: 100%; padding: 10px; margin: 10px 0;">
+    
+    <div style="display: flex; gap: 10px; margin: 10px 0;">
+      <button onclick="setAmount(10)" style="flex: 1; padding: 8px;">10 ETB</button>
+      <button onclick="setAmount(50)" style="flex: 1; padding: 8px;">50 ETB</button>
+      <button onclick="setAmount(100)" style="flex: 1; padding: 8px;">100 ETB</button>
+    </div>
+    
+    <label>
+      <input type="checkbox" id="useRequested"> Use requested amount
+    </label>
+  </div>
+  
+  <label>Admin Notes (optional):</label>
+  <textarea id="adminNotes" placeholder="e.g., 'Payment verified from Telebirr screenshot'" style="width: 100%; height: 60px; margin: 10px 0;"></textarea>
+  
+  <div style="display: flex; gap: 10px; margin-top: 20px;">
+    <button onclick="confirmApprove()" style="flex: 1; background: #38a169; color: white; padding: 10px;">✅ Approve</button>
+    <button onclick="closeModal()" style="flex: 1; background: #6c757d; color: white; padding: 10px;">Cancel</button>
+  </div>
+</div>
+
+<script>
+let currentTransactionId = null;
+
+// Update the approve button in your existing transaction display
+function showApproveModal(transactionId, user, requestedAmount, paymentMethod) {
+  currentTransactionId = transactionId;
+  document.getElementById('modalUser').textContent = user;
+  document.getElementById('modalRequested').textContent = requestedAmount;
+  document.getElementById('modalMethod').textContent = paymentMethod;
+  document.getElementById('verifiedAmount').value = requestedAmount;
+  document.getElementById('approveModal').style.display = 'block';
+}
+
+function setAmount(amount) {
+  document.getElementById('verifiedAmount').value = amount;
+  document.getElementById('useRequested').checked = false;
+}
+
+function closeModal() {
+  document.getElementById('approveModal').style.display = 'none';
+  currentTransactionId = null;
+}
+
+async function confirmApprove() {
+  if (!currentTransactionId) return;
+  
+  const useRequested = document.getElementById('useRequested').checked;
+  const verifiedAmount = document.getElementById('verifiedAmount').value;
+  const adminNotes = document.getElementById('adminNotes').value;
+  
+  const payload = {
+    admin_notes: adminNotes
+  };
+  
+  if (useRequested) {
+    payload.use_requested = true;
+  } else if (verifiedAmount) {
+    payload.verified_amount = parseFloat(verifiedAmount);
+  } else {
+    alert('Please enter a verified amount or select "Use requested amount"');
+    return;
+  }
+  
+  try {
+    const response = await fetch(`/api/admin/transactions/${currentTransactionId}/approve`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${adminToken}`
+      },
+      body: JSON.stringify(payload)
+    });
+    
+    const result = await response.json();
+    
+    if (result.success) {
+      alert(`✅ Approved! ${result.user_telegram} received ${result.approved_amount} ETB`);
+      closeModal();
+      loadPendingDeposits(); // Refresh the list
+    } else {
+      alert(`❌ Error: ${result.error}`);
+    }
+  } catch (error) {
+    alert('❌ Network error: ' + error.message);
+  }
+}
+
+// Update your transaction display to use the modal
+function displayPendingDeposits(deposits) {
+  const container = document.getElementById('pendingDeposits');
+  let html = '';
+  
+  deposits.forEach(deposit => {
+    html += `
+      <div class="transaction-item pending">
+        <div class="transaction-info">
+          <p><strong>👤 User:</strong> ${deposit.username || deposit.telegram_id} (ID: ${deposit.telegram_id})</p>
+          <p><strong>💰 Requested:</strong> ${deposit.amount} ETB</p>
+          <p><strong>🏦 Method:</strong> ${deposit.payment_method || 'Telebirr'}</p>
+          <p><strong>📝 Proof:</strong> ${deposit.payment_proof ? deposit.payment_proof.substring(0, 100) + '...' : 'No proof'}</p>
+          <p><strong>🕐 Time:</strong> ${new Date(deposit.created_at).toLocaleString()}</p>
+        </div>
+        <div class="transaction-actions">
+          <button class="btn-view" onclick="viewProof(${deposit.id})">📋 View Proof</button>
+          <button class="btn-approve" onclick="showApproveModal(${deposit.id}, '${deposit.telegram_id}', ${deposit.amount}, '${deposit.payment_method}')">
+            ✅ Verify & Approve
+          </button>
+          <button class="btn-reject" onclick="rejectTransaction(${deposit.id})">❌ Reject</button>
+        </div>
+      </div>
+    `;
+  });
+  
+  container.innerHTML = html || '<p style="text-align: center; color: #a0aec0; padding: 40px;">No pending deposits</p>';
+}
+</script>
+            </div>
+
+            <!-- Pending Withdrawals Section -->
+            <div class="section">
+                <h2>📤 Pending Withdrawal Requests</h2>
+                <div id="pendingWithdrawals">
+                    <p style="text-align: center; color: #a0aec0; padding: 40px;">Loading pending withdrawals...</p>
+                </div>
+            </div>
+
+            <!-- Recent Transactions -->
+            <div class="section">
+                <h2>📜 Recent Transactions</h2>
+                <div id="recentTransactions">
+                    <p style="text-align: center; color: #a0aec0; padding: 40px;">Loading recent transactions...</p>
+                </div>
+            </div>
+
+            <!-- Manual Actions -->
+            <div class="section">
+                <h2>⚡ Quick Actions</h2>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px;">
+                    <button class="btn-primary" onclick="refreshAll()">🔄 Refresh All Data</button>
+                    <button class="btn-primary" onclick="createTestUser()">👤 Create Test User</button>
+                    <button class="btn-primary" onclick="openTelegramBot()">🤖 Open Telegram Bot</button>
+                    <button class="btn-primary" onclick="sendTestNotification()">📱 Test Admin Notification</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Configuration
+        const API_BASE = 'http://localhost:3000'; // Your backend URL
+        const ADMIN_PASSWORD = 'shebabingo@23'; // Change this to your secure password
+        
+        // Authentication
+        let isAuthenticated = false;
+        let adminToken = null;
+        
+        function login() {
+            const password = document.getElementById('adminPassword').value;
+            
+            if (password === ADMIN_PASSWORD) {
+                isAuthenticated = true;
+                adminToken = btoa(password + ':' + Date.now()); // Simple token
+                localStorage.setItem('adminToken', adminToken);
+                localStorage.setItem('lastLogin', Date.now());
+                
+                document.getElementById('loginScreen').style.display = 'none';
+                document.getElementById('dashboard').style.display = 'block';
+                document.getElementById('loginError').style.display = 'none';
+                
+                loadDashboardData();
+                setInterval(loadDashboardData, 30000); // Refresh every 30 seconds
+            } else {
+                document.getElementById('loginError').style.display = 'block';
+                document.getElementById('adminPassword').value = '';
+            }
+        }
+        
+        function logout() {
+            isAuthenticated = false;
+            adminToken = null;
+            localStorage.removeItem('adminToken');
+            document.getElementById('dashboard').style.display = 'none';
+            document.getElementById('loginScreen').style.display = 'block';
+            document.getElementById('adminPassword').value = '';
+        }
+        
+        // Check if already logged in
+        window.onload = function() {
+            const savedToken = localStorage.getItem('adminToken');
+            const lastLogin = localStorage.getItem('lastLogin');
+            const oneHour = 60 * 60 * 1000;
+            
+            if (savedToken && lastLogin && (Date.now() - lastLogin < oneHour)) {
+                // Auto-login if within 1 hour
+                document.getElementById('loginScreen').style.display = 'none';
+                document.getElementById('dashboard').style.display = 'block';
+                isAuthenticated = true;
+                adminToken = savedToken;
+                loadDashboardData();
+                setInterval(loadDashboardData, 30000);
+            }
+        };
+        
+        // Dashboard Functions
+        async function loadDashboardData() {
+            if (!isAuthenticated) return;
+            
+            try {
+                await Promise.all([
+                    loadStats(),
+                    loadPendingDeposits(),
+                    loadPendingWithdrawals(),
+                    loadRecentTransactions()
+                ]);
+            } catch (error) {
+                console.error('Failed to load data:', error);
+            }
+        }
+        
+        async function loadStats() {
+            try {
+                // Total balance (sum of all user balances)
+                const usersRes = await fetch(`${API_BASE}/api/admin/users`);
+                const users = await usersRes.json();
+                const totalBalance = users.reduce((sum, user) => sum + parseFloat(user.balance || 0), 0);
+                document.getElementById('totalBalance').textContent = totalBalance.toFixed(1) + ' ETB';
+                document.getElementById('totalUsers').textContent = users.length;
+                
+                // Total deposits
+                const txRes = await fetch(`${API_BASE}/api/admin/transactions`);
+                const transactions = await txRes.json();
+                const totalDeposits = transactions
+                    .filter(tx => tx.type === 'deposit' && tx.status === 'completed')
+                    .reduce((sum, tx) => sum + parseFloat(tx.amount || 0), 0);
+                document.getElementById('totalDeposits').textContent = totalDeposits.toFixed(1) + ' ETB';
+                
+                // Games played
+                const gamesRes = await fetch(`${API_BASE}/api/admin/games`);
+                const games = await gamesRes.json();
+                document.getElementById('gamesPlayed').textContent = games.filter(g => g.status === 'finished').length;
+                
+            } catch (error) {
+                console.error('Error loading stats:', error);
+            }
+        }
+        
+        async function loadPendingDeposits() {
+            try {
+                const response = await fetch(`${API_BASE}/api/admin/transactions?status=pending&type=deposit`);
+                const deposits = await response.json();
+                
+                const container = document.getElementById('pendingDeposits');
+                if (deposits.length === 0) {
+                    container.innerHTML = '<p style="text-align: center; color: #a0aec0; padding: 40px;">No pending deposits</p>';
+                    return;
+                }
+                
+                let html = '';
+                deposits.forEach(deposit => {
+                    const smsPreview = deposit.raw_sms_text 
+                        ? deposit.raw_sms_text.substring(0, 100) + '...'
+                        : 'No SMS provided';
+                    
+                    html += `
+                        <div class="transaction-item pending">
+                            <div class="transaction-info">
+                                <p><strong>👤 User:</strong> ${deposit.username || deposit.telegram_id} (ID: ${deposit.telegram_id})</p>
+                                <p><strong>💰 Amount:</strong> ${deposit.amount} ETB</p>
+                                <p><strong>🏦 Method:</strong> ${deposit.payment_method || 'Telebirr'}</p>
+                                <p><strong>📝 SMS:</strong> ${smsPreview}</p>
+                                <p><strong>🕐 Time:</strong> ${new Date(deposit.created_at).toLocaleString()}</p>
+                            </div>
+                            <div class="transaction-actions">
+                                <button class="btn-view" onclick="viewSMSText(${deposit.id})">📋 View SMS</button>
+                                <button class="btn-approve" onclick="approveTransaction(${deposit.id}, 'deposit')">✅ Approve</button>
+                                <button class="btn-reject" onclick="rejectTransaction(${deposit.id}, 'deposit')">❌ Reject</button>
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                container.innerHTML = html;
+            } catch (error) {
+                console.error('Error loading pending deposits:', error);
+            }
+        }
+        
+        async function loadPendingWithdrawals() {
+            try {
+                const response = await fetch(`${API_BASE}/api/admin/transactions?status=pending&type=withdraw`);
+                const withdrawals = await response.json();
+                
+                const container = document.getElementById('pendingWithdrawals');
+                if (withdrawals.length === 0) {
+                    container.innerHTML = '<p style="text-align: center; color: #a0aec0; padding: 40px;">No pending withdrawals</p>';
+                    return;
+                }
+                
+                let html = '';
+                withdrawals.forEach(withdrawal => {
+                    html += `
+                        <div class="transaction-item pending">
+                            <div class="transaction-info">
+                                <p><strong>👤 User:</strong> ${withdrawal.username || withdrawal.telegram_id}</p>
+                                <p><strong>💰 Amount:</strong> ${withdrawal.amount} ETB</p>
+                                <p><strong>📱 Account:</strong> ${withdrawal.metadata?.account_number || 'Not specified'}</p>
+                                <p><strong>💳 Current Balance:</strong> ${withdrawal.user_balance || '0'} ETB</p>
+                                <p><strong>🕐 Time:</strong> ${new Date(withdrawal.created_at).toLocaleString()}</p>
+                            </div>
+                            <div class="transaction-actions">
+                                <button class="btn-approve" onclick="approveTransaction(${withdrawal.id}, 'withdraw')">✅ Send Money & Approve</button>
+                                <button class="btn-reject" onclick="rejectTransaction(${withdrawal.id}, 'withdraw')">❌ Reject</button>
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                container.innerHTML = html;
+            } catch (error) {
+                console.error('Error loading pending withdrawals:', error);
+            }
+        }
+        
+        async function loadRecentTransactions() {
+            try {
+                const response = await fetch(`${API_BASE}/api/admin/transactions?limit=10`);
+                const transactions = await response.json();
+                
+                const container = document.getElementById('recentTransactions');
+                let html = '';
+                
+                transactions.forEach(tx => {
+                    const statusColor = tx.status === 'completed' ? '#38a169' : 
+                                      tx.status === 'pending' ? '#d69e2e' : '#e53e3e';
+                    
+                    html += `
+                        <div class="transaction-item ${tx.status}">
+                            <div class="transaction-info">
+                                <p><strong>#${tx.id}</strong> • ${tx.type.toUpperCase()} • 
+                                   <span style="color: ${statusColor}">${tx.status.toUpperCase()}</span></p>
+                                <p><strong>User:</strong> ${tx.username || tx.telegram_id}</p>
+                                <p><strong>Amount:</strong> ${tx.amount} ETB</p>
+                                <p><strong>Time:</strong> ${new Date(tx.created_at).toLocaleString()}</p>
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                container.innerHTML = html || '<p style="text-align: center; color: #a0aec0; padding: 40px;">No recent transactions</p>';
+            } catch (error) {
+                console.error('Error loading recent transactions:', error);
+            }
+        }
+        
+        // Action Functions
+        async function approveTransaction(transactionId, type) {
+            if (!confirm(`Are you sure you want to approve this ${type}?`)) return;
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/admin/transaction/${transactionId}/approve`, {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${adminToken}`
+                    }
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    alert(`✅ ${type.toUpperCase()} approved successfully!`);
+                    loadDashboardData(); // Refresh all data
+                } else {
+                    alert(`❌ Failed: ${result.error || 'Unknown error'}`);
+                }
+            } catch (error) {
+                alert(`❌ Error: ${error.message}`);
+            }
+        }
+        
+        async function rejectTransaction(transactionId, type) {
+            const reason = prompt(`Enter reason for rejecting this ${type}:`, 'Payment not verified');
+            if (!reason) return;
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/admin/transaction/${transactionId}/reject`, {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${adminToken}`
+                    },
+                    body: JSON.stringify({ reason })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    alert(`❌ ${type.toUpperCase()} rejected.`);
+                    loadDashboardData();
+                } else {
+                    alert(`❌ Failed: ${result.error}`);
+                }
+            } catch (error) {
+                alert(`❌ Error: ${error.message}`);
+            }
+        }
+        
+        function viewSMSText(transactionId) {
+            // In a real app, you would fetch the full SMS from API
+            alert('Full SMS view would appear here. For now, check the database or Telegram notification.');
+        }
+        
+        function refreshAll() {
+            loadDashboardData();
+            alert('🔄 Refreshing all data...');
+        }
+
+        function createTestUser() {
+            const telegramId = prompt('Enter test Telegram ID:', '123456789');
+            if (!telegramId) return;
+            
+            fetch(`${API_BASE}/api/register`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    telegram_id: telegramId,
+                    username: 'test_user'
+                })
+            })
+            .then(res => res.json())
+            .then(data => {
+                alert(`✅ Test user created!\nID: ${telegramId}\nBalance: 10 ETB (welcome bonus)`);
+                loadDashboardData();
+            })
+            .catch(error => alert('❌ Error: ' + error.message));
+        }
+        
+        function openTelegramBot() {
+            window.open('https://t.me/ShebaBingoBot', '_blank');
+        }
+        
+        function sendTestNotification() {
+            fetch(`${API_BASE}/api/admin/test-notification`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${adminToken}` }
+            })
+            .then(res => res.json())
+            .then(data => {
+                alert('📱 Test notification sent to your Telegram!');
+            })
+            .catch(error => alert('❌ Error: ' + error.message));
+        }
+    </script>
+</body>
+</html>
