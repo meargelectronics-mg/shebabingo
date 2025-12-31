@@ -1603,6 +1603,11 @@ function initializeApp() {
     // Initialize Telegram integration (but don't block if not in Telegram)
     const isTelegram = initializeTelegram();
     
+    // INITIALIZE BALANCE FROM SERVER - ADD THIS!
+    loadBalanceFromServer().then(() => {
+        console.log('💰 Balance loaded from server:', gameState.currentPlayer.balance);
+    });
+
     // Initialize Service Worker
     createMainBingoBoard();
     setupEventListeners();
@@ -1632,6 +1637,165 @@ function initializeApp() {
         console.log('🌐 Browser mode: Starting game immediately');
     }
 }
+
+// ==================== INTEGRATE WITH SERVER API ====================
+
+// Get user ID from URL
+const urlParams = new URLSearchParams(window.location.search);
+const userId = urlParams.get('user') || 'demo';
+
+// Load user balance from server API
+async function loadBalanceFromServer() {
+    try {
+        const response = await fetch(`/api/user/${userId}/balance`);
+        const data = await response.json();
+        
+        if (data.success) {
+            // Update YOUR balance display (match your element ID)
+            const balanceElement = document.getElementById('balanceValue');
+            if (balanceElement) {
+                balanceElement.textContent = data.balance + ' ETB';
+            }
+            
+            // Store in global variables
+            gameState.currentPlayer.balance = data.balance;
+            gameState.currentPlayer.username = data.username;
+            
+            // Update gameState balance
+            if (data.registered) {
+                console.log(`Welcome ${data.username}! Balance: ${data.balance} ETB`);
+            } else {
+                console.log(`Guest user. Balance: ${data.balance} ETB`);
+            }
+            
+            // Update stats
+            updateGameStats();
+            return true;
+        }
+    } catch (error) {
+        console.error('Error loading balance from server:', error);
+        // Fallback for local testing
+        gameState.currentPlayer.balance = 1000;
+        updateGameStats();
+        return false;
+    }
+}
+
+// Deduct game fee from server
+async function deductGameFeeFromServer(amount) {
+    try {
+        const response = await fetch('/api/game/play', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ userId: userId, amount: amount })
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+            // Update local balance
+            gameState.currentPlayer.balance = data.newBalance;
+            
+            // Update display
+            const balanceElement = document.getElementById('balanceValue');
+            if (balanceElement) {
+                balanceElement.textContent = data.newBalance + ' ETB';
+            }
+            
+            console.log(`💰 Game fee deducted: ${amount} ETB. New balance: ${data.newBalance} ETB`);
+            return true;
+        } else {
+            alert(data.error || 'Payment failed');
+            return false;
+        }
+    } catch (error) {
+        console.error('Payment error:', error);
+        alert('Network error. Please check your connection.');
+        return false;
+    }
+}
+
+// Add winnings to server
+async function addWinningsToServer(amount) {
+    try {
+        const response = await fetch('/api/game/win', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ userId: userId, amount: amount })
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+            // Update local balance
+            gameState.currentPlayer.balance = data.newBalance;
+            
+            // Update display
+            const balanceElement = document.getElementById('balanceValue');
+            if (balanceElement) {
+                balanceElement.textContent = data.newBalance + ' ETB';
+            }
+            
+            console.log(`🎉 Winnings added: ${amount} ETB. New balance: ${data.newBalance} ETB`);
+            return true;
+        }
+    } catch (error) {
+        console.error('Win error:', error);
+    }
+    return false;
+}
+
+// MODIFY YOUR confirmSelection() FUNCTION:
+// Find this function around line 1500 and REPLACE it with:
+
+function confirmSelection() {
+    if (gameState.selectedBoards.size === 0) {
+        alert(t('selectOneBoard'));
+        return;
+    }
+    
+    const totalCost = gameState.selectedBoards.size * CONFIG.BET_AMOUNT;
+    
+    // Check balance on SERVER
+    if (totalCost > gameState.currentPlayer.balance) {
+        alert(t('insufficientBalance'));
+        return;
+    }
+    
+    // Deduct from server
+    deductGameFeeFromServer(totalCost).then(success => {
+        if (!success) return;
+        
+        gameState.currentPlayer.isActive = true;
+        gameState.currentPlayer.boards = createPlayerBoards();
+        gameState.currentPlayer.totalPaid = totalCost;
+        gameState.activePlayers.push(gameState.currentPlayer);
+        
+        console.log(`✅ YOU selected ${gameState.selectedBoards.size} boards:`);
+        gameState.selectedBoards.forEach(boardNum => {
+            console.log(`   - Board #${boardNum}`);
+        });
+        
+        // Update board display to show player's boards as selected
+        gameState.selectedBoards.forEach(boardNumber => {
+            const boardElements = document.querySelectorAll('.board-option');
+            boardElements.forEach(element => {
+                const elementBoardNum = parseInt(element.querySelector('.board-number').textContent);
+                if (elementBoardNum === boardNumber) {
+                    element.classList.remove('taken');
+                    element.classList.add('selected');
+                    element.style.background = 'linear-gradient(135deg, #2ecc71, #27ae60)';
+                    element.style.color = 'white';
+                    element.style.cursor = 'pointer';
+                    element.style.opacity = '1';
+                    element.style.border = '2px solid #27ae60';
+                }
+            });
+        });
+        
+        closeRegistrationPopup();
+        startShufflingPhase();
+    });
+}
+
 
 
         // Add event listener for the existing language selector in top-nav
@@ -1848,14 +2012,32 @@ function setLanguage(lang) {
 
         // Game Cycle Management
         function startGameCycle() {
-            gameState.gamePhase = 'waiting';
-            updateGameStatus();
-            
-            setTimeout(() => {
-                startBoardSelection();
-            }, 2000);
+    // CHECK BALANCE BEFORE STARTING - ADD THIS
+    if (gameState.currentPlayer.balance < CONFIG.BET_AMOUNT) {
+        alert(`Insufficient balance! You need at least ${CONFIG.BET_AMOUNT} ETB to play.`);
+        
+        // Redirect to Telegram bot for deposit
+        if (window.Telegram && Telegram.WebApp) {
+            Telegram.WebApp.sendData(JSON.stringify({
+                action: 'need_deposit',
+                amount: CONFIG.BET_AMOUNT
+            }));
+        } else if (userId !== 'demo') {
+            window.location.href = `https://t.me/your_bot_username?start=${userId}`;
         }
-
+        
+        // Show wait message
+        showWaitForNextGameMessage();
+        return;
+    }
+    
+    gameState.gamePhase = 'waiting';
+    updateGameStatus();
+    
+    setTimeout(() => {
+        startBoardSelection();
+    }, 2000);
+}
         function startBoardSelection() {
             gameState.gamePhase = 'selecting';
             updateGameStatus();
@@ -2523,6 +2705,33 @@ if (winners.some(w => w.player.id === gameState.currentPlayer.id)) {
             }, 10000);
 }
 
+// ==================== DEPOSIT FUNCTION ====================
+
+// Go to deposit (opens Telegram bot)
+function goToDeposit() {
+    const t = TRANSLATIONS[gameState.currentLanguage];
+    
+    if (window.Telegram && Telegram.WebApp) {
+        // In Telegram Web App - send data to bot
+        Telegram.WebApp.sendData(JSON.stringify({
+            action: 'deposit',
+            userId: userId,
+            amount: CONFIG.BET_AMOUNT,
+            timestamp: Date.now()
+        }));
+        
+        // Show message
+        alert(t('redirectingToDeposit') || 'Opening deposit page in Telegram...');
+        
+    } else if (userId && userId !== 'demo') {
+        // In browser - open Telegram bot with start parameter
+        window.location.href = `https://t.me/your_bot_username?start=${userId}_deposit`;
+        
+    } else {
+        // No user ID - show instructions
+        alert(t('openFromTelegram') || 'Please open this game from Telegram bot to deposit.');
+    }
+}
 
         function endGameWithNoWinner() {
             gameState.gamePhase = 'finished';
@@ -2665,6 +2874,15 @@ function claimBingo() {
                 board: win.board,
                 boardIndex: win.boardIndex
             }));
+// CALCULATE WIN AMOUNT
+        const prizePerWinner = Math.floor(gameState.totalPrizePool / winners.length);
+        
+        // ADD WINNINGS TO SERVER
+        winners.forEach(winner => {
+            if (winner.player.id === gameState.currentPlayer.id) {
+                addWinningsToServer(prizePerWinner);
+            }
+        });
             declareWinners(winners);
         }, CONFIG.CHECKING_TIME * 1000);
     }
