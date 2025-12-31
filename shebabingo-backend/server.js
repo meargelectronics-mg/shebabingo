@@ -9,8 +9,8 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // ==================== CONFIGURATION ====================
-const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || 'YOUR_BOT_TOKEN_HERE';
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
+const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8274404754:AAGnc1QeczvHP51dIryK2sK-E8aUUyiO6Zc';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'shebabingo@23';
 const RENDER_URL = process.env.RENDER_URL || 'https://shebabingo-bot.onrender.com';
 
 // ==================== SIMPLE DATABASE ====================
@@ -933,4 +933,5 @@ app.listen(PORT, () => {
     console.log(`🎮 Game: ${RENDER_URL}/game.html`);
     console.log(`💰 Deposit: ${RENDER_URL}/deposit.html`);
 });
+
 
