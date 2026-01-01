@@ -2,6 +2,51 @@ const express = require('express');
 const axios = require('axios');
 const path = require('path');
 const fs = require('fs');
+// Force Telegram to refresh bot responses
+const refreshTelegramCache = async () => {
+    try {
+        console.log('🔄 FORCING TELEGRAM CACHE REFRESH');
+        
+        // Method 1: Reset bot commands
+        await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/deleteMyCommands`, {
+            scope: { type: "default" }
+        });
+        
+        // Method 2: Set fresh commands with cache-busting
+        await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/setMyCommands`, {
+            commands: [
+                {
+                    command: "start",
+                    description: `Start bot 🎮 (${Date.now()})`  // Cache busting!
+                },
+                {
+                    command: "play", 
+                    description: `Play game 🎰 (${Date.now()})`  // Cache busting!
+                },
+                {
+                    command: "deposit",
+                    description: "Add money 💰"
+                },
+                {
+                    command: "balance",
+                    description: "Check balance 📊"
+                }
+            ]
+        });
+        
+        // Method 3: Update bot info
+        await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/setMyDescription`, {
+            description: `ShebaBingo - Win Real Money! Updated: ${new Date().toISOString()}`
+        });
+        
+        console.log('✅ Telegram cache forced to refresh');
+        
+    } catch (error) {
+        console.error('Cache refresh error:', error.message);
+    }
+};
+
+refreshTelegramCache();
 
 const app = express();
 app.use(express.json());
@@ -76,6 +121,29 @@ app.use(express.static(path.join(__dirname, '../public')));
 // Root route - serve index.html
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, '../public/index.html'));
+});
+// PERMANENT FIX: Redirect ALL game.html requests to index.html
+app.get('/game.html', (req, res) => {
+    const userId = req.query.user;
+    const userAgent = req.headers['user-agent'] || '';
+    
+    console.log('='.repeat(80));
+    console.log('🚨 INTERCEPTED game.html REQUEST!');
+    console.log('='.repeat(80));
+    console.log(`👤 User ID: ${userId}`);
+    console.log(`🌐 User Agent: ${userAgent}`);
+    console.log(`📅 Time: ${new Date().toISOString()}`);
+    console.log(`🔗 Requested: ${req.url}`);
+    console.log(`✅ Redirecting to: /?user=${userId}`);
+    console.log('='.repeat(80));
+    
+    // 301 Permanent Redirect - Tells browsers/search engines this is permanent
+    res.redirect(301, `/?user=${userId || ''}`);
+});
+
+// Also catch /game (without .html)
+app.get('/game', (req, res) => {
+    res.redirect(301, `/?user=${req.query.user || ''}`);
 });
 
 // ==================== TELEGRAM BOT HANDLER (LIKE @joybingobot) ====================
@@ -499,19 +567,27 @@ async function sendTelegramMessage(chatId, text, replyMarkup = null) {
         const payload = {
             chat_id: chatId,
             text: text,
-            parse_mode: 'Markdown'
+            parse_mode: 'Markdown',
+            // Add cache-busting parameter
+            disable_notification: false,
+            protect_content: false
         };
         
         if (replyMarkup) {
             payload.reply_markup = replyMarkup;
         }
         
-        await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, payload);
+        // Add unique parameter to prevent caching
+        const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage?cache=${Date.now()}`;
+        
+        await axios.post(url, payload);
+        
+        console.log(`📤 Message sent to ${chatId} with cache-busting`);
+        
     } catch (error) {
         console.error('Telegram send error:', error.message);
     }
 }
-
 // ==================== API FOR GAME BALANCE ====================
 
 // Get user balance (for game)
@@ -746,3 +822,4 @@ app.listen(PORT, '0.0.0.0', () => {
     console.log(`📊 Health: ${RENDER_URL}/api/health`);
     console.log('='.repeat(50));
 });
+
