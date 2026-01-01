@@ -11,6 +11,41 @@ app.use(express.urlencoded({ extended: true }));
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8274404754:AAGnc1QeczvHP51dIryK2sK-E8aUUyiO6Zc';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'shebabingo@23';
 const RENDER_URL = process.env.RENDER_URL || 'https://shebabingo-bot.onrender.com';
+// ==================== SET WEBHOOK ON STARTUP ====================
+const setupTelegramWebhook = async () => {
+    try {
+        const webhookUrl = `${RENDER_URL}/telegram-webhook`;
+        
+        console.log('='.repeat(60));
+        console.log('🔧 TELEGRAM BOT CONFIGURATION');
+        console.log('='.repeat(60));
+        console.log(`🤖 Bot Token: ${BOT_TOKEN ? 'SET' : 'NOT SET'}`);
+        console.log(`🌐 Webhook URL: ${webhookUrl}`);
+        console.log('='.repeat(60));
+        
+        // Delete any existing webhook
+        await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/deleteWebhook`);
+        console.log('✅ Old webhook deleted');
+        
+        // Set webhook to OUR server.js
+        const response = await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/setWebhook`, {
+            url: webhookUrl,
+            allowed_updates: ["message", "callback_query", "inline_query"]
+        });
+        
+        console.log('✅ Webhook set successfully:', response.data.description);
+        
+        // Check current webhook info
+        const webhookInfo = await axios.get(`https://api.telegram.org/bot${BOT_TOKEN}/getWebhookInfo`);
+        console.log('📡 Current Webhook Info:', JSON.stringify(webhookInfo.data, null, 2));
+        
+    } catch (error) {
+        console.error('❌ Error setting webhook:', error.message);
+    }
+};
+
+// Call it when server starts
+setupTelegramWebhook();
 
 // ==================== SIMPLE DATABASE ====================
 const USERS_FILE = path.join(__dirname, 'users.json');
@@ -217,6 +252,13 @@ app.post('/telegram-webhook', async (req, res) => {
                 }
             }
         }
+
+            console.log('📱 Telegram Update:', JSON.stringify({
+            type: update.message ? 'message' : update.callback_query ? 'callback' : 'other',
+            chatId: update.message?.chat?.id || update.callback_query?.message?.chat?.id,
+            text: update.message?.text || update.callback_query?.data,
+            userId: update.message?.from?.id || update.callback_query?.from?.id
+        }, null, 2));
     } catch (error) {
         console.error('Webhook error:', error.message);
     }
