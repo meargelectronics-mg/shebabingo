@@ -257,29 +257,28 @@ app.post('/telegram-webhook', async (req, res) => {
                             );
                             break;
                             
-                        case '/play':
-                            console.log(`🎮 /play command from user ${userId}`);
-                            
-                            // ✅ CORRECT URL - NO game.html
-                            const gameUrl = `${RENDER_URL}/?user=${userId}`;
-                            
-                            console.log(`✅ Generated URL: ${gameUrl}`);
-                            
-                            await sendTelegramMessage(chatId,
-                                `🎮 *PLAY SHEBA BINGO* 🎰\n\n` +
-                                `💰 Balance: *${user.balance} ETB*\n\n` +
-                                `⬇️ *CLICK THE BUTTON BELOW* ⬇️\n` +
-                                `_Game opens in your browser_`,
-                                {
-                                    inline_keyboard: [[
-                                        { 
-                                            text: `▶️ OPEN GAME`,
-                                            url: gameUrl
-                                        }
-                                    ]]
-                                }
-                            );
-                            break;
+                        // In your /play command handler, change to:
+case '/play':
+    console.log(`🎮 /play command from user ${userId}`);
+    
+    // ✅ CORRECT: This opens INSIDE Telegram
+    const gameUrl = `${RENDER_URL}/?user=${userId}`;
+    
+    await sendTelegramMessage(chatId,
+        `🎮 *PLAY SHEBA BINGO* 🎰\n\n` +
+        `💰 Balance: *${user.balance} ETB*\n\n` +
+        `⬇️ *CLICK THE BUTTON BELOW* ⬇️\n` +
+        `_Game opens in Telegram_`,
+        {
+            inline_keyboard: [[
+                { 
+                    text: `▶️ PLAY NOW`,
+                    web_app: { url: gameUrl }  // ✅ KEY CHANGE: Use web_app instead of url
+                }
+            ]]
+        }
+    );
+    break;
                             
                         case '/help':
                             await sendTelegramMessage(chatId,
@@ -834,3 +833,4 @@ app.listen(PORT, '0.0.0.0', async () => {
     // Setup Telegram webhook
     await setupTelegramWebhook();
 });
+
