@@ -1897,13 +1897,21 @@ function initializeTelegram() {
         gameState.currentPlayer.name = userName;
         gameState.currentPlayer.telegramName = telegramName;
         gameState.currentPlayer.id = actualUserId;
-        gameState.currentPlayer.balance = 0; // Will be loaded from API
+       // gameState.currentPlayer.balance will be set by loadUserBalance()
         
-        console.log('✅ Telegram Web App initialized for user:', userName);
+        // Save user ID to localStorage
+        localStorage.setItem('sheba_user_id', actualUserId);
         
-        // Load user balance from your API
+        // Configure Telegram Web App
+        tg.expand();
+        tg.enableClosingConfirmation();
+        tg.setHeaderColor('#8b3de8');
+        tg.setBackgroundColor('#d7b9f7');
+        
+        // Load user balance from API
         loadUserBalance(actualUserId);
         
+        console.log('✅ Telegram initialized. User:', userName, 'ID:', actualUserId);
         return true;
     } else {
         console.log('ℹ️ Running outside Telegram (browser mode)');
@@ -4514,4 +4522,5 @@ function markNumberOnPlayerBoards(number, callElement) {
     </script>
 </body>
 </html>
+
 
