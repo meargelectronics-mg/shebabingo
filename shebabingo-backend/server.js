@@ -375,18 +375,39 @@ async function handleCallbackQuery(callback) {
             }
             break;
             
-        case 'play':
-            await sendTelegramMessage(chatId,
-                `🎮 *PLAY BINGO*\n\n` +
-                `💰 Balance: *${user.balance} ETB*\n\n` +
-                `Click below to start playing:`,
-                {
-                    inline_keyboard: [[
-                        { text: "🎯 START GAME", url: `${RENDER_URL}/?user=${userId}` }  // ✅ CORRECT LINK
-                    ]]
+        case '/play':
+    console.log('🎮 /play command received');
+    
+    // ✅ CORRECT URL
+    const gameUrl = `${RENDER_URL}/?user=${userId}`;
+    
+    console.log(`✅ Generated URL: ${gameUrl}`);
+    
+    // Use ReplyKeyboardMarkup instead of InlineKeyboard for testing
+    await sendTelegramMessage(chatId,
+        `🎮 *PLAY SHEBA BINGO* 🎰\n\n` +
+        `💰 Balance: *${user.balance} ETB*\n\n` +
+        `👇 *CLICK THE BUTTON BELOW* 👇\n` +
+        `Or open: ${gameUrl}`,
+        {
+            // Try BOTH inline and reply keyboard
+            inline_keyboard: [[
+                { 
+                    text: `🎯 OPEN GAME NOW`,
+                    url: gameUrl
                 }
-            );
-            break;
+            ]],
+            // Add reply keyboard too
+            keyboard: [[
+                { 
+                    text: `📱 Open Game: ${gameUrl.substring(0, 20)}...`
+                }
+            ]],
+            resize_keyboard: true,
+            one_time_keyboard: true
+        }
+    );
+    break;
             
         case 'deposit':
             await sendTelegramMessage(chatId,
@@ -837,5 +858,6 @@ app.listen(PORT, '0.0.0.0', () => {
     console.log(`📊 Health: ${RENDER_URL}/api/health`);
     console.log('='.repeat(50));
 });
+
 
 
