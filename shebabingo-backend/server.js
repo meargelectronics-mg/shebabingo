@@ -227,9 +227,9 @@ app.post('/telegram-webhook', async (req, res) => {
                         case '/deposit':
                             await sendTelegramMessage(chatId,
                                 `💰 *CHOOSE PAYMENT METHOD*\n\n` +
-                                `1️⃣ *TeleBirr*: 0912345678\n` +
-                                `2️⃣ *CBE*: 1000345678900\n` +
-                                `3️⃣ *BoA*: 2000123456789\n\n` +
+                                `1️⃣ *TeleBirr*: 0914834341\n` +
+                                `2️⃣ *CBE*: 1000*********\n` +
+                                `3️⃣ *BoA*: 65******\n\n` +
                                 `📸 *After payment, send screenshot here*\n` +
                                 `⏰ Approval: 2-5 minutes\n\n` +
                                 `💵 *Minimum:* 10 ETB`,
@@ -393,9 +393,9 @@ async function handleCallbackQuery(callback) {
             case 'deposit':
                 await sendTelegramMessage(chatId,
                     `💰 *CHOOSE PAYMENT METHOD*\n\n` +
-                    `1️⃣ *TeleBirr*: 0912345678\n` +
-                    `2️⃣ *CBE*: 1000345678900\n` +
-                    `3️⃣ *BoA*: 2000123456789\n\n` +
+                    `1️⃣ *TeleBirr*: 0914834341\n` +
+                    `2️⃣ *CBE*: 1000********0\n` +
+                    `3️⃣ *BoA*: 65******\n\n` +
                     `📸 *After payment, send screenshot here*\n` +
                     `⏰ Approval: 2-5 minutes\n\n` +
                     `💵 *Minimum:* 10 ETB`,
@@ -412,17 +412,17 @@ async function handleCallbackQuery(callback) {
             case 'telebirr':
                 await sendTelegramMessage(chatId,
                     `📱 *TeleBirr Payment*\n\n` +
-                    `Send to: *0912345678*\n` +
+                    `Send to: *0914834341*\n` +
                     `Account: SHEBA BINGO\n\n` +
                     `📸 Send screenshot after payment\n\n` +
-                    `✅ Balance will be added within 5 minutes`
+                    `✅ Balance will be added within 1 minutes`
                 );
                 break;
                 
             case 'cbe':
                 await sendTelegramMessage(chatId,
                     `🏦 *CBE Payment*\n\n` +
-                    `Account: *1000345678900*\n` +
+                    `Account: *1000********\n` +
                     `Name: SHEBA BINGO\n\n` +
                     `📸 Send screenshot after payment`
                 );
@@ -431,7 +431,7 @@ async function handleCallbackQuery(callback) {
             case 'boa':
                 await sendTelegramMessage(chatId,
                     `🏛️ *BoA Payment*\n\n` +
-                    `Account: *2000123456789*\n` +
+                    `Account: *65*******\n` +
                     `Name: SHEBA BINGO\n\n` +
                     `📸 Send screenshot after payment`
                 );
@@ -467,7 +467,7 @@ async function handleCallbackQuery(callback) {
                     `Send:\n` +
                     `/transfer [amount] [user_id]\n\n` +
                     `Example:\n` +
-                    `/transfer 100 123456789`
+                    `/transfer 100*******`
                 );
                 break;
                 
@@ -886,6 +886,7 @@ app.listen(PORT, '0.0.0.0', async () => {
     // Setup Telegram webhook
     await setupTelegramWebhook();
 });
+
 
 
 
