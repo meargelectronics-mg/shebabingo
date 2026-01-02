@@ -1565,6 +1565,22 @@ html,body{height:100%;width:100%;overflow:hidden;position:fixed;
             // Track current board view
             currentBoardIndex: 0
         };
+        // ==================== MULTIPLAYER GAME CYCLE ====================
+
+// Global multiplayer state
+let multiplayerGame = {
+    gameId: null,
+    status: 'waiting', // waiting, selecting, started, finished
+    players: [],
+    currentPlayerCount: 0,
+    requiredPlayers: 2,
+    prizePool: 0,
+    calledNumbers: [],
+    gameInterval: null,
+    currentCall: null,
+    playerBoards: [],
+    activeBoards: new Set()
+};
 
         // DOM Elements
         const elements = {
@@ -1613,7 +1629,9 @@ function initializeApp() {
     setupEventListeners();
     updateGameStats();
     initializeMultiplayer();
-
+     initializeTelegramMultiplayer();
+     setupTelegramForMultiplayer();
+     
     // Initialize support buttons
     supportManager.init();
     
@@ -1637,7 +1655,404 @@ function initializeApp() {
         console.log('🌐 Browser mode: Starting game immediately');
     }
 }
+// NEW FUNCTION: Join multiplayer game
+async function joinMultiplayerGame() {
+    // Check balance first
+    if (gameState.currentPlayer.balance < CONFIG.BET_AMOUNT) {
+        alert(`❌ Insufficient balance! You need ${CONFIG.BET_AMOUNT} ETB to play.`);
+        goToDeposit();
+        return false;
+    }
+    
+    try {
+        // Call API to join multiplayer game
+        const response = await fetch('/api/game/join', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ 
+                userId: userId,
+                gameType: 'classic' 
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            // Save game info
+            multiplayerGame.gameId = data.gameId;
+            multiplayerGame.playerBoards = data.boards || [];
+            multiplayerGame.status = data.gameStatus;
+            multiplayerGame.currentPlayerCount = data.players;
+            
+            // Update UI
+            elements.playersValue.textContent = data.players;
+            elements.prizeValue.textContent = data.prizePool || 0;
+            
+            console.log('✅ Joined multiplayer game:', data.gameId);
+            
+            // Start polling for game updates
+            startGamePolling();
+            
+            return true;
+        } else {
+            alert(data.error || 'Failed to join game');
+            return false;
+        }
+    } catch (error) {
+        console.error('Join game error:', error);
+        return false;
+    }
+}
 
+// NEW FUNCTION: Start game polling
+function startGamePolling() {
+    if (multiplayerGame.gameInterval) {
+        clearInterval(multiplayerGame.gameInterval);
+    }
+    
+    // Poll for game updates every 2 seconds
+    multiplayerGame.gameInterval = setInterval(() => {
+        updateMultiplayerGame();
+    }, 2000);
+    
+    // Also update display every 1 second for smooth UI
+    setInterval(() => {
+        if (multiplayerGame.gameId) {
+            updateMultiplayerDisplay();
+        }
+    }, 1000);
+}
+
+// NEW FUNCTION: Update multiplayer game state
+async function updateMultiplayerGame() {
+    if (!multiplayerGame.gameId) return;
+    
+    try {
+        const response = await fetch(`/api/game/${multiplayerGame.gameId}/state/${userId}`);
+        const data = await response.json();
+        
+        if (data.success) {
+            // Update game state from server
+            updateGameFromServer(data);
+            
+            // Update the display
+            updateMultiplayerDisplay();
+        }
+    } catch (error) {
+        console.error('Update game error:', error);
+    }
+}
+
+// ==================== REAL-TIME MULTIPLAYER UPDATES ====================
+
+function updateMultiplayerDisplay() {
+    if (!multiplayerGame.gameId) return;
+    
+    const t = TRANSLATIONS[gameState.currentLanguage];
+    
+    // ========== UPDATE DASHBOARD WITH CORRECT VALUES ==========
+    
+     // 1. Update players count
+    elements.playersValue.textContent = multiplayerGame.currentPlayerCount;
+    
+    // 2. Calculate and show prize pool
+    calculatePrizePool(); // ← This will update prize display
+    
+    // 3. Calculate and show total bet for reference
+    const totalBet = multiplayerGame.currentPlayerCount * CONFIG.BET_AMOUNT;
+    
+    // 4. Update called numbers count
+    elements.calledCount.textContent = multiplayerGame.calledNumbers.length;
+    
+    // 5. Update status with player info
+    let statusText = '';
+    let statusClass = '';
+    
+    switch(multiplayerGame.status) {
+        case 'waiting':
+            const needed = multiplayerGame.requiredPlayers - multiplayerGame.currentPlayerCount;
+            statusText = `${t.waiting} (${multiplayerGame.currentPlayerCount}/${multiplayerGame.requiredPlayers})`;
+            if (needed > 0) {
+                statusText += ` - Need ${needed} more`;
+            }
+            statusClass = 'game-waiting';
+            break;
+            
+        case 'active':
+            statusText = `🎮 ${t.started} - ${multiplayerGame.currentPlayerCount} ${t.players}`;
+            statusClass = 'game-started';
+            
+            // Show prize breakdown in console
+            console.log(`📊 Live Game: ${multiplayerGame.currentPlayerCount} players × ${CONFIG.BET_AMOUNT} ETB = ${totalBet} ETB total`);
+            console.log(`🏆 80% Prize Pool: ${multiplayerGame.prizePool} ETB`);
+            console.log(`🏦 20% Commission: ${totalBet - multiplayerGame.prizePool} ETB`);
+            break;
+            
+        case 'finished':
+            statusText = t.finished;
+            statusClass = 'game-finished';
+            break;
+            
+        default:
+            statusText = t.waiting;
+            statusClass = 'game-waiting';
+    }
+    
+    // Update game status display
+    elements.gameStatus.textContent = statusText;
+    elements.gameStatus.className = 'status-badge ' + statusClass;
+    
+    // If game is active, show live indicator
+    if (multiplayerGame.status === 'active') {
+        showLiveIndicator();
+    } else {
+        hideLiveIndicator();
+    }
+    
+    // Update called numbers list
+    updateCalledNumbersList();
+}
+
+// Show live game indicator
+function showLiveIndicator() {
+    let liveIndicator = document.getElementById('liveIndicator');
+    
+    if (!liveIndicator) {
+        liveIndicator = document.createElement('div');
+        liveIndicator.id = 'liveIndicator';
+        liveIndicator.style.cssText = `
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            background: #e74c3c;
+            color: white;
+            font-size: 0.6rem;
+            font-weight: bold;
+            padding: 2px 6px;
+            border-radius: 10px;
+            animation: pulse 1.5s infinite;
+        `;
+        elements.gameStatus.style.position = 'relative';
+        elements.gameStatus.appendChild(liveIndicator);
+    }
+    
+    const t = TRANSLATIONS[gameState.currentLanguage];
+    liveIndicator.textContent = t.live || 'LIVE';
+}
+
+function hideLiveIndicator() {
+    const liveIndicator = document.getElementById('liveIndicator');
+    if (liveIndicator) {
+        liveIndicator.remove();
+    }
+}
+
+// Add pulse animation to CSS
+const style = document.createElement('style');
+style.textContent = `
+    @keyframes pulse {
+        0% { opacity: 1; }
+        50% { opacity: 0.5; }
+        100% { opacity: 1; }
+    }
+`;
+document.head.appendChild(style);
+
+// REPLACE THE OLD FUNCTION WITH THIS:
+function updateGameFromServer(serverData) {
+    const game = serverData.game;
+    const player = serverData.player;
+    
+    // Update multiplayer state
+    multiplayerGame.status = game.status || 'waiting';
+    multiplayerGame.calledNumbers = game.calledNumbers || [];
+    multiplayerGame.currentCall = game.currentCall || null;
+    
+    // CORRECT PRIZE CALCULATION: 80% of total bets
+    // Server should send total prize pool (already calculated as 80%)
+    multiplayerGame.prizePool = game.prizePool || 0;
+    
+    multiplayerGame.currentPlayerCount = game.players || 0;
+    multiplayerGame.requiredPlayers = game.requiredPlayers || 2;
+    
+    // Show calculation details in console
+    if (game.players > 0 && game.prizePool > 0) {
+        const totalBet = game.players * CONFIG.BET_AMOUNT;
+        const calculatedPrize = Math.floor(totalBet * 0.8);
+        console.log(`🎰 Prize Calculation: ${game.players} players × ${CONFIG.BET_AMOUNT} ETB = ${totalBet} ETB total bet`);
+        console.log(`💰 80% Prize Pool = ${calculatedPrize} ETB (Server: ${game.prizePool} ETB)`);
+    }
+    
+    // Update current call display
+    if (multiplayerGame.currentCall) {
+        const call = multiplayerGame.currentCall;
+        elements.currentLetter.textContent = call.charAt(0);
+        elements.currentNumber.textContent = call.substring(1);
+    } else {
+        elements.currentLetter.textContent = '-';
+        elements.currentNumber.textContent = '-';
+    }
+    
+    // Update player boards if available
+    if (player && player.board) {
+        multiplayerGame.playerBoards = [{
+            boardNumber: player.boardId || '1',
+            boardData: convertBoardFormat(player.board),
+            markedNumbers: new Set(player.markedNumbers || []),
+            isWinner: player.hasBingo || false
+        }];
+    }
+    
+    // Update the display
+    updateMultiplayerDisplay();
+}
+
+// NEW FUNCTION: Update UI based on multiplayer state
+function updateGameUI() {
+    // Update status
+    updateGameStatus();
+    
+    // Update stats
+    elements.playersValue.textContent = multiplayerGame.currentPlayerCount;
+    elements.prizeValue.textContent = multiplayerGame.prizePool;
+    elements.calledCount.textContent = multiplayerGame.calledNumbers.length;
+    
+    // Update current call
+    if (multiplayerGame.currentCall) {
+        const call = multiplayerGame.currentCall;
+        elements.currentLetter.textContent = call.charAt(0);
+        elements.currentNumber.textContent = call.substring(1);
+    }
+    
+    // Update called numbers
+    updateCalledNumbersList();
+    
+    // Show/hide game sections based on status
+    if (multiplayerGame.status === 'waiting') {
+        showWaitForPlayers();
+    } else if (multiplayerGame.status === 'active') {
+        if (multiplayerGame.playerBoards.length > 0) {
+            displayCurrentPlayerBoards(0);
+        } else {
+            showSpectatorMode();
+        }
+    } else if (multiplayerGame.status === 'finished') {
+        showGameFinished();
+    }
+}
+
+// NEW FUNCTION: Show waiting for players screen
+function showWaitForPlayers() {
+    elements.gamePlaySection.style.display = 'block';
+    elements.boardsCarousel.innerHTML = '';
+    elements.currentBoard.innerHTML = '';
+    
+    const waitMessage = document.createElement('div');
+    waitMessage.className = 'wait-message';
+    waitMessage.innerHTML = `
+        <div style="text-align: center; padding: 20px;">
+            <h3 style="color: var(--sunset-orange); margin-bottom: 15px;">⏳ Waiting for Players</h3>
+            <div style="font-size: 2rem; margin: 20px 0;">${multiplayerGame.currentPlayerCount}/${multiplayerGame.requiredPlayers}</div>
+            <p>Game starts when ${multiplayerGame.requiredPlayers} players join</p>
+            <div style="margin-top: 20px; font-size: 0.9rem; color: #aaa;">
+                Prize Pool: ${multiplayerGame.prizePool} ETB
+            </div>
+        </div>
+    `;
+    
+    elements.currentBoard.appendChild(waitMessage);
+}
+
+// NEW FUNCTION: Convert server board format to your format
+function convertBoardFormat(serverBoard) {
+    // Server format: { B: [1,2,3,4,5], I: [16,17,18,19,20], ... }
+    // Your format: 2D array
+    
+    if (!serverBoard) return [];
+    
+    const board = [];
+    const columns = ['B', 'I', 'N', 'G', 'O'];
+    
+    for (let row = 0; row < 5; row++) {
+        const rowData = [];
+        columns.forEach(col => {
+            if (col === 'N' && row === 2) {
+                rowData.push('★'); // Free space
+            } else {
+                rowData.push(serverBoard[col][row]);
+            }
+        });
+        board.push(rowData);
+    }
+    
+    return board;
+}
+
+// NEW FUNCTION: Mark number (send to server)
+async function markNumberMultiplayer(number) {
+    if (!multiplayerGame.gameId) return;
+    
+    try {
+        const response = await fetch('/api/game/mark-number', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                gameId: multiplayerGame.gameId,
+                userId: userId,
+                number: number
+            })
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+            console.log(`✅ Marked number ${number} on server`);
+        }
+    } catch (error) {
+        console.error('Mark number error:', error);
+    }
+}
+
+// NEW FUNCTION: Claim BINGO in multiplayer
+async function claimBingoMultiplayer() {
+    if (!multiplayerGame.gameId) return;
+    
+    // Check locally first
+    const hasWinningPattern = checkLocalWinningPattern();
+    if (!hasWinningPattern) {
+        alert('You do not have a winning pattern!');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/game/claim-bingo', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                gameId: multiplayerGame.gameId,
+                userId: userId
+            })
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+            alert(`🎉 BINGO Claimed! Waiting for verification...`);
+        } else {
+            alert(data.error || 'Failed to claim BINGO');
+        }
+    } catch (error) {
+        console.error('Claim BINGO error:', error);
+    }
+}
+
+// NEW FUNCTION: Check local winning pattern
+function checkLocalWinningPattern() {
+    if (multiplayerGame.playerBoards.length === 0) return false;
+    
+    const board = multiplayerGame.playerBoards[0];
+    const patterns = getAllWinningPatterns(board);
+    
+    return patterns.length > 0;
+}
 // ==================== INTEGRATE WITH SERVER API ====================
 
 // Get user ID from URL
@@ -1747,16 +2162,30 @@ async function addWinningsToServer(amount) {
 // Find this function around line 1500 and REPLACE it with:
 
 function confirmSelection() {
-    if (gameState.selectedBoards.size === 0) {
-        alert(t('selectOneBoard'));
-        return;
-    }
-    
-    const totalCost = gameState.selectedBoards.size * CONFIG.BET_AMOUNT;
-    
-    // Check balance on SERVER
-    if (totalCost > gameState.currentPlayer.balance) {
-        alert(t('insufficientBalance'));
+    // Check balance FIRST
+    if (gameState.currentPlayer.balance < CONFIG.BET_AMOUNT) {
+        alert(`❌ Insufficient balance! You need ${CONFIG.BET_AMOUNT} ETB to play.`);
+        
+        // Show deposit option
+        const depositBtn = document.createElement('button');
+        depositBtn.textContent = '💰 Deposit Now';
+        depositBtn.style.cssText = `
+            background: linear-gradient(135deg, #2ecc71, #27ae60);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            margin-top: 10px;
+            cursor: pointer;
+        `;
+        depositBtn.onclick = goToDeposit;
+        
+        const message = document.querySelector('.wait-message');
+        if (message) {
+            message.appendChild(document.createElement('br'));
+            message.appendChild(depositBtn);
+        }
+        
         return;
     }
     
@@ -1832,6 +2261,64 @@ document.addEventListener('DOMContentLoaded', function() {
             // Show a notification that an update is available
             return;
         }
+
+        // COMPLETE TELEGRAM MULTIPLAYER INITIALIZATION
+function setupTelegramForMultiplayer() {
+    if (!window.Telegram || !Telegram.WebApp) return;
+    
+    const tg = Telegram.WebApp;
+    const userId = getUserId(); // Your function to get user ID
+    
+    // 1. Expand to full screen
+    tg.expand();
+    
+    // 2. Set theme colors
+    tg.setHeaderColor('#8b3de8');
+    tg.setBackgroundColor('#d7b9f7');
+    
+    // 3. Configure back button
+    tg.BackButton.onClick(() => {
+        if (multiplayerGame.status === 'active') {
+            if (confirm('Leave current game?')) {
+                leaveMultiplayerGame();
+                tg.close();
+            }
+        } else {
+            tg.close();
+        }
+    });
+    
+    // 4. Show/hide multiplayer button based on balance
+    function updateTelegramButton() {
+        if (gameState.currentPlayer.balance >= CONFIG.BET_AMOUNT) {
+            tg.MainButton.setText("🎮 JOIN MULTIPLAYER");
+            tg.MainButton.onClick(() => {
+                tg.MainButton.hide();
+                joinMultiplayerGame();
+            });
+            tg.MainButton.show();
+        } else {
+            tg.MainButton.hide();
+        }
+    }
+    
+    // 5. Update button when balance changes
+    setInterval(updateTelegramButton, 5000);
+    
+    // 6. Send game results back to bot
+    window.addEventListener('gameResult', (event) => {
+        if (event.detail && event.detail.won) {
+            tg.sendData(JSON.stringify({
+                action: 'won_bingo',
+                prize: event.detail.prize,
+                gameId: multiplayerGame.gameId
+            }));
+        }
+    });
+    
+    console.log('✅ Telegram configured for multiplayer');
+}
+
 // ==================== TELEGRAM INTEGRATION ====================
 
 // 1. Initialize Telegram Web App// Initialize Telegram Web App
@@ -2096,10 +2583,39 @@ function setLanguage(lang) {
     const bingoBtn = document.querySelector('.bingo-btn');
     if (bingoBtn) bingoBtn.textContent = t.claimBingo;
     
-    // Update Telegram Main Button if exists
-    if (window.Telegram && Telegram.WebApp) {
-        Telegram.WebApp.MainButton.setText(t.playBingo);
+    // Initialize Telegram for Multiplayer
+if (window.Telegram && Telegram.WebApp) {
+    const tg = Telegram.WebApp;
+    
+    // Show main button for multiplayer game
+    tg.MainButton.setText("🎮 JOIN MULTIPLAYER GAME");
+    tg.MainButton.onClick(() => {
+        tg.MainButton.hide();
+        
+        // Check balance before joining
+        if (gameState.currentPlayer.balance < CONFIG.BET_AMOUNT) {
+            alert(`❌ Insufficient balance!\nYou need ${CONFIG.BET_AMOUNT} ETB to play.\n\nUse /deposit in the bot to add funds.`);
+            tg.MainButton.show();
+            return;
+        }
+        
+        // Join multiplayer game
+        joinMultiplayerGame().then(success => {
+            if (!success) {
+                // Show button again if join failed
+                tg.MainButton.show();
+            }
+        });
+    });
+    
+    // Only show if player has enough balance
+    if (gameState.currentPlayer.balance >= CONFIG.BET_AMOUNT) {
+        tg.MainButton.show();
+    } else {
+        tg.MainButton.hide();
+        console.log('⚠️ Balance too low, Telegram button hidden');
     }
+}
     
     console.log(`🌍 Language changed to: ${lang}`);
 }
@@ -2109,33 +2625,33 @@ function setLanguage(lang) {
         }
 
         // Game Cycle Management
-        function startGameCycle() {
-    // CHECK BALANCE BEFORE STARTING - ADD THIS
-    if (gameState.currentPlayer.balance < CONFIG.BET_AMOUNT) {
-        alert(`Insufficient balance! You need at least ${CONFIG.BET_AMOUNT} ETB to play.`);
-        
-        // Redirect to Telegram bot for deposit
-        if (window.Telegram && Telegram.WebApp) {
-            Telegram.WebApp.sendData(JSON.stringify({
-                action: 'need_deposit',
-                amount: CONFIG.BET_AMOUNT
-            }));
-        } else if (userId !== 'demo') {
-            window.location.href = `https://t.me/your_bot_username?start=${userId}`;
+       // REPLACE THE OLD startGameCycle() FUNCTION:
+
+function startGameCycle() {
+    // Reset multiplayer state
+    multiplayerGame = {
+        gameId: null,
+        status: 'waiting',
+        players: [],
+        currentPlayerCount: 0,
+        requiredPlayers: 2,
+        prizePool: 0,
+        calledNumbers: [],
+        gameInterval: null,
+        currentCall: null,
+        playerBoards: [],
+        activeBoards: new Set()
+    };
+    
+    // Join multiplayer game
+    joinMultiplayerGame().then(success => {
+        if (!success) {
+            // If failed to join, show wait message
+            showWaitForNextGameMessage();
         }
-        
-        // Show wait message
-        showWaitForNextGameMessage();
-        return;
-    }
-    
-    gameState.gamePhase = 'waiting';
-    updateGameStatus();
-    
-    setTimeout(() => {
-        startBoardSelection();
-    }, 2000);
+    });
 }
+
         function startBoardSelection() {
             gameState.gamePhase = 'selecting';
             updateGameStatus();
@@ -3149,7 +3665,46 @@ function checkForFraud(board) {
                 gameState.allPlayers.push(player);
             });
         }
-
+// NEW: Initialize REAL multiplayer with Telegram
+function initializeTelegramMultiplayer() {
+    if (!window.Telegram || !Telegram.WebApp) {
+        console.log('⚠️ Not in Telegram - using bot multiplayer fallback');
+        initializeMultiplayer(); // Use your existing bot system
+        return;
+    }
+    
+    const tg = Telegram.WebApp;
+    const userId = getUserId(); // Your user ID function
+    
+    // Check if user has enough balance
+    if (gameState.currentPlayer.balance < CONFIG.BET_AMOUNT) {
+        console.log('❌ Balance too low for multiplayer');
+        
+        // Show deposit button instead
+        tg.MainButton.setText("💰 DEPOSIT TO PLAY");
+        tg.MainButton.onClick(() => {
+            // Send to bot for deposit
+            tg.sendData(JSON.stringify({ action: 'deposit', userId: userId }));
+        });
+        tg.MainButton.show();
+        return;
+    }
+    
+    // User has enough balance - show JOIN button
+    tg.MainButton.setText("🎮 JOIN MULTIPLAYER");
+    tg.MainButton.onClick(() => {
+        tg.MainButton.hide();
+        joinMultiplayerGame().then(success => {
+            if (!success) {
+                // Show button again if failed
+                tg.MainButton.show();
+            }
+        });
+    });
+    tg.MainButton.show();
+    
+    console.log('✅ Telegram multiplayer initialized');
+}
         // Update game status display
         function updateGameStatus() {
     const statusTexts = {
@@ -3166,49 +3721,109 @@ function checkForFraud(board) {
 }
 
         // Update all game statistics with proper balance display
-        function updateGameStats() {
-            // Update balance display immediately
-            elements.balanceValue.textContent = gameState.currentPlayer.balance;
-            elements.prizeValue.textContent = gameState.totalPrizePool;
-            
-            let totalBoards = 0;
-            gameState.activePlayers.forEach(player => {
-                totalBoards += player.boards.length;
-            });
-            elements.playersValue.textContent = totalBoards;
-            
-            elements.calledCount.textContent = gameState.calledNumbers.length;
-            
-            console.log(`📊 Stats Update: Balance: $${gameState.currentPlayer.balance}, Total Boards: ${totalBoards}, Prize: ${gameState.totalPrizePool}`);
-        }
+      function updateGameStats() {
+    // Update balance display
+    elements.balanceValue.textContent = gameState.currentPlayer.balance;
+    
+    // ========== MULTIPLAYER vs SOLO DISPLAY ==========
+    if (multiplayerGame.gameId && multiplayerGame.status !== 'waiting') {
+        // MULTIPLAYER: Show real player count and server prize
+        elements.playersValue.textContent = multiplayerGame.currentPlayerCount || 0;
+        elements.prizeValue.textContent = multiplayerGame.prizePool || gameState.totalPrizePool || 0;
+        
+        // Update called count from multiplayer
+        elements.calledCount.textContent = multiplayerGame.calledNumbers.length || gameState.calledNumbers.length;
+        
+    } else {
+        // SOLO MODE: Show bot counts
+        let totalBoards = 0;
+        gameState.activePlayers.forEach(player => {
+            totalBoards += player.boards.length;
+        });
+        elements.playersValue.textContent = totalBoards;
+        elements.prizeValue.textContent = gameState.totalPrizePool;
+        elements.calledCount.textContent = gameState.calledNumbers.length;
+    }
+    
+    console.log(`📊 Dashboard Updated: Players=${elements.playersValue.textContent}, Prize=${elements.prizeValue.textContent}`);
+}
 
-        function calculatePrizePool() {
-            let totalBoards = 0;
-            gameState.activePlayers.forEach(player => {
-                totalBoards += player.boards.length;
-            });
-            
-            const totalBet = totalBoards * CONFIG.BET_AMOUNT;
-            gameState.ownerCommission = Math.floor(totalBet * gameState.commissionRate);
-            gameState.totalPrizePool = totalBet - gameState.ownerCommission;
-            gameState.totalCommissionEarned += gameState.ownerCommission;
-            
-            console.log(`🎯 PRIZE CALCULATION:`);
-            console.log(`📊 Total Boards: ${totalBoards}`);
-            console.log(`💰 Bet per Board: ${CONFIG.BET_AMOUNT}`);
-            console.log(`💵 Total Bet: ${totalBoards} × ${CONFIG.BET_AMOUNT} = ${totalBet}`);
-            console.log(`🏦 Owner Commission (20%): ${gameState.ownerCommission}`);
-            console.log(`🏆 Prize Pool (80%): ${gameState.totalPrizePool}`);
-            
-            updateGameStats();
-        }
+       function calculatePrizePool() {
+    let totalBoards = 0;
+    let totalPlayers = 0;
+    
+    // ========== CHECK IF IN MULTIPLAYER MODE ==========
+    if (multiplayerGame.gameId && multiplayerGame.status !== 'waiting') {
+        // MULTIPLAYER MODE: Use real player count from server
+        totalPlayers = multiplayerGame.currentPlayerCount || 0;
+        
+        // Each player has 1 board in multiplayer (for now)
+        totalBoards = totalPlayers;
+        
+        // Prize pool comes from server (already calculated as 80%)
+        const totalBet = totalPlayers * CONFIG.BET_AMOUNT;
+        const serverPrizePool = multiplayerGame.prizePool || 0;
+        const calculatedPrize = Math.floor(totalBet * 0.8);
+        
+        // Use server's prize pool if available, otherwise calculate
+        gameState.totalPrizePool = serverPrizePool > 0 ? serverPrizePool : calculatedPrize;
+        gameState.ownerCommission = totalBet - gameState.totalPrizePool;
+        
+        console.log(`🎯 MULTIPLAYER PRIZE CALCULATION:`);
+        console.log(`👥 Real Players: ${totalPlayers}`);
+        console.log(`📊 Total Boards: ${totalPlayers} (1 per player)`);
+        console.log(`💰 Bet per Board: ${CONFIG.BET_AMOUNT} ETB`);
+        console.log(`💵 Total Bet: ${totalPlayers} × ${CONFIG.BET_AMOUNT} = ${totalBet} ETB`);
+        console.log(`🏆 Prize Pool (80%): ${gameState.totalPrizePool} ETB`);
+        console.log(`🏦 Commission (20%): ${gameState.ownerCommission} ETB`);
+        
+    } else {
+        // SOLO MODE: Use bot players (your original code)
+        gameState.activePlayers.forEach(player => {
+            totalBoards += player.boards.length;
+        });
+        
+        const totalBet = totalBoards * CONFIG.BET_AMOUNT;
+        gameState.ownerCommission = Math.floor(totalBet * gameState.commissionRate);
+        gameState.totalPrizePool = totalBet - gameState.ownerCommission;
+        gameState.totalCommissionEarned += gameState.ownerCommission;
+        
+        console.log(`🎯 SOLO MODE PRIZE CALCULATION:`);
+        console.log(`📊 Total Boards: ${totalBoards}`);
+        console.log(`💰 Bet per Board: ${CONFIG.BET_AMOUNT}`);
+        console.log(`💵 Total Bet: ${totalBoards} × ${CONFIG.BET_AMOUNT} = ${totalBet}`);
+        console.log(`🏦 Owner Commission (20%): ${gameState.ownerCommission}`);
+        console.log(`🏆 Prize Pool (80%): ${gameState.totalPrizePool}`);
+    }
+    
+    // Update the dashboard display
+    updateGameStats();
+}
 
         // Registration Popup Functions
-        function openRegistrationPopup() {
-            elements.registrationPopup.style.display = 'flex';
-            generateBoardOptions();
-            updateSelectionInfo();
+        // REPLACE THE BOARD SELECTION FUNCTIONS:
+
+function openRegistrationPopup() {
+    // Instead of showing board selection immediately, check if game is ready
+    
+    // Check if player has enough balance FIRST
+    if (gameState.currentPlayer.balance < CONFIG.BET_AMOUNT) {
+        alert(`❌ Insufficient balance! Minimum ${CONFIG.BET_AMOUNT} ETB needed.`);
+        goToDeposit();
+        return;
+    }
+    
+    // Join multiplayer game
+    joinMultiplayerGame().then(success => {
+        if (success) {
+            // Hide the popup since we're joining multiplayer
+            closeRegistrationPopup();
+        } else {
+            // Show wait message
+            showWaitForNextGameMessage();
         }
+    });
+}
 
         function closeRegistrationPopup() {
             elements.registrationPopup.style.display = 'none';
@@ -3768,8 +4383,11 @@ function updateCalledNumbersList() {
     const container = elements.calledNumbersList;
     container.innerHTML = '';
     
-    // Get ONLY last 5 called numbers
-    const recentCalls = gameState.calledNumbers.slice(-5);
+    // Use multiplayer called numbers if available, otherwise solo numbers
+const calledNumbers = multiplayerGame.gameId ? 
+    multiplayerGame.calledNumbers || [] : 
+    gameState.calledNumbers;
+const recentCalls = calledNumbers.slice(-5);
     
     if (recentCalls.length === 0) {
         container.innerHTML = '<div style="color:#aaa;font-size:0.55rem;text-align:center;padding:4px;">- - -</div>';
@@ -3880,15 +4498,25 @@ function updateCalledNumbersList() {
         let isMarkedOnAny = false;
         let isUnmarkedOnAny = false;
         
-        if (gameState.currentPlayer.isActive) {
-            gameState.currentPlayer.boards.forEach(board => {
-                if (!board.isEliminated && board.markedNumbers.has(number)) {
-                    isMarkedOnAny = true;
-                } else if (!board.isEliminated) {
-                    isUnmarkedOnAny = true;
-                }
-            });
+       if (multiplayerGame.gameId && multiplayerGame.playerBoards.length > 0) {
+    // Multiplayer: Check player's boards from server
+    multiplayerGame.playerBoards.forEach(board => {
+        if (board.markedNumbers.has(number)) {
+            isMarkedOnAny = true;
+        } else {
+            isUnmarkedOnAny = true;
         }
+    });
+} else if (gameState.currentPlayer.isActive) {
+    // Solo game: Check current player's boards
+    gameState.currentPlayer.boards.forEach(board => {
+        if (!board.isEliminated && board.markedNumbers.has(number)) {
+            isMarkedOnAny = true;
+        } else if (!board.isEliminated) {
+            isUnmarkedOnAny = true;
+        }
+    });
+}
         
         // Add marking indicator (very small)
         if (isMarkedOnAny && !isUnmarkedOnAny) {
@@ -3908,18 +4536,32 @@ function updateCalledNumbersList() {
             callElement.appendChild(indicator);
         }
         
-        // Add click handler
-        callElement.addEventListener('click', function() {
-            markNumberOnPlayerBoards(number, this);
-            
-            // Quick feedback
-            this.style.opacity = '0.7';
-            this.style.transform = 'scale(0.95)';
-            setTimeout(() => {
-                this.style.opacity = '1';
-                this.style.transform = isMostRecent ? 'scale(1.05)' : 'scale(1)';
-            }, 150);
-        });
+        // Add click handler for multiplayer or solo
+if (multiplayerGame.gameId) {
+    callElement.addEventListener('click', function() {
+        markNumberMultiplayer(number, this);
+        
+        // Quick feedback
+        this.style.opacity = '0.7';
+        this.style.transform = 'scale(0.95)';
+        setTimeout(() => {
+            this.style.opacity = '1';
+            this.style.transform = isMostRecent ? 'scale(1.05)' : 'scale(1)';
+        }, 150);
+    });
+} else {
+    callElement.addEventListener('click', function() {
+        markNumberOnPlayerBoards(number, this);
+        
+        // Quick feedback
+        this.style.opacity = '0.7';
+        this.style.transform = 'scale(0.95)';
+        setTimeout(() => {
+            this.style.opacity = '1';
+            this.style.transform = isMostRecent ? 'scale(1.05)' : 'scale(1)';
+        }, 150);
+    });
+}
         
         // Add hover effect (desktop only)
         if (!isMobile) {
@@ -4522,5 +5164,4 @@ function markNumberOnPlayerBoards(number, callElement) {
     </script>
 </body>
 </html>
-
 
