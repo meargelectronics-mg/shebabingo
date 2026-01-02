@@ -556,16 +556,38 @@ async function handleCallbackQuery(callback) {
 }
 
 // Get main menu keyboard
-function getMainMenuKeyboard() {
+// Get main menu keyboard - FIXED VERSION
+function getMainMenuKeyboard(userId) {  // ✅ Add userId as parameter
     return {
         inline_keyboard: [
-            [{ text: "🎮 PLAY", text: "🎮 PLAY", 
-                    web_app: { url: `${RENDER_URL}/?user=${userId}` }  // ✅ web_app }],
-            [{ text: "💰 DEPOSIT", callback_data: "deposit" }, { text: "💰 WITHDRAW", callback_data: "withdraw" }],
-            [{ text: "📤 TRANSFER", callback_data: "transfer" }, { text: "💰 BALANCE", callback_data: "balance" }],
-            [{ text: "📖 INSTRUCTIONS", callback_data: "instructions" }, { text: "📞 SUPPORT", callback_data: "support" }],
-            [{ text: "👥 INVITE", callback_data: "invite" }, { text: "👑 AGENT", callback_data: "agent" }],
-            [{ text: "🤝 SUB-AGENT", callback_data: "subagent" }, { text: "💰 SALE", callback_data: "sale" }]
+            [
+                { 
+                    text: "🎮 PLAY",  // ✅ Only ONE text property
+                    web_app: { 
+                        url: `${RENDER_URL}/?user=${userId}`  // ✅ Now userId is available
+                    }
+                }
+            ],
+            [
+                { text: "💰 DEPOSIT", callback_data: "deposit" }, 
+                { text: "💰 WITHDRAW", callback_data: "withdraw" }
+            ],
+            [
+                { text: "📤 TRANSFER", callback_data: "transfer" }, 
+                { text: "💰 BALANCE", callback_data: "balance" }
+            ],
+            [
+                { text: "📖 INSTRUCTIONS", callback_data: "instructions" }, 
+                { text: "📞 SUPPORT", callback_data: "support" }
+            ],
+            [
+                { text: "👥 INVITE", callback_data: "invite" }, 
+                { text: "👑 AGENT", callback_data: "agent" }
+            ],
+            [
+                { text: "🤝 SUB-AGENT", callback_data: "subagent" }, 
+                { text: "💰 SALE", callback_data: "sale" }
+            ]
         ]
     };
 }
@@ -886,6 +908,7 @@ app.listen(PORT, '0.0.0.0', async () => {
     // Setup Telegram webhook
     await setupTelegramWebhook();
 });
+
 
 
 
