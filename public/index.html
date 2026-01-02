@@ -1835,41 +1835,131 @@ document.addEventListener('DOMContentLoaded', function() {
 // ==================== TELEGRAM INTEGRATION ====================
 
 // 1. Initialize Telegram Web App// Initialize Telegram Web App
+// 1. Initialize Telegram Web App
 function initializeTelegram() {
-    // Check if running in Telegram
-    if (window.Telegram && Telegram.WebApp) {
+    // First, check if Telegram Web App SDK is available
+    if (typeof window.Telegram !== 'undefined' && Telegram.WebApp) {
         const tg = Telegram.WebApp;
         
-        // Expand to full screen
-        tg.expand();
+        // CRITICAL: Get user ID from Telegram OR URL parameter
+        const urlParams = new URLSearchParams(window.location.search);
+        const urlUserId = urlParams.get('user');
+        
+        // Get user data from Telegram
+        const telegramUser = tg.initDataUnsafe?.user;
+        
+        // Determine the actual user ID (priority: Telegram > URL param > random)
+        let actualUserId;
+        let userName;
+        let telegramName;
+        
+        if (telegramUser?.id) {
+            // User opened from Telegram button (INSIDE Telegram)
+            actualUserId = telegramUser.id;
+            userName = telegramUser.first_name || 'Player';
+            telegramName = telegramUser.username ? '@' + telegramUser.username : 'Telegram User';
+            console.log('✅ User opened from INSIDE Telegram');
+        } else if (urlUserId) {
+            // User opened from direct link (OUTSIDE Telegram but has user ID)
+            actualUserId = urlUserId;
+            userName = 'Player';
+            telegramName = 'Web Player';
+            console.log('ℹ️ User opened from direct link, ID:', urlUserId);
+        } else {
+            // No user ID found (testing mode)
+            actualUserId = Math.floor(Math.random() * 10000) + 1;
+            userName = 'Test Player';
+            telegramName = 'Browser Mode';
+            console.log('⚠️ No user ID found - using test mode');
+        }
+        
+        // Save user ID to localStorage for API calls
+        localStorage.setItem('sheba_user_id', actualUserId);
+        console.log('📱 User ID saved:', actualUserId);
+        
+        // Configure Telegram Web App
+        tg.expand(); // Expand to full screen
+        tg.enableClosingConfirmation(); // Ask before closing
         
         // Set theme colors to match your game
         tg.setHeaderColor('#8b3de8');
         tg.setBackgroundColor('#d7b9f7');
         
-        // Get user data from Telegram
-        const user = tg.initDataUnsafe?.user;
-        if (user) {
-            console.log('Telegram User:', user);
-            
-            // Update player info with Telegram data
-            gameState.currentPlayer.name = user.first_name || 'Player';
-            gameState.currentPlayer.telegramName = user.username ? 
-                '@' + user.username : 'Telegram User';
-            gameState.currentPlayer.id = user.id;
-            gameState.currentPlayer.balance = 0;
-        }
+        // Set back button behavior
+        tg.BackButton.onClick(() => {
+            tg.close(); // Close the app when back button pressed
+        });
         
-        console.log('✅ Telegram Web App initialized');
+        // Show back button if in Telegram Web App
+        tg.BackButton.show();
+        
+        // Update player info
+        gameState.currentPlayer.name = userName;
+        gameState.currentPlayer.telegramName = telegramName;
+        gameState.currentPlayer.id = actualUserId;
+        gameState.currentPlayer.balance = 0; // Will be loaded from API
+        
+        console.log('✅ Telegram Web App initialized for user:', userName);
+        
+        // Load user balance from your API
+        loadUserBalance(actualUserId);
+        
         return true;
     } else {
         console.log('ℹ️ Running outside Telegram (browser mode)');
-        // Set default player info for browser
+        
+        // Get user ID from URL parameter even in browser mode
+        const urlParams = new URLSearchParams(window.location.search);
+        const urlUserId = urlParams.get('user');
+        
+        if (urlUserId) {
+            // User opened from direct link in browser
+            localStorage.setItem('sheba_user_id', urlUserId);
+            gameState.currentPlayer.id = urlUserId;
+            console.log('🌐 Browser mode with user ID:', urlUserId);
+        } else {
+            // Pure browser testing (no user ID)
+            gameState.currentPlayer.id = Math.floor(Math.random() * 10000) + 1;
+            console.log('🌐 Pure browser test mode');
+        }
+        
         gameState.currentPlayer.name = 'Player';
         gameState.currentPlayer.telegramName = 'Browser Player';
-        gameState.currentPlayer.id = Math.floor(Math.random() * 10000) + 1;
-        gameState.currentPlayer.balance = 1000;
+        gameState.currentPlayer.balance = 1000; // Default test balance
+        
         return false;
+    }
+}
+
+// 2. Add this NEW function to load user balance
+async function loadUserBalance(userId) {
+    try {
+        const API_BASE = window.location.origin || 'http://localhost:3000';
+        const response = await fetch(`${API_BASE}/api/user/${userId}/balance`);
+        const data = await response.json();
+        
+        if (data.success) {
+            gameState.currentPlayer.balance = data.balance;
+            console.log('💰 Balance loaded:', data.balance);
+            
+            // Update balance display in your game
+            updateBalanceDisplay(data.balance);
+        } else {
+            console.warn('Failed to load balance, using default');
+            gameState.currentPlayer.balance = 0;
+        }
+    } catch (error) {
+        console.error('Error loading balance:', error);
+        gameState.currentPlayer.balance = 0;
+    }
+}
+
+// 3. Add this function to update balance display (you need to create this)
+function updateBalanceDisplay(balance) {
+    // Update wherever you show balance in your game UI
+    const balanceElement = document.getElementById('playerBalance');
+    if (balanceElement) {
+        balanceElement.textContent = `${balance} ETB`;
     }
 }
 
@@ -4424,3 +4514,4 @@ function markNumberOnPlayerBoards(number, callElement) {
     </script>
 </body>
 </html>
+
