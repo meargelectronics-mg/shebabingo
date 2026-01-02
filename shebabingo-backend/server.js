@@ -21,10 +21,12 @@ console.log('='.repeat(60));
 const USERS_FILE = path.join(__dirname, 'users.json');
 const DEPOSITS_FILE = path.join(__dirname, 'deposits.json');
 const GAMES_FILE = path.join(__dirname, 'games.json');
+const ACTIVE_GAMES_FILE = path.join(__dirname, 'active_games.json'); // NEW: For multiplayer games
 
 let users = {};
 let deposits = [];
 let games = [];
+let activeGames = {}; // NEW: Multiplayer games storage
 
 // Load database
 if (fs.existsSync(USERS_FILE)) {
@@ -54,6 +56,16 @@ if (fs.existsSync(GAMES_FILE)) {
     }
 }
 
+// NEW: Load active multiplayer games
+if (fs.existsSync(ACTIVE_GAMES_FILE)) {
+    try {
+        activeGames = JSON.parse(fs.readFileSync(ACTIVE_GAMES_FILE, 'utf8'));
+        console.log(`✅ Loaded ${Object.keys(activeGames).length} active multiplayer games`);
+    } catch (error) {
+        console.error('Error loading active games:', error.message);
+    }
+}
+
 // Save functions
 function saveUsers() {
     try {
@@ -76,6 +88,333 @@ function saveGames() {
         fs.writeFileSync(GAMES_FILE, JSON.stringify(games, null, 2));
     } catch (error) {
         console.error('Error saving games:', error.message);
+    }
+}
+
+// NEW: Save active multiplayer games
+function saveActiveGames() {
+    try {
+        fs.writeFileSync(ACTIVE_GAMES_FILE, JSON.stringify(activeGames, null, 2));
+    } catch (error) {
+        console.error('Error saving active games:', error.message);
+    }
+}
+
+// ==================== MULTIPLAYER GAME SYSTEM ====================
+// Game configuration
+const GAME_CONFIG = {
+    MIN_PLAYERS: 2,
+    MAX_PLAYERS: 10,
+    BOARD_PRICE: 10,
+    PRIZE_POOL_PERCENT: 80, // 80% of bets go to prize pool
+    GAME_DURATION: 120000, // 2 minutes per game
+    CALL_INTERVAL: 3000, // Call number every 3 seconds
+};
+
+// Generate Bingo board
+function generateBingoBoard() {
+    const board = { B: [], I: [], N: [], G: [], O: [] };
+    
+    // B: 1-15, I: 16-30, N: 31-45, G: 46-60, O: 61-75
+    for (let i = 0; i < 5; i++) {
+        board.B.push(getUniqueNumber(board.B, 1, 15));
+        board.I.push(getUniqueNumber(board.I, 16, 30));
+        board.N.push(getUniqueNumber(board.N, 31, 45));
+        board.G.push(getUniqueNumber(board.G, 46, 60));
+        board.O.push(getUniqueNumber(board.O, 61, 75));
+    }
+    
+    // Free space in center (N column, 3rd row)
+    board.N[2] = 'FREE';
+    
+    return board;
+}
+
+function getUniqueNumber(existing, min, max) {
+    let num;
+    do {
+        num = Math.floor(Math.random() * (max - min + 1)) + min;
+    } while (existing.includes(num));
+    return num;
+}
+
+function checkBoardForBingo(board, markedNumbers, calledNumbers) {
+    // Convert called numbers to just numbers (remove B, I, N, G, O)
+    const calledNums = calledNumbers.map(cn => {
+        const num = cn.substring(1);
+        return num === 'FREE' ? 'FREE' : parseInt(num);
+    });
+    
+    // Check rows
+    for (let i = 0; i < 5; i++) {
+        let rowComplete = true;
+        for (const col of ['B', 'I', 'N', 'G', 'O']) {
+            const cell = board[col][i];
+            if (cell === 'FREE') continue;
+            if (!calledNums.includes(cell)) {
+                rowComplete = false;
+                break;
+            }
+        }
+        if (rowComplete) return true;
+    }
+    
+    // Check columns
+    for (const col of ['B', 'I', 'N', 'G', 'O']) {
+        let colComplete = true;
+        for (let i = 0; i < 5; i++) {
+            const cell = board[col][i];
+            if (cell === 'FREE') continue;
+            if (!calledNums.includes(cell)) {
+                colComplete = false;
+                break;
+            }
+        }
+        if (colComplete) return true;
+    }
+    
+    // Check diagonals
+    let diag1Complete = true;
+    let diag2Complete = true;
+    for (let i = 0; i < 5; i++) {
+        const cols = ['B', 'I', 'N', 'G', 'O'];
+        // Top-left to bottom-right
+        const cell1 = board[cols[i]][i];
+        if (cell1 !== 'FREE' && !calledNums.includes(cell1)) {
+            diag1Complete = false;
+        }
+        // Top-right to bottom-left
+        const cell2 = board[cols[4-i]][i];
+        if (cell2 !== 'FREE' && !calledNums.includes(cell2)) {
+            diag2Complete = false;
+        }
+    }
+    
+    return diag1Complete || diag2Complete;
+}
+
+// ==================== GAME MANAGEMENT FUNCTIONS ====================
+function findAvailableGame() {
+    for (const gameId in activeGames) {
+        const game = activeGames[gameId];
+        if (game.status === 'waiting' && 
+            Object.keys(game.players).length < GAME_CONFIG.MAX_PLAYERS) {
+            return gameId;
+        }
+    }
+    return null;
+}
+
+function createNewGame() {
+    const gameId = 'GAME_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
+    
+    activeGames[gameId] = {
+        id: gameId,
+        status: 'waiting',
+        players: {},
+        calledNumbers: [],
+        prizePool: 0,
+        startTime: null,
+        endTime: null,
+        currentCall: null,
+        createdAt: new Date().toISOString(),
+        gameType: 'normal',
+        lastCallTime: null,
+        winner: null
+    };
+    
+    // Auto-delete game if not started in 5 minutes
+    setTimeout(() => {
+        if (activeGames[gameId] && activeGames[gameId].status === 'waiting') {
+            console.log(`🗑️ Deleting stale game ${gameId}`);
+            delete activeGames[gameId];
+            saveActiveGames();
+        }
+    }, 5 * 60 * 1000);
+    
+    saveActiveGames();
+    return gameId;
+}
+
+async function startGame(gameId) {
+    const game = activeGames[gameId];
+    if (!game || game.status !== 'waiting') return;
+    
+    game.status = 'active';
+    game.startTime = new Date().toISOString();
+    game.endTime = new Date(Date.now() + GAME_CONFIG.GAME_DURATION).toISOString();
+    
+    // Notify all players
+    await notifyGamePlayers(gameId, 
+        `🎮 *GAME STARTED!*\n\n` +
+        `Players: ${Object.keys(game.players).length}\n` +
+        `Prize Pool: ${game.prizePool.toFixed(1)} ETB\n` +
+        `Game ends in 2 minutes!\n\n` +
+        `Good luck everyone! 🍀`
+    );
+    
+    // Start calling numbers
+    callNextNumber(gameId);
+    
+    // Game timer
+    setTimeout(() => {
+        endGame(gameId);
+    }, GAME_CONFIG.GAME_DURATION);
+    
+    saveActiveGames();
+}
+
+async function callNextNumber(gameId) {
+    const game = activeGames[gameId];
+    if (!game || game.status !== 'active') return;
+    
+    // Check if game time is up
+    if (new Date() > new Date(game.endTime)) {
+        endGame(gameId);
+        return;
+    }
+    
+    // Generate new number
+    let newNumber;
+    do {
+        const letterIndex = Math.floor(Math.random() * 5);
+        const letters = ['B', 'I', 'N', 'G', 'O'];
+        const letter = letters[letterIndex];
+        
+        let min, max;
+        switch(letter) {
+            case 'B': min = 1; max = 15; break;
+            case 'I': min = 16; max = 30; break;
+            case 'N': min = 31; max = 45; break;
+            case 'G': min = 46; max = 60; break;
+            case 'O': min = 61; max = 75; break;
+        }
+        
+        newNumber = letter + (Math.floor(Math.random() * (max - min + 1)) + min);
+    } while (game.calledNumbers.includes(newNumber));
+    
+    game.calledNumbers.push(newNumber);
+    game.currentCall = newNumber;
+    game.lastCallTime = new Date().toISOString();
+    
+    // Check for bingos
+    await checkForBingos(gameId);
+    
+    // Notify all players
+    await notifyGamePlayers(gameId, `🔔 *New Call:* ${newNumber}`);
+    
+    // Schedule next call
+    if (game.status === 'active' && game.calledNumbers.length < 75) {
+        setTimeout(() => callNextNumber(gameId), GAME_CONFIG.CALL_INTERVAL);
+    }
+    
+    saveActiveGames();
+}
+
+async function checkForBingos(gameId) {
+    const game = activeGames[gameId];
+    if (!game) return;
+    
+    for (const userId in game.players) {
+        const player = game.players[userId];
+        if (player.hasBingo) continue;
+        
+        if (checkBoardForBingo(player.board, player.markedNumbers || [], game.calledNumbers)) {
+            player.hasBingo = true;
+            await declareWinner(gameId, userId);
+        }
+    }
+}
+
+async function declareWinner(gameId, winnerId) {
+    const game = activeGames[gameId];
+    const winner = game.players[winnerId];
+    const user = users[winnerId];
+    
+    if (!game || !winner || !user) return;
+    
+    // Award prize
+    const prize = game.prizePool;
+    user.balance += prize;
+    user.totalWon = (user.totalWon || 0) + prize;
+    
+    // Update game status
+    game.status = 'completed';
+    game.winner = {
+        userId: winnerId,
+        username: winner.username,
+        prize: prize,
+        winningNumbers: game.calledNumbers.length,
+        winningTime: new Date().toISOString()
+    };
+    
+    saveUsers();
+    saveActiveGames();
+    
+    // Announce winner to all players
+    await notifyGamePlayers(gameId,
+        `🎉 *BINGO! WE HAVE A WINNER!*\n\n` +
+        `🏆 Winner: ${winner.username}\n` +
+        `💰 Prize: ${prize.toFixed(1)} ETB\n` +
+        `🔢 Winning Numbers: ${game.calledNumbers.length} called\n\n` +
+        `🎮 Game Over! Join a new game!`
+    );
+    
+    // Personal message to winner
+    await sendTelegramMessage(user.chatId,
+        `🎊 *CONGRATULATIONS! YOU WON!*\n\n` +
+        `🏆 You got BINGO!\n` +
+        `💰 Prize: ${prize.toFixed(1)} ETB added to your balance!\n` +
+        `📊 New Balance: ${user.balance.toFixed(1)} ETB\n\n` +
+        `🎮 Play again to win more!`
+    );
+}
+
+async function endGame(gameId) {
+    const game = activeGames[gameId];
+    if (!game || game.status !== 'active') return;
+    
+    game.status = 'completed';
+    game.endTime = new Date().toISOString();
+    
+    // If no winner, refund players
+    if (!game.winner) {
+        const refundPerPlayer = game.prizePool / Object.keys(game.players).length;
+        for (const userId in game.players) {
+            const user = users[userId];
+            if (user) {
+                user.balance += refundPerPlayer;
+                await sendTelegramMessage(user.chatId,
+                    `🤷 *GAME ENDED - NO WINNER*\n\n` +
+                    `💰 Refunded: ${refundPerPlayer.toFixed(1)} ETB\n` +
+                    `📊 New Balance: ${user.balance.toFixed(1)} ETB\n\n` +
+                    `🎮 Join another game!`
+                );
+            }
+        }
+    }
+    
+    // Clean up after 1 minute
+    setTimeout(() => {
+        if (activeGames[gameId]) {
+            delete activeGames[gameId];
+            saveActiveGames();
+        }
+    }, 60000);
+    
+    saveUsers();
+    saveActiveGames();
+}
+
+async function notifyGamePlayers(gameId, message) {
+    const game = activeGames[gameId];
+    if (!game) return;
+    
+    for (const userId in game.players) {
+        const user = users[userId];
+        if (user && user.chatId) {
+            await sendTelegramMessage(user.chatId, message);
+        }
     }
 }
 
@@ -325,15 +664,32 @@ app.post('/telegram-webhook', async (req, res) => {
                         case '/play':
                             console.log(`🎮 /play command from user ${userId}`);
                             
+                            // Check balance before allowing to play
+                            if (user.balance < GAME_CONFIG.BOARD_PRICE) {
+                                await sendTelegramMessage(chatId,
+                                    `❌ *INSUFFICIENT BALANCE*\n\n` +
+                                    `💰 Required: *${GAME_CONFIG.BOARD_PRICE} ETB*\n` +
+                                    `💵 Your balance: *${user.balance} ETB*\n\n` +
+                                    `💡 Use /deposit to add funds instantly!`,
+                                    {
+                                        inline_keyboard: [[
+                                            { text: "💰 DEPOSIT NOW", callback_data: "deposit" }
+                                        ]]
+                                    }
+                                );
+                                break;
+                            }
+                            
                             await sendTelegramMessage(chatId,
-                                `🎮 *PLAY SHEBA BINGO* 🎰\n\n` +
-                                `💰 Balance: *${user.balance} ETB*\n\n` +
-                                `⬇️ *CLICK THE BUTTON BELOW* ⬇️\n` +
-                                `_Game opens in Telegram_`,
+                                `🎮 *JOIN MULTIPLAYER BINGO*\n\n` +
+                                `💰 Entry Fee: *${GAME_CONFIG.BOARD_PRICE} ETB*\n` +
+                                `🏆 Prize Pool: 80% of all bets\n` +
+                                `👥 Min Players: ${GAME_CONFIG.MIN_PLAYERS}\n\n` +
+                                `Click below to join a game:`,
                                 {
                                     inline_keyboard: [[
                                         { 
-                                            text: `▶️ PLAY NOW`,
+                                            text: `🎮 JOIN GAME (${user.balance} ETB)`,
                                             web_app: {url: `${RENDER_URL}/?user=${userId}&from=play_command`}
                                         }
                                     ]]
@@ -588,17 +944,33 @@ async function handleCallbackQuery(callback) {
                 break;
                 
             case 'play':
+                // Check balance before allowing to play
+                if (user.balance < GAME_CONFIG.BOARD_PRICE) {
+                    await sendTelegramMessage(chatId,
+                        `❌ *INSUFFICIENT BALANCE*\n\n` +
+                        `💰 Required: *${GAME_CONFIG.BOARD_PRICE} ETB*\n` +
+                        `💵 Your balance: *${user.balance} ETB*\n\n` +
+                        `💡 Use /deposit to add funds instantly!`,
+                        {
+                            inline_keyboard: [[
+                                { text: "💰 DEPOSIT NOW", callback_data: "deposit" }
+                            ]]
+                        }
+                    );
+                    break;
+                }
+                
                 await sendTelegramMessage(chatId,
-                    `🎮 *PLAY SHEBA BINGO* 🎰\n\n` +
-                    `💰 Balance: *${user.balance} ETB*\n\n` +
-                    `Click below to start playing:`,
+                    `🎮 *JOIN MULTIPLAYER BINGO*\n\n` +
+                    `💰 Entry Fee: *${GAME_CONFIG.BOARD_PRICE} ETB*\n` +
+                    `🏆 Prize Pool: 80% of all bets\n` +
+                    `👥 Min Players: ${GAME_CONFIG.MIN_PLAYERS}\n\n` +
+                    `Click below to join a game:`,
                     {
                         inline_keyboard: [[
                             { 
-                                text: "🎯 START GAME",
-                                web_app: {
-                                    url: `${RENDER_URL}/?user=${userId}&from=play_command`
-                                }
+                                text: `🎮 JOIN GAME (${user.balance} ETB)`,
+                                web_app: {url: `${RENDER_URL}/?user=${userId}&from=play_command`}
                             }
                         ]]
                     }
@@ -941,7 +1313,234 @@ async function sendTelegramMessage(chatId, text, replyMarkup = null) {
     }
 }
 
-// ==================== GAME API ENDPOINTS ====================
+// ==================== MULTIPLAYER GAME API ENDPOINTS ====================
+app.post('/api/game/join', async (req, res) => {
+    const { userId } = req.body;
+    
+    if (!users[userId]) {
+        return res.json({ success: false, error: 'User not found' });
+    }
+    
+    const user = users[userId];
+    
+    // Check balance
+    if (user.balance < GAME_CONFIG.BOARD_PRICE) {
+        return res.json({ 
+            success: false, 
+            error: 'Insufficient balance',
+            required: GAME_CONFIG.BOARD_PRICE,
+            current: user.balance
+        });
+    }
+    
+    // Find or create game
+    let gameId = findAvailableGame();
+    
+    if (!gameId) {
+        gameId = createNewGame();
+    }
+    
+    const game = activeGames[gameId];
+    
+    // Check if user already in game
+    if (game.players[userId]) {
+        return res.json({ 
+            success: false, 
+            error: 'Already in game',
+            gameId: gameId
+        });
+    }
+    
+    // Add player to game
+    game.players[userId] = {
+        id: userId,
+        username: user.username,
+        board: generateBingoBoard(),
+        markedNumbers: [],
+        hasBingo: false,
+        joinedAt: new Date().toISOString(),
+        boardId: `B${Object.keys(game.players).length + 1}`
+    };
+    
+    // Deduct balance
+    user.balance -= GAME_CONFIG.BOARD_PRICE;
+    user.totalWagered = (user.totalWagered || 0) + GAME_CONFIG.BOARD_PRICE;
+    
+    // Add to prize pool
+    game.prizePool += GAME_CONFIG.BOARD_PRICE * (GAME_CONFIG.PRIZE_POOL_PERCENT / 100);
+    
+    saveUsers();
+    saveActiveGames();
+    
+    // Record game join
+    const gameRecordId = 'game_' + Date.now();
+    games.push({
+        id: gameRecordId,
+        userId: userId,
+        amount: GAME_CONFIG.BOARD_PRICE,
+        date: new Date().toISOString(),
+        type: 'join',
+        gameId: gameId
+    });
+    saveGames();
+    
+    // Notify all players about new player
+    await notifyGamePlayers(gameId, `🆕 ${user.username} joined the game! Players: ${Object.keys(game.players).length}/${GAME_CONFIG.MAX_PLAYERS}`);
+    
+    // Start game if enough players
+    if (Object.keys(game.players).length >= GAME_CONFIG.MIN_PLAYERS && game.status === 'waiting') {
+        await startGame(gameId);
+    }
+    
+    res.json({
+        success: true,
+        gameId: gameId,
+        board: game.players[userId].board,
+        players: Object.keys(game.players).length,
+        requiredPlayers: GAME_CONFIG.MIN_PLAYERS,
+        gameStatus: game.status,
+        prizePool: game.prizePool,
+        yourBalance: user.balance
+    });
+});
+
+app.get('/api/game/active', (req, res) => {
+    const active = Object.values(activeGames).filter(game => 
+        game.status === 'waiting' || game.status === 'active'
+    ).map(game => ({
+        id: game.id,
+        status: game.status,
+        players: Object.keys(game.players).length,
+        prizePool: game.prizePool,
+        timeLeft: game.endTime ? Math.max(0, new Date(game.endTime) - new Date()) : null
+    }));
+    
+    res.json({ success: true, games: active });
+});
+
+app.get('/api/game/:gameId/state/:userId', (req, res) => {
+    const { gameId, userId } = req.params;
+    const game = activeGames[gameId];
+    
+    if (!game) {
+        return res.json({ success: false, error: 'Game not found' });
+    }
+    
+    const player = game.players[userId];
+    if (!player) {
+        return res.json({ success: false, error: 'Not in this game' });
+    }
+    
+    res.json({
+        success: true,
+        game: {
+            id: game.id,
+            status: game.status,
+            players: Object.keys(game.players).length,
+            playerList: Object.values(game.players).map(p => p.username),
+            calledNumbers: game.calledNumbers,
+            currentCall: game.currentCall,
+            prizePool: game.prizePool,
+            startTime: game.startTime,
+            endTime: game.endTime,
+            timeLeft: game.endTime ? Math.max(0, new Date(game.endTime) - new Date()) : 0
+        },
+        player: {
+            board: player.board,
+            markedNumbers: player.markedNumbers || [],
+            hasBingo: player.hasBingo,
+            boardId: player.boardId,
+            username: player.username
+        }
+    });
+});
+
+app.post('/api/game/mark-number', (req, res) => {
+    const { gameId, userId, number } = req.body;
+    const game = activeGames[gameId];
+    
+    if (!game) {
+        return res.json({ success: false, error: 'Game not found' });
+    }
+    
+    const player = game.players[userId];
+    if (!player) {
+        return res.json({ success: false, error: 'Not in this game' });
+    }
+    
+    if (!game.calledNumbers.includes(number)) {
+        return res.json({ success: false, error: 'Number not called yet' });
+    }
+    
+    if (!player.markedNumbers.includes(number)) {
+        player.markedNumbers.push(number);
+        saveActiveGames();
+    }
+    
+    res.json({ success: true, marked: player.markedNumbers });
+});
+
+app.post('/api/game/claim-bingo', async (req, res) => {
+    const { gameId, userId } = req.body;
+    const game = activeGames[gameId];
+    
+    if (!game) {
+        return res.json({ success: false, error: 'Game not found' });
+    }
+    
+    const player = game.players[userId];
+    if (!player) {
+        return res.json({ success: false, error: 'Not in this game' });
+    }
+    
+    // Check if player actually has bingo
+    if (!checkBoardForBingo(player.board, player.markedNumbers || [], game.calledNumbers)) {
+        return res.json({ success: false, error: 'No bingo yet' });
+    }
+    
+    // Already handled by declareWinner function, but return success
+    if (player.hasBingo) {
+        return res.json({ 
+            success: true, 
+            message: 'Bingo already claimed',
+            prize: game.winner?.prize || 0
+        });
+    }
+    
+    // Trigger win declaration
+    player.hasBingo = true;
+    await declareWinner(gameId, userId);
+    
+    res.json({ 
+        success: true, 
+        message: 'Bingo claimed successfully',
+        prize: game.prizePool
+    });
+});
+
+app.post('/api/game/leave', (req, res) => {
+    const { gameId, userId } = req.body;
+    const game = activeGames[gameId];
+    
+    if (!game) {
+        return res.json({ success: false, error: 'Game not found' });
+    }
+    
+    if (game.players[userId]) {
+        delete game.players[userId];
+        
+        // If no players left, delete game
+        if (Object.keys(game.players).length === 0) {
+            delete activeGames[gameId];
+        }
+        
+        saveActiveGames();
+    }
+    
+    res.json({ success: true, message: 'Left game' });
+});
+
+// ==================== BASIC GAME API ENDPOINTS ====================
 app.get('/api/user/:id/balance', (req, res) => {
     const user = users[req.params.id];
     if (user) {
@@ -1276,6 +1875,11 @@ app.get('/api/admin/overview', (req, res) => {
     
     const instantDepositsToday = todayDeposits.filter(d => d.autoParsed === true).length;
     
+    // Count active multiplayer games
+    const activeMultiplayerGames = Object.values(activeGames).filter(g => 
+        g.status === 'active' || g.status === 'waiting'
+    ).length;
+    
     res.json({
         success: true,
         stats: {
@@ -1291,12 +1895,15 @@ app.get('/api/admin/overview', (req, res) => {
             totalDepositAmount: deposits.filter(d => d.status === 'approved').reduce((sum, d) => sum + d.amount, 0),
             gamesPlayed: games.filter(g => g.type === 'play').length,
             totalWins: games.filter(g => g.type === 'win').length,
-            totalWinAmount: games.filter(g => g.type === 'win').reduce((sum, g) => sum + g.amount, 0)
+            totalWinAmount: games.filter(g => g.type === 'win').reduce((sum, g) => sum + g.amount, 0),
+            activeMultiplayerGames: activeMultiplayerGames,
+            playersInGames: Object.values(activeGames).reduce((sum, game) => sum + Object.keys(game.players).length, 0)
         },
         system: {
             uptime: process.uptime(),
             timestamp: now.toISOString(),
-            autoDepositSystem: 'operational'
+            autoDepositSystem: 'operational',
+            multiplayerSystem: 'active'
         }
     });
 });
@@ -1316,7 +1923,7 @@ app.get('/api/admin/health', (req, res) => {
     
     res.json({
         success: true,
-        system: 'Sheba Bingo Auto-Deposit System',
+        system: 'Sheba Bingo Auto-Deposit & Multiplayer System',
         status: 'operational',
         uptime: process.uptime(),
         depositStats: {
@@ -1324,6 +1931,11 @@ app.get('/api/admin/health', (req, res) => {
             lastHourAmount: recentDeposits.reduce((sum, d) => sum + d.amount, 0),
             instantDeposits: recentDeposits.filter(d => d.autoParsed === true).length,
             autoApprovalRate: `${instantRate}%`
+        },
+        gameStats: {
+            activeGames: Object.values(activeGames).filter(g => g.status === 'active' || g.status === 'waiting').length,
+            totalPlayers: Object.values(activeGames).reduce((sum, game) => sum + Object.keys(game.players).length, 0),
+            completedGames: Object.values(activeGames).filter(g => g.status === 'completed').length
         },
         users: {
             total: Object.keys(users).length,
@@ -1397,10 +2009,10 @@ app.listen(PORT, '0.0.0.0', async () => {
     await setupTelegramWebhook();
     await fixAllBotSettings();
     
-    console.log('\n🚀 *INSTANT DEPOSIT SYSTEM READY*');
-    console.log('✅ Users can now paste SMS for instant credit (<1 min)');
+    console.log('\n🚀 *MULTIPLAYER BINGO SYSTEM READY*');
+    console.log('✅ Users can now join multiplayer games');
+    console.log(`✅ Minimum players: ${GAME_CONFIG.MIN_PLAYERS}, Board price: ${GAME_CONFIG.BOARD_PRICE} ETB`);
+    console.log('✅ Instant deposit system active');
     console.log('✅ Admin panel for monitoring at /admin.html');
-    console.log('✅ Manual deposits still supported as fallback');
     console.log('='.repeat(60));
 });
-
