@@ -3,269 +3,1648 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>👑 Admin Panel - Sheba Bingo</title>
+    <title>🚀 ShebaBingo Admin Dashboard</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; font-family: Arial, sans-serif; }
-        body { background: #1a1a2e; color: white; padding: 20px; }
-        
-        .login-screen, .admin-panel { max-width: 800px; margin: 0 auto; }
-        .login-screen { text-align: center; padding: 50px; }
-        
-        .admin-panel { display: none; }
-        .header { background: #162447; padding: 20px; border-radius: 10px; margin-bottom: 20px; }
-        .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin: 20px 0; }
-        .stat-card { background: #0f3460; padding: 15px; border-radius: 10px; text-align: center; }
-        .stat-value { font-size: 2em; color: #e94560; font-weight: bold; }
-        
-        .section { background: #0f3460; padding: 20px; border-radius: 10px; margin: 20px 0; }
-        .deposit-item { background: #1f4068; padding: 15px; margin: 10px 0; border-radius: 10px; }
-        
-        .btn { padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; margin: 5px; }
-        .btn-approve { background: #2ecc71; color: white; }
-        .btn-reject { background: #e74c3c; color: white; }
-        .btn-login { background: #3498db; color: white; padding: 15px 30px; }
-        
-        input { width: 100%; padding: 12px; margin: 10px 0; border: none; border-radius: 5px; }
-        .screenshot-img { max-width: 300px; border-radius: 10px; margin: 10px 0; }
+        :root {
+            --primary: #6366f1;
+            --primary-dark: #4f46e5;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --info: #3b82f6;
+            --dark: #1f2937;
+            --light: #f9fafb;
+            --gray: #6b7280;
+            --gray-light: #e5e7eb;
+            --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            --radius: 12px;
+            --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+        }
+
+        body {
+            background: linear-gradient(135deg, #f5f7fa 0%, #e4edf5 100%);
+            color: var(--dark);
+            line-height: 1.6;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 0 15px;
+        }
+
+        /* ===== LOGIN SCREEN ===== */
+        .login-screen {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+
+        .login-card {
+            background: white;
+            padding: 50px 40px;
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-lg);
+            width: 100%;
+            max-width: 440px;
+            text-align: center;
+            animation: slideUp 0.5s ease-out;
+        }
+
+        .login-card h2 {
+            color: var(--dark);
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+
+        .login-card p {
+            color: var(--gray);
+            margin-bottom: 30px;
+            font-size: 16px;
+        }
+
+        .login-logo {
+            width: 80px;
+            height: 80px;
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 25px;
+            color: white;
+            font-size: 32px;
+            box-shadow: var(--shadow);
+        }
+
+        .input-group {
+            margin-bottom: 25px;
+            text-align: left;
+        }
+
+        .input-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: var(--dark);
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .input-group input {
+            width: 100%;
+            padding: 14px 18px;
+            border: 2px solid var(--gray-light);
+            border-radius: 10px;
+            font-size: 16px;
+            transition: var(--transition);
+            background: var(--light);
+        }
+
+        .input-group input:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+        }
+
+        .btn-login {
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            color: white;
+            border: none;
+            padding: 16px 30px;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            width: 100%;
+            transition: var(--transition);
+            box-shadow: var(--shadow);
+            margin-top: 10px;
+        }
+
+        .btn-login:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-lg);
+        }
+
+        .btn-login:active {
+            transform: translateY(0);
+        }
+
+        .login-error {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid var(--danger);
+            color: var(--danger);
+            padding: 12px;
+            border-radius: 8px;
+            margin-top: 20px;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        /* ===== DASHBOARD ===== */
+        .dashboard {
+            display: none;
+        }
+
+        /* Header */
+        .dashboard-header {
+            background: white;
+            border-radius: var(--radius);
+            padding: 25px 30px;
+            margin-bottom: 30px;
+            box-shadow: var(--shadow);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+
+        .header-left h1 {
+            color: var(--dark);
+            font-size: 28px;
+            margin-bottom: 5px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .header-left p {
+            color: var(--gray);
+            font-size: 15px;
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .system-status {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 20px;
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid var(--success);
+            border-radius: 20px;
+            color: var(--success);
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .status-indicator {
+            width: 10px;
+            height: 10px;
+            background: var(--success);
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        .btn-logout {
+            background: transparent;
+            color: var(--danger);
+            border: 2px solid var(--danger);
+            padding: 10px 25px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: var(--transition);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-logout:hover {
+            background: var(--danger);
+            color: white;
+        }
+
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 25px;
+            margin-bottom: 35px;
+        }
+
+        .stat-card {
+            background: white;
+            border-radius: var(--radius);
+            padding: 25px;
+            box-shadow: var(--shadow);
+            transition: var(--transition);
+            border-top: 4px solid var(--primary);
+        }
+
+        .stat-card:hover {
+            transform: translateY(-5px);
+            box-shadow: var(--shadow-lg);
+        }
+
+        .stat-card.success {
+            border-color: var(--success);
+        }
+
+        .stat-card.warning {
+            border-color: var(--warning);
+        }
+
+        .stat-card.danger {
+            border-color: var(--danger);
+        }
+
+        .stat-card.info {
+            border-color: var(--info);
+        }
+
+        .stat-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .stat-icon {
+            width: 50px;
+            height: 50px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 22px;
+            color: white;
+        }
+
+        .stat-card .stat-icon {
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+        }
+
+        .stat-card.success .stat-icon {
+            background: linear-gradient(135deg, var(--success), #0da674);
+        }
+
+        .stat-card.warning .stat-icon {
+            background: linear-gradient(135deg, var(--warning), #e68a00);
+        }
+
+        .stat-card.danger .stat-icon {
+            background: linear-gradient(135deg, var(--danger), #d32f2f);
+        }
+
+        .stat-title {
+            color: var(--gray);
+            font-size: 14px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .stat-value {
+            font-size: 32px;
+            font-weight: 700;
+            color: var(--dark);
+            line-height: 1;
+            margin: 10px 0 5px;
+        }
+
+        .stat-trend {
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .stat-trend.up {
+            color: var(--success);
+        }
+
+        .stat-trend.down {
+            color: var(--danger);
+        }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 30px;
+            background: white;
+            padding: 10px;
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+        }
+
+        .tab-btn {
+            padding: 12px 24px;
+            background: transparent;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            color: var(--gray);
+            cursor: pointer;
+            transition: var(--transition);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .tab-btn:hover {
+            background: var(--light);
+            color: var(--dark);
+        }
+
+        .tab-btn.active {
+            background: var(--primary);
+            color: white;
+        }
+
+        /* Content Sections */
+        .content-section {
+            display: none;
+            animation: fadeIn 0.3s ease-out;
+        }
+
+        .content-section.active {
+            display: block;
+        }
+
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 25px;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+
+        .section-title {
+            font-size: 22px;
+            color: var(--dark);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .section-actions {
+            display: flex;
+            gap: 15px;
+        }
+
+        .btn-action {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: var(--transition);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+        }
+
+        .btn-secondary {
+            background: var(--light);
+            color: var(--dark);
+            border: 1px solid var(--gray-light);
+        }
+
+        .btn-success {
+            background: var(--success);
+            color: white;
+        }
+
+        .btn-danger {
+            background: var(--danger);
+            color: white;
+        }
+
+        .btn-action:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow);
+        }
+
+        /* Table/List Styles */
+        .transactions-list {
+            background: white;
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            overflow: hidden;
+        }
+
+        .transaction-item {
+            padding: 20px;
+            border-bottom: 1px solid var(--gray-light);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: var(--transition);
+        }
+
+        .transaction-item:hover {
+            background: var(--light);
+        }
+
+        .transaction-item:last-child {
+            border-bottom: none;
+        }
+
+        .transaction-info {
+            flex: 1;
+        }
+
+        .transaction-title {
+            font-weight: 600;
+            color: var(--dark);
+            margin-bottom: 5px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .transaction-meta {
+            display: flex;
+            gap: 20px;
+            color: var(--gray);
+            font-size: 14px;
+        }
+
+        .transaction-amount {
+            font-weight: 700;
+            font-size: 18px;
+            color: var(--dark);
+        }
+
+        .transaction-status {
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            display: inline-block;
+            margin-left: 10px;
+        }
+
+        .status-approved {
+            background: rgba(16, 185, 129, 0.1);
+            color: var(--success);
+        }
+
+        .status-pending {
+            background: rgba(245, 158, 11, 0.1);
+            color: var(--warning);
+        }
+
+        .status-rejected {
+            background: rgba(239, 68, 68, 0.1);
+            color: var(--danger);
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--gray);
+        }
+
+        .empty-state i {
+            font-size: 48px;
+            margin-bottom: 20px;
+            opacity: 0.3;
+        }
+
+        .empty-state p {
+            font-size: 16px;
+        }
+
+        /* Quick Actions */
+        .quick-actions {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-top: 30px;
+        }
+
+        .action-card {
+            background: white;
+            border-radius: var(--radius);
+            padding: 25px;
+            text-align: center;
+            box-shadow: var(--shadow);
+            transition: var(--transition);
+            cursor: pointer;
+            border: 2px solid transparent;
+        }
+
+        .action-card:hover {
+            transform: translateY(-5px);
+            box-shadow: var(--shadow-lg);
+            border-color: var(--primary);
+        }
+
+        .action-icon {
+            width: 60px;
+            height: 60px;
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 15px;
+            color: white;
+            font-size: 24px;
+        }
+
+        .action-title {
+            font-weight: 600;
+            color: var(--dark);
+            margin-bottom: 8px;
+        }
+
+        .action-desc {
+            color: var(--gray);
+            font-size: 14px;
+        }
+
+        /* Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+            animation: fadeIn 0.3s ease-out;
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: var(--radius);
+            width: 90%;
+            max-width: 500px;
+            box-shadow: var(--shadow-lg);
+            animation: slideUp 0.3s ease-out;
+        }
+
+        .modal-header {
+            padding: 25px 30px;
+            border-bottom: 1px solid var(--gray-light);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-header h3 {
+            color: var(--dark);
+            font-size: 20px;
+        }
+
+        .btn-close {
+            background: none;
+            border: none;
+            font-size: 24px;
+            color: var(--gray);
+            cursor: pointer;
+            transition: var(--transition);
+        }
+
+        .btn-close:hover {
+            color: var(--danger);
+        }
+
+        .modal-body {
+            padding: 30px;
+        }
+
+        /* Loading Spinner */
+        .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid var(--gray-light);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        /* Animations */
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .dashboard-header {
+                flex-direction: column;
+                text-align: center;
+            }
+            
+            .header-right {
+                width: 100%;
+                justify-content: center;
+            }
+            
+            .tabs {
+                overflow-x: auto;
+                padding: 10px 5px;
+            }
+            
+            .tab-btn {
+                white-space: nowrap;
+                padding: 10px 15px;
+                font-size: 14px;
+            }
+            
+            .transaction-item {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 15px;
+            }
+            
+            .transaction-meta {
+                flex-wrap: wrap;
+                gap: 10px;
+            }
+        }
     </style>
 </head>
 <body>
     <!-- Login Screen -->
-    <div class="login-screen" id="loginScreen">
-        <h1>👑 SHEBA BINGO ADMIN</h1>
-        <p>Enter password to access admin panel</p>
-        <input type="password" id="password" placeholder="Admin password">
-        <button class="btn btn-login" onclick="login()">LOGIN</button>
-        <p id="loginError" style="color: #e74c3c; margin-top: 10px;"></p>
+    <div id="loginScreen" class="login-screen">
+        <div class="login-card">
+            <div class="login-logo">
+                <i class="fas fa-dice"></i>
+            </div>
+            <h2>🔐 Admin Dashboard</h2>
+            <p>Login to manage Sheba Bingo operations</p>
+            
+            <div class="input-group">
+                <label for="adminPassword"><i class="fas fa-key"></i> Admin Password</label>
+                <input type="password" id="adminPassword" placeholder="Enter secure password" autocomplete="off">
+            </div>
+            
+            <button class="btn-login" onclick="login()">
+                <i class="fas fa-sign-in-alt"></i> Login to Dashboard
+            </button>
+            
+            <div id="loginError" class="login-error">
+                <i class="fas fa-exclamation-circle"></i>
+                <span>❌ Invalid password. Please try again.</span>
+            </div>
+        </div>
     </div>
-    
-    <!-- Admin Panel -->
-    <div class="admin-panel" id="adminPanel">
-        <div class="header">
-            <h2>👑 Sheba Bingo Admin Panel</h2>
-            <button class="btn btn-logout" onclick="logout()">LOGOUT</button>
+
+    <!-- Main Dashboard -->
+    <div id="dashboard" class="dashboard">
+        <div class="container">
+            <!-- Header -->
+            <header class="dashboard-header">
+                <div class="header-left">
+                    <h1><i class="fas fa-dice"></i> ShebaBingo Admin</h1>
+                    <p>Real-time monitoring & instant deposit system</p>
+                </div>
+                <div class="header-right">
+                    <div class="system-status">
+                        <div class="status-indicator"></div>
+                        <span>System: <span id="systemStatus">Operational</span></span>
+                    </div>
+                    <button class="btn-logout" onclick="logout()">
+                        <i class="fas fa-sign-out-alt"></i> Logout
+                    </button>
+                </div>
+            </header>
+
+            <!-- Stats Dashboard -->
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-header">
+                        <div>
+                            <div class="stat-title">Total Balance</div>
+                            <div class="stat-value" id="totalBalance">0 ETB</div>
+                        </div>
+                        <div class="stat-icon">
+                            <i class="fas fa-wallet"></i>
+                        </div>
+                    </div>
+                    <div class="stat-trend up">
+                        <i class="fas fa-arrow-up"></i>
+                        <span>Live updates</span>
+                    </div>
+                </div>
+
+                <div class="stat-card success">
+                    <div class="stat-header">
+                        <div>
+                            <div class="stat-title">Active Users (24h)</div>
+                            <div class="stat-value" id="activeUsers">0</div>
+                        </div>
+                        <div class="stat-icon">
+                            <i class="fas fa-users"></i>
+                        </div>
+                    </div>
+                    <div class="stat-trend up">
+                        <i class="fas fa-arrow-up"></i>
+                        <span id="userTrend">+0 today</span>
+                    </div>
+                </div>
+
+                <div class="stat-card info">
+                    <div class="stat-header">
+                        <div>
+                            <div class="stat-title">Instant Deposits</div>
+                            <div class="stat-value" id="instantDeposits">0</div>
+                        </div>
+                        <div class="stat-icon">
+                            <i class="fas fa-bolt"></i>
+                        </div>
+                    </div>
+                    <div class="stat-trend up">
+                        <i class="fas fa-arrow-up"></i>
+                        <span id="depositTrend">+0 today</span>
+                    </div>
+                </div>
+
+                <div class="stat-card warning">
+                    <div class="stat-header">
+                        <div>
+                            <div class="stat-title">Pending Manual</div>
+                            <div class="stat-value" id="pendingManual">0</div>
+                        </div>
+                        <div class="stat-icon">
+                            <i class="fas fa-clock"></i>
+                        </div>
+                    </div>
+                    <div class="stat-trend">
+                        <span>Needs review</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tabs Navigation -->
+            <div class="tabs">
+                <button class="tab-btn active" onclick="switchTab('instant-deposits')">
+                    <i class="fas fa-bolt"></i> Instant Deposits
+                </button>
+                <button class="tab-btn" onclick="switchTab('manual-deposits')">
+                    <i class="fas fa-images"></i> Manual Review
+                </button>
+                <button class="tab-btn" onclick="switchTab('users')">
+                    <i class="fas fa-users"></i> Users
+                </button>
+                <button class="tab-btn" onclick="switchTab('transactions')">
+                    <i class="fas fa-exchange-alt"></i> All Transactions
+                </button>
+                <button class="tab-btn" onclick="switchTab('actions')">
+                    <i class="fas fa-cogs"></i> Quick Actions
+                </button>
+            </div>
+
+            <!-- Instant Deposits Tab -->
+            <div id="instant-deposits" class="content-section active">
+                <div class="section-header">
+                    <h2 class="section-title">
+                        <i class="fas fa-bolt"></i> Recent Instant Deposits
+                        <span class="transaction-status status-approved">Auto-Approved</span>
+                    </h2>
+                    <div class="section-actions">
+                        <button class="btn-action btn-primary" onclick="refreshData()">
+                            <i class="fas fa-sync-alt"></i> Refresh
+                        </button>
+                    </div>
+                </div>
+                <div class="transactions-list" id="instantDepositsList">
+                    <div class="empty-state">
+                        <i class="fas fa-bolt"></i>
+                        <p>No instant deposits yet. System ready to process.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Manual Deposits Tab -->
+            <div id="manual-deposits" class="content-section">
+                <div class="section-header">
+                    <h2 class="section-title">
+                        <i class="fas fa-images"></i> Manual Deposits Pending Review
+                        <span class="transaction-status status-pending">Needs Action</span>
+                    </h2>
+                    <div class="section-actions">
+                        <button class="btn-action btn-secondary" onclick="loadPendingManual()">
+                            <i class="fas fa-redo"></i> Reload
+                        </button>
+                    </div>
+                </div>
+                <div class="transactions-list" id="manualDepositsList">
+                    <div class="empty-state">
+                        <i class="fas fa-check-circle"></i>
+                        <p>No pending manual deposits. All clear!</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Users Tab -->
+            <div id="users" class="content-section">
+                <div class="section-header">
+                    <h2 class="section-title">
+                        <i class="fas fa-users"></i> User Management
+                    </h2>
+                    <div class="section-actions">
+                        <div class="input-group" style="margin: 0; max-width: 300px;">
+                            <input type="text" id="userSearch" placeholder="Search users..." oninput="searchUsers()">
+                        </div>
+                    </div>
+                </div>
+                <div class="transactions-list" id="usersList">
+                    <div class="empty-state">
+                        <i class="fas fa-user"></i>
+                        <p>Search for users above...</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- All Transactions Tab -->
+            <div id="transactions" class="content-section">
+                <div class="section-header">
+                    <h2 class="section-title">
+                        <i class="fas fa-exchange-alt"></i> All Transactions
+                    </h2>
+                    <div class="section-actions">
+                        <button class="btn-action btn-secondary" onclick="loadAllTransactions()">
+                            <i class="fas fa-redo"></i> Reload
+                        </button>
+                    </div>
+                </div>
+                <div class="transactions-list" id="allTransactions">
+                    <div class="empty-state">
+                        <i class="fas fa-exchange-alt"></i>
+                        <p>No transactions to display.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Quick Actions Tab -->
+            <div id="actions" class="content-section">
+                <div class="section-header">
+                    <h2 class="section-title">
+                        <i class="fas fa-cogs"></i> System Actions
+                    </h2>
+                </div>
+                <div class="quick-actions">
+                    <div class="action-card" onclick="refreshAllData()">
+                        <div class="action-icon">
+                            <i class="fas fa-sync-alt"></i>
+                        </div>
+                        <div class="action-title">Refresh All Data</div>
+                        <div class="action-desc">Update dashboard with latest info</div>
+                    </div>
+                    <div class="action-card" onclick="sendSystemNotification()">
+                        <div class="action-icon" style="background: linear-gradient(135deg, #10b981, #0da674);">
+                            <i class="fas fa-bell"></i>
+                        </div>
+                        <div class="action-title">Test Notification</div>
+                        <div class="action-desc">Send test alert to admin Telegram</div>
+                    </div>
+                    <div class="action-card" onclick="openTelegramBot()">
+                        <div class="action-icon" style="background: linear-gradient(135deg, #3b82f6, #2563eb);">
+                            <i class="fab fa-telegram"></i>
+                        </div>
+                        <div class="action-title">Open Bot</div>
+                        <div class="action-desc">Launch Sheba Bingo Telegram bot</div>
+                    </div>
+                    <div class="action-card" onclick="viewSystemHealth()">
+                        <div class="action-icon" style="background: linear-gradient(135deg, #f59e0b, #e68a00);">
+                            <i class="fas fa-heartbeat"></i>
+                        </div>
+                        <div class="action-title">System Health</div>
+                        <div class="action-desc">Check system status & performance</div>
+                    </div>
+                    <div class="action-card" onclick="exportData()">
+                        <div class="action-icon" style="background: linear-gradient(135deg, #8b5cf6, #7c3aed);">
+                            <i class="fas fa-file-export"></i>
+                        </div>
+                        <div class="action-title">Export Data</div>
+                        <div class="action-desc">Download transactions report</div>
+                    </div>
+                    <div class="action-card" onclick="clearCache()">
+                        <div class="action-icon" style="background: linear-gradient(135deg, #ef4444, #dc2626);">
+                            <i class="fas fa-broom"></i>
+                        </div>
+                        <div class="action-title">Clear Cache</div>
+                        <div class="action-desc">Refresh local storage cache</div>
+                    </div>
+                </div>
+            </div>
         </div>
-        
-        <div class="stats">
-            <div class="stat-card">
-                <div>Total Users</div>
-                <div class="stat-value" id="totalUsers">0</div>
+    </div>
+
+    <!-- SMS View Modal -->
+    <div id="smsModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3><i class="fas fa-sms"></i> Transaction SMS Details</h3>
+                <button class="btn-close" onclick="closeModal()">&times;</button>
             </div>
-            <div class="stat-card">
-                <div>Pending Deposits</div>
-                <div class="stat-value" id="pendingDeposits">0</div>
-            </div>
-            <div class="stat-card">
-                <div>Total Balance</div>
-                <div class="stat-value" id="totalBalance">0 ETB</div>
+            <div class="modal-body">
+                <div style="margin-bottom: 20px;">
+                    <p><strong>👤 User:</strong> <span id="modalUser">-</span></p>
+                    <p><strong>💰 Amount:</strong> <span id="modalAmount">-</span> ETB</p>
+                    <p><strong>🆔 Transaction ID:</strong> <span id="modalTxnId">-</span></p>
+                    <p><strong>⏰ Time:</strong> <span id="modalTime">-</span></p>
+                </div>
+                <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin: 20px 0;">
+                    <p style="font-weight: 600; margin-bottom: 10px; color: #333;">Full SMS Text:</p>
+                    <div id="modalSmsText" style="white-space: pre-wrap; font-family: monospace; font-size: 14px; line-height: 1.5; color: #555; max-height: 200px; overflow-y: auto; padding: 10px; background: white; border-radius: 5px; border: 1px solid #dee2e6;">
+                    </div>
+                </div>
+                <div style="text-align: center; margin-top: 25px;">
+                    <button class="btn-action btn-primary" onclick="closeModal()" style="padding: 12px 30px;">
+                        <i class="fas fa-times"></i> Close
+                    </button>
+                </div>
             </div>
         </div>
-        
-        <!-- Pending Deposits -->
-        <div class="section">
-            <h3>⏳ Pending Deposits</h3>
-            <div id="depositsList">
-                <!-- Deposits will be loaded here -->
+    </div>
+
+    <!-- Manual Deposit Approve Modal -->
+    <div id="approveModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3><i class="fas fa-check-circle"></i> Approve Manual Deposit</h3>
+                <button class="btn-close" onclick="closeApproveModal()">&times;</button>
             </div>
-        </div>
-        
-        <!-- All Users -->
-        <div class="section">
-            <h3>👥 All Users</h3>
-            <div id="usersList">
-                <!-- Users will be loaded here -->
+            <div class="modal-body">
+                <div style="margin-bottom: 25px;">
+                    <p><strong>👤 User:</strong> <span id="approveUser">-</span></p>
+                    <p><strong>📅 Date:</strong> <span id="approveDate">-</span></p>
+                    <p><strong>📸 Type:</strong> Screenshot Deposit</p>
+                </div>
+                
+                <div class="input-group">
+                    <label for="approveAmount"><i class="fas fa-money-bill-wave"></i> Amount to Credit (ETB)</label>
+                    <input type="number" id="approveAmount" placeholder="Enter amount" min="10" step="10">
+                </div>
+                
+                <div class="input-group">
+                    <label for="approveNotes"><i class="fas fa-sticky-note"></i> Admin Notes (Optional)</label>
+                    <textarea id="approveNotes" placeholder="Add notes about this approval..." rows="3" style="width: 100%; padding: 12px; border: 2px solid var(--gray-light); border-radius: 10px; font-size: 14px; resize: vertical;"></textarea>
+                </div>
+                
+                <div style="display: flex; gap: 15px; margin-top: 25px;">
+                    <button class="btn-action btn-success" onclick="confirmManualApprove()" style="flex: 1;">
+                        <i class="fas fa-check"></i> Approve Deposit
+                    </button>
+                    <button class="btn-action btn-secondary" onclick="closeApproveModal()" style="flex: 1;">
+                        <i class="fas fa-times"></i> Cancel
+                    </button>
+                </div>
             </div>
         </div>
     </div>
 
     <script>
-        let adminToken = null;
+        // Configuration
+        const API_BASE = window.location.origin || 'http://localhost:3000';
+        const ADMIN_PASSWORD = 'shebabingo@23';
         
-        // Login function
-        async function login() {
-            const password = document.getElementById('password').value;
-            const errorEl = document.getElementById('loginError');
+        // State Management
+        let adminToken = null;
+        let currentUserId = null;
+        let pendingManualDeposits = [];
+        let currentModalDeposit = null;
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            checkAutoLogin();
+        });
+
+        // ========== AUTHENTICATION ==========
+        function login() {
+            const password = document.getElementById('adminPassword').value;
+            const loginError = document.getElementById('loginError');
             
-            try {
-                const response = await fetch('/api/admin/login', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({password: password})
-                });
+            if (!password.trim()) {
+                loginError.style.display = 'flex';
+                loginError.innerHTML = '<i class="fas fa-exclamation-circle"></i> Please enter password';
+                return;
+            }
+            
+            if (password === ADMIN_PASSWORD) {
+                adminToken = 'admin-token-' + Date.now();
+                localStorage.setItem('adminToken', adminToken);
+                localStorage.setItem('lastLogin', Date.now());
                 
-                const data = await response.json();
+                // Show success animation
+                document.querySelector('.btn-login').innerHTML = '<i class="fas fa-check"></i> Logging in...';
+                document.querySelector('.btn-login').style.background = 'linear-gradient(135deg, #10b981, #0da674)';
                 
-                if (data.success) {
-                    adminToken = data.token;
+                setTimeout(() => {
                     document.getElementById('loginScreen').style.display = 'none';
-                    document.getElementById('adminPanel').style.display = 'block';
-                    loadDashboard();
-                } else {
-                    errorEl.textContent = data.error || 'Wrong password!';
-                }
-            } catch (error) {
-                errorEl.textContent = 'Connection error';
+                    document.getElementById('dashboard').style.display = 'block';
+                    loginError.style.display = 'none';
+                    
+                    // Initialize dashboard
+                    loadDashboardData();
+                    startAutoRefresh();
+                    
+                    // Show welcome notification
+                    showNotification('Welcome to Sheba Bingo Admin Dashboard!', 'success');
+                }, 800);
+                
+            } else {
+                loginError.style.display = 'flex';
+                loginError.innerHTML = '<i class="fas fa-exclamation-circle"></i> Invalid password. Please try again.';
+                document.getElementById('adminPassword').value = '';
+                document.getElementById('adminPassword').focus();
             }
         }
-        
-        // Load dashboard data
-        async function loadDashboard() {
-            await loadDeposits();
-            await loadUsers();
-            setInterval(loadDeposits, 5000); // Refresh every 5 seconds
+
+        function logout() {
+            if (confirm('Are you sure you want to logout?')) {
+                adminToken = null;
+                localStorage.removeItem('adminToken');
+                localStorage.removeItem('lastLogin');
+                
+                document.getElementById('dashboard').style.display = 'none';
+                document.getElementById('loginScreen').style.display = 'flex';
+                document.getElementById('adminPassword').value = '';
+                
+                showNotification('Logged out successfully', 'info');
+            }
         }
-        
-        // Load pending deposits
-        async function loadDeposits() {
+
+        function checkAutoLogin() {
+            const savedToken = localStorage.getItem('adminToken');
+            const lastLogin = localStorage.getItem('lastLogin');
+            const eightHours = 8 * 60 * 60 * 1000;
+            
+            if (savedToken && lastLogin && (Date.now() - lastLogin < eightHours)) {
+                adminToken = savedToken;
+                document.getElementById('loginScreen').style.display = 'none';
+                document.getElementById('dashboard').style.display = 'block';
+                loadDashboardData();
+                startAutoRefresh();
+            }
+        }
+
+        // ========== DASHBOARD FUNCTIONS ==========
+        function switchTab(tabId) {
+            // Update active tab button
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+            
+            // Show selected content
+            document.querySelectorAll('.content-section').forEach(section => {
+                section.classList.remove('active');
+            });
+            document.getElementById(tabId).classList.add('active');
+            
+            // Load specific tab data
+            switch(tabId) {
+                case 'instant-deposits':
+                    loadInstantDeposits();
+                    break;
+                case 'manual-deposits':
+                    loadPendingManual();
+                    break;
+                case 'users':
+                    // Will load on search
+                    break;
+                case 'transactions':
+                    loadAllTransactions();
+                    break;
+            }
+        }
+
+        async function loadDashboardData() {
+            if (!adminToken) return;
+            
             try {
-                const response = await fetch('/api/admin/deposits');
-                const data = await response.json();
+                // Load overview stats
+                const overviewRes = await fetch(`${API_BASE}/api/admin/overview`);
+                if (!overviewRes.ok) throw new Error('Failed to load overview');
+                const overview = await overviewRes.json();
                 
-                // Update stats
-                document.getElementById('pendingDeposits').textContent = data.deposits.length;
+                if (overview.success) {
+                    updateStats(overview.stats);
+                    updateSystemStatus(overview.system);
+                }
                 
-                // Display deposits
-                const depositsList = document.getElementById('depositsList');
-                depositsList.innerHTML = '';
+                // Load instant deposits
+                loadInstantDeposits();
                 
-                data.deposits.forEach(deposit => {
-                    const depositEl = document.createElement('div');
-                    depositEl.className = 'deposit-item';
-                    depositEl.innerHTML = `
-                        <div><strong>User:</strong> ${deposit.username} (${deposit.userId})</div>
-                        <div><strong>Time:</strong> ${new Date(deposit.date).toLocaleString()}</div>
-                        <div><strong>Screenshot:</strong> 
-                            <img src="https://api.telegram.org/file/bot${BOT_TOKEN}/${deposit.filePath}" 
-                                 class="screenshot-img" 
-                                 onerror="this.style.display='none'">
-                        </div>
-                        <div>
-                            <input type="number" id="amount_${deposit.id}" placeholder="Amount (ETB)" min="10">
-                            <button class="btn btn-approve" onclick="approveDeposit('${deposit.id}')">APPROVE</button>
-                            <button class="btn btn-reject" onclick="rejectDeposit('${deposit.id}')">REJECT</button>
+                // Load pending manual deposits count
+                const pendingRes = await fetch(`${API_BASE}/api/admin/deposits/pending-manual`);
+                if (pendingRes.ok) {
+                    const pendingData = await pendingRes.json();
+                    if (pendingData.success) {
+                        document.getElementById('pendingManual').textContent = pendingData.count;
+                    }
+                }
+                
+            } catch (error) {
+                console.error('Dashboard load error:', error);
+                showNotification('Failed to load dashboard data', 'danger');
+            }
+        }
+
+        function updateStats(stats) {
+            document.getElementById('totalBalance').textContent = stats.totalBalance.toFixed(1) + ' ETB';
+            document.getElementById('activeUsers').textContent = stats.active24h;
+            document.getElementById('instantDeposits').textContent = stats.instantDepositsToday;
+            document.getElementById('pendingManual').textContent = stats.pendingManualDeposits;
+            
+            // Update trends
+            document.getElementById('userTrend').textContent = `+${stats.active24h} active`;
+            document.getElementById('depositTrend').textContent = `+${stats.todayDepositAmount.toFixed(1)} ETB today`;
+            
+            // Update system status
+            document.getElementById('systemStatus').textContent = 
+                stats.instantDepositsToday > 0 ? 'Processing Instant Deposits' : 'Operational';
+        }
+
+        function updateSystemStatus(system) {
+            const uptime = Math.floor(system.uptime / 60);
+            document.querySelector('.system-status').innerHTML = `
+                <div class="status-indicator"></div>
+                <span>System: Operational | Uptime: ${uptime} minutes</span>
+            `;
+        }
+
+        async function loadInstantDeposits() {
+            const container = document.getElementById('instantDepositsList');
+            container.innerHTML = '<div class="empty-state"><i class="fas fa-spinner fa-spin"></i><p>Loading instant deposits...</p></div>';
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/admin/deposits/recent?limit=20`);
+                const deposits = await response.json();
+                
+                if (!deposits || deposits.length === 0) {
+                    container.innerHTML = '<div class="empty-state"><i class="fas fa-bolt"></i><p>No instant deposits yet. System ready to process.</p></div>';
+                    return;
+                }
+                
+                let html = '';
+                deposits.forEach(deposit => {
+                    const timeAgo = getTimeAgo(new Date(deposit.date));
+                    const methodIcon = deposit.method.includes('telebirr') ? 'fa-mobile-alt' : 
+                                     deposit.method.includes('cbe') ? 'fa-university' : 'fa-bank';
+                    
+                    html += `
+                        <div class="transaction-item">
+                            <div class="transaction-info">
+                                <div class="transaction-title">
+                                    <i class="fas ${methodIcon}"></i>
+                                    ${deposit.username || 'Unknown User'}
+                                    <span class="transaction-status status-approved">Auto-Approved</span>
+                                </div>
+                                <div class="transaction-meta">
+                                    <span><i class="far fa-clock"></i> ${timeAgo}</span>
+                                    <span><i class="fas fa-fingerprint"></i> ${deposit.transactionId || 'No ID'}</span>
+                                    <span><i class="fas fa-bolt"></i> ${deposit.processedIn || 'instant'}</span>
+                                </div>
+                            </div>
+                            <div class="transaction-amount" style="color: var(--success);">
+                                +${deposit.amount} ETB
+                            </div>
                         </div>
                     `;
-                    depositsList.appendChild(depositEl);
                 });
+                
+                container.innerHTML = html;
+                
             } catch (error) {
-                console.error('Error loading deposits:', error);
+                console.error('Error loading instant deposits:', error);
+                container.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-triangle"></i><p>Failed to load instant deposits. Please try again.</p></div>';
             }
         }
-        
-        // Approve deposit
-        async function approveDeposit(depositId) {
-            const amount = document.getElementById(`amount_${depositId}`).value;
+
+        async function loadPendingManual() {
+            const container = document.getElementById('manualDepositsList');
+            container.innerHTML = '<div class="empty-state"><i class="fas fa-spinner fa-spin"></i><p>Loading pending deposits...</p></div>';
             
-            if (!amount || amount < 10) {
-                alert('Enter valid amount (minimum 10 ETB)');
+            try {
+                const response = await fetch(`${API_BASE}/api/admin/deposits/pending-manual`);
+                const data = await response.json();
+                
+                if (!data.success || data.deposits.length === 0) {
+                    container.innerHTML = '<div class="empty-state"><i class="fas fa-check-circle"></i><p>No pending manual deposits. All clear!</p></div>';
+                    return;
+                }
+                
+                pendingManualDeposits = data.deposits;
+                
+                let html = '';
+                data.deposits.forEach(deposit => {
+                    const timeAgo = getTimeAgo(new Date(deposit.date));
+                    
+                    html += `
+                        <div class="transaction-item">
+                            <div class="transaction-info">
+                                <div class="transaction-title">
+                                    <i class="fas fa-user"></i>
+                                    ${deposit.username || 'Unknown User'}
+                                    <span class="transaction-status status-pending">Pending Review</span>
+                                </div>
+                                <div class="transaction-meta">
+                                    <span><i class="far fa-clock"></i> ${timeAgo}</span>
+                                    <span><i class="fas fa-camera"></i> Screenshot</span>
+                                    <span>ID: ${deposit.id.substring(0, 8)}...</span>
+                                </div>
+                            </div>
+                            <div class="transaction-actions">
+                                <button class="btn-action btn-success" onclick="showApproveModal('${deposit.id}')" style="padding: 8px 16px;">
+                                    <i class="fas fa-check"></i> Review
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                container.innerHTML = html;
+                
+            } catch (error) {
+                console.error('Error loading pending deposits:', error);
+                container.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-triangle"></i><p>Failed to load pending deposits.</p></div>';
+            }
+        }
+
+        async function searchUsers() {
+            const query = document.getElementById('userSearch').value.trim();
+            const container = document.getElementById('usersList');
+            
+            if (!query) {
+                container.innerHTML = '<div class="empty-state"><i class="fas fa-user"></i><p>Enter a username or ID to search...</p></div>';
+                return;
+            }
+            
+            container.innerHTML = '<div class="empty-state"><i class="fas fa-spinner fa-spin"></i><p>Searching users...</p></div>';
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/admin/users`);
+                const data = await response.json();
+                
+                if (!data.success) {
+                    container.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-triangle"></i><p>Failed to load users.</p></div>';
+                    return;
+                }
+                
+                const filtered = data.users.filter(user =>
+                    (user.username && user.username.toLowerCase().includes(query.toLowerCase())) ||
+                    user.id.toString().includes(query) ||
+                    (user.agentCode && user.agentCode.toLowerCase().includes(query.toLowerCase()))
+                ).slice(0, 20); // Limit results
+                
+                if (filtered.length === 0) {
+                    container.innerHTML = '<div class="empty-state"><i class="fas fa-search"></i><p>No users found for your search.</p></div>';
+                    return;
+                }
+                
+                let html = '';
+                filtered.forEach(user => {
+                    const lastActive = getTimeAgo(new Date(user.lastActive || user.joinDate));
+                    const isOnline = new Date() - new Date(user.lastActive || user.joinDate) < 5 * 60 * 1000;
+                    
+                    html += `
+                        <div class="transaction-item">
+                            <div class="transaction-info">
+                                <div class="transaction-title">
+                                    <i class="fas fa-user ${isOnline ? 'text-success' : 'text-muted'}"></i>
+                                    ${user.username || 'No username'}
+                                    ${user.isAgent ? '<span class="transaction-status status-approved" style="background: rgba(139, 92, 246, 0.1); color: #8b5cf6;">Agent</span>' : ''}
+                                    ${isOnline ? '<span class="transaction-status status-approved">Online</span>' : ''}
+                                </div>
+                                <div class="transaction-meta">
+                                    <span><i class="fas fa-id-card"></i> ID: ${user.id}</span>
+                                    <span><i class="fas fa-wallet"></i> ${user.balance} ETB</span>
+                                    <span><i class="far fa-clock"></i> ${lastActive}</span>
+                                    <span><i class="fas fa-calendar"></i> ${new Date(user.joinDate).toLocaleDateString()}</span>
+                                </div>
+                            </div>
+                            <div class="transaction-actions">
+                                <button class="btn-action btn-secondary" onclick="viewUserDetails('${user.id}')" style="padding: 8px 16px;">
+                                    <i class="fas fa-eye"></i> View
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                container.innerHTML = html;
+                
+            } catch (error) {
+                console.error('Error searching users:', error);
+                container.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-triangle"></i><p>Search failed. Please try again.</p></div>';
+            }
+        }
+
+        async function loadAllTransactions() {
+            const container = document.getElementById('allTransactions');
+            container.innerHTML = '<div class="empty-state"><i class="fas fa-spinner fa-spin"></i><p>Loading all transactions...</p></div>';
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/admin/deposits?limit=30`);
+                const data = await response.json();
+                
+                if (!data.success || data.deposits.length === 0) {
+                    container.innerHTML = '<div class="empty-state"><i class="fas fa-exchange-alt"></i><p>No transactions to display.</p></div>';
+                    return;
+                }
+                
+                let html = '';
+                data.deposits.forEach(deposit => {
+                    const timeAgo = getTimeAgo(new Date(deposit.date));
+                    const statusClass = deposit.status === 'approved' ? 'status-approved' :
+                                      deposit.status === 'pending' ? 'status-pending' : 'status-rejected';
+                    const statusText = deposit.status.charAt(0).toUpperCase() + deposit.status.slice(1);
+                    
+                    html += `
+                        <div class="transaction-item">
+                            <div class="transaction-info">
+                                <div class="transaction-title">
+                                    <i class="fas fa-${deposit.method.includes('telebirr') ? 'mobile-alt' : 'university'}"></i>
+                                    ${deposit.user?.username || deposit.username || 'Unknown'}
+                                    <span class="transaction-status ${statusClass}">${statusText}</span>
+                                    ${deposit.autoParsed ? '<span class="transaction-status status-approved" style="background: rgba(16, 185, 129, 0.1); color: #10b981;">Auto</span>' : ''}
+                                </div>
+                                <div class="transaction-meta">
+                                    <span><i class="far fa-clock"></i> ${timeAgo}</span>
+                                    <span><i class="fas fa-fingerprint"></i> ${deposit.transactionId || 'Manual'}</span>
+                                    <span><i class="fas fa-money-bill-wave"></i> ${deposit.method}</span>
+                                </div>
+                            </div>
+                            <div class="transaction-amount ${deposit.status === 'approved' ? 'text-success' : deposit.status === 'pending' ? 'text-warning' : 'text-danger'}">
+                                ${deposit.status === 'rejected' ? '✗' : '+'}${deposit.amount || '0'} ETB
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                container.innerHTML = html;
+                
+            } catch (error) {
+                console.error('Error loading transactions:', error);
+                container.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-triangle"></i><p>Failed to load transactions.</p></div>';
+            }
+        }
+
+        // ========== MODAL FUNCTIONS ==========
+        function showSMSModal(deposit) {
+            document.getElementById('modalUser').textContent = deposit.username || 'Unknown';
+            document.getElementById('modalAmount').textContent = deposit.amount;
+            document.getElementById('modalTxnId').textContent = deposit.transactionId || 'Not available';
+            document.getElementById('modalTime').textContent = new Date(deposit.date).toLocaleString();
+            document.getElementById('modalSmsText').textContent = deposit.smsText || 'No SMS text available';
+            
+            document.getElementById('smsModal').style.display = 'flex';
+        }
+
+        function closeModal() {
+            document.getElementById('smsModal').style.display = 'none';
+        }
+
+        function showApproveModal(depositId) {
+            const deposit = pendingManualDeposits.find(d => d.id === depositId);
+            if (!deposit) {
+                showNotification('Deposit not found', 'danger');
+                return;
+            }
+            
+            currentModalDeposit = deposit;
+            document.getElementById('approveUser').textContent = deposit.username || 'Unknown';
+            document.getElementById('approveDate').textContent = new Date(deposit.date).toLocaleString();
+            document.getElementById('approveAmount').value = '50'; // Default amount
+            document.getElementById('approveNotes').value = '';
+            
+            document.getElementById('approveModal').style.display = 'flex';
+        }
+
+        function closeApproveModal() {
+            document.getElementById('approveModal').style.display = 'none';
+            currentModalDeposit = null;
+        }
+
+        async function confirmManualApprove() {
+            if (!currentModalDeposit) return;
+            
+            const amount = document.getElementById('approveAmount').value;
+            const notes = document.getElementById('approveNotes').value;
+            
+            if (!amount || parseFloat(amount) < 10) {
+                showNotification('Please enter a valid amount (min 10 ETB)', 'warning');
                 return;
             }
             
             try {
-                const response = await fetch('/api/admin/approve', {
+                const response = await fetch(`${API_BASE}/api/admin/deposit/${currentModalDeposit.id}/approve`, {
                     method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
                     body: JSON.stringify({
-                        depositId: depositId,
-                        amount: parseFloat(amount)
+                        amount: parseFloat(amount),
+                        notes: notes
                     })
                 });
                 
-                const data = await response.json();
-                if (data.success) {
-                    alert('Deposit approved! Balance added to user.');
-                    loadDeposits();
+                const result = await response.json();
+                
+                if (result.success) {
+                    showNotification(`✅ Approved! User received ${result.approvedAmount} ETB`, 'success');
+                    closeApproveModal();
+                    loadPendingManual();
+                    loadDashboardData(); // Refresh stats
                 } else {
-                    alert('Error: ' + data.error);
+                    showNotification(`❌ Failed: ${result.error}`, 'danger');
                 }
             } catch (error) {
-                alert('Network error');
+                showNotification('❌ Network error: ' + error.message, 'danger');
             }
         }
-        
-        // Reject deposit
-        async function rejectDeposit(depositId) {
-            if (!confirm('Reject this deposit?')) return;
+
+        // ========== UTILITY FUNCTIONS ==========
+        function getTimeAgo(date) {
+            const seconds = Math.floor((new Date() - date) / 1000);
             
-            try {
-                const response = await fetch('/api/admin/reject', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({depositId: depositId})
-                });
-                
-                alert('Deposit rejected');
-                loadDeposits();
-            } catch (error) {
-                alert('Error rejecting deposit');
-            }
+            if (seconds < 60) return 'just now';
+            if (seconds < 3600) return Math.floor(seconds / 60) + ' minutes ago';
+            if (seconds < 86400) return Math.floor(seconds / 3600) + ' hours ago';
+            return Math.floor(seconds / 86400) + ' days ago';
         }
-        
-        // Load all users
-        async function loadUsers() {
-            try {
-                const response = await fetch('/api/admin/users');
-                const data = await response.json();
-                
-                // Update stats
-                document.getElementById('totalUsers').textContent = data.users.length;
-                
-                const totalBalance = data.users.reduce((sum, user) => sum + user.balance, 0);
-                document.getElementById('totalBalance').textContent = totalBalance + ' ETB';
-                
-                // Display users
-                const usersList = document.getElementById('usersList');
-                usersList.innerHTML = '';
-                
-                data.users.forEach(user => {
-                    const userEl = document.createElement('div');
-                    userEl.className = 'deposit-item';
-                    userEl.innerHTML = `
-                        <div><strong>ID:</strong> ${user.id}</div>
-                        <div><strong>Username:</strong> ${user.username}</div>
-                        <div><strong>Balance:</strong> ${user.balance} ETB</div>
-                        <div><strong>Registered:</strong> ${user.registered ? '✅' : '❌'}</div>
-                        <button class="btn" onclick="editBalance('${user.id}', ${user.balance})">EDIT BALANCE</button>
-                    `;
-                    usersList.appendChild(userEl);
-                });
-            } catch (error) {
-                console.error('Error loading users:', error);
-            }
-        }
-        
-        // Edit user balance
-        async function editBalance(userId, currentBalance) {
-            const newBalance = prompt('Enter new balance:', currentBalance);
+
+        function showNotification(message, type = 'info') {
+            // Remove existing notification
+            const existing = document.querySelector('.notification-toast');
+            if (existing) existing.remove();
             
-            if (newBalance && !isNaN(newBalance)) {
-                try {
-                    const response = await fetch('/api/admin/update-balance', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({
-                            userId: userId,
-                            balance: parseFloat(newBalance)
-                        })
-                    });
-                    
-                    alert('Balance updated!');
-                    loadUsers();
-                } catch (error) {
-                    alert('Error updating balance');
+            // Create notification
+            const notification = document.createElement('div');
+            notification.className = `notification-toast`;
+            notification.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                padding: 15px 25px;
+                background: ${type === 'success' ? '#10b981' : type === 'danger' ? '#ef4444' : type === 'warning' ? '#f59e0b' : '#3b82f6'};
+                color: white;
+                border-radius: 8px;
+                box-shadow: var(--shadow-lg);
+                z-index: 9999;
+                animation: slideInRight 0.3s ease-out;
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                max-width: 400px;
+            `;
+            
+            const icon = type === 'success' ? 'fa-check-circle' :
+                        type === 'danger' ? 'fa-exclamation-circle' :
+                        type === 'warning' ? 'fa-exclamation-triangle' : 'fa-info-circle';
+            
+            notification.innerHTML = `
+                <i class="fas ${icon}"></i>
+                <span>${message}</span>
+            `;
+            
+            document.body.appendChild(notification);
+            
+            // Auto remove after 4 seconds
+            setTimeout(() => {
+                notification.style.animation = 'slideOutRight 0.3s ease-out';
+                setTimeout(() => notification.remove(), 300);
+            }, 4000);
+            
+            // Add CSS animations
+            if (!document.querySelector('#notification-styles')) {
+                const style = document.createElement('style');
+                style.id = 'notification-styles';
+                style.textContent = `
+                    @keyframes slideInRight {
+                        from { transform: translateX(100%); opacity: 0; }
+                        to { transform: translateX(0); opacity: 1; }
+                    }
+                    @keyframes slideOutRight {
+                        from { transform: translateX(0); opacity: 1; }
+                        to { transform: translateX(100%); opacity: 0; }
+                    }
+                `;
+                document.head.appendChild(style);
+            }
+        }
+
+        function refreshData() {
+            loadDashboardData();
+            loadInstantDeposits();
+            showNotification('Data refreshed successfully', 'success');
+        }
+
+        function refreshAllData() {
+            loadDashboardData();
+            loadInstantDeposits();
+            loadPendingManual();
+            loadAllTransactions();
+            showNotification('All data refreshed', 'success');
+        }
+
+        function sendSystemNotification() {
+            showNotification('Test notification sent to Telegram', 'info');
+            // In a real app, you would call your API endpoint here
+        }
+
+        function openTelegramBot() {
+            window.open('https://t.me/ShebaBingoBot', '_blank');
+        }
+
+        function viewSystemHealth() {
+            fetch(`${API_BASE}/api/admin/health`)
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) {
+                        const msg = `System: ${data.status}\nUptime: ${Math.floor(data.uptime / 60)} minutes\nInstant Deposit Rate: ${data.depositStats.autoApprovalRate}`;
+                        showNotification(msg, 'info');
+                    }
+                })
+                .catch(error => {
+                    showNotification('Failed to get system health', 'danger');
+                });
+        }
+
+        function exportData() {
+            showNotification('Export feature coming soon!', 'info');
+        }
+
+        function clearCache() {
+            localStorage.removeItem('lastLogin');
+            showNotification('Cache cleared successfully', 'success');
+        }
+
+        function startAutoRefresh() {
+            // Refresh dashboard every 30 seconds
+            setInterval(() => {
+                loadDashboardData();
+            }, 30000);
+        }
+
+        // Initialize dashboard when DOM is loaded
+        document.addEventListener('DOMContentLoaded', function() {
+            // Add keyboard shortcuts
+            document.addEventListener('keydown', function(e) {
+                if (e.ctrlKey && e.key === 'r') {
+                    e.preventDefault();
+                    refreshAllData();
                 }
+                if (e.key === 'Escape') {
+                    closeModal();
+                    closeApproveModal();
+                }
+            });
+            
+            // Auto-focus password field on login screen
+            if (document.getElementById('adminPassword')) {
+                document.getElementById('adminPassword').focus();
             }
-        }
-        
-        // Logout
-        function logout() {
-            adminToken = null;
-            document.getElementById('loginScreen').style.display = 'block';
-            document.getElementById('adminPanel').style.display = 'none';
-        }
-        
-        // Auto-focus password field
-        document.getElementById('password').focus();
+        });
     </script>
 </body>
 </html>
