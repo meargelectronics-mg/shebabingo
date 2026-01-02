@@ -818,6 +818,54 @@ app.get('/api/health', (req, res) => {
         timestamp: new Date().toISOString()
     });
 });
+// Add this at the end of your server.js, before app.listen
+const fixAllBotSettings = async () => {
+    try {
+        console.log('='.repeat(60));
+        console.log('🔧 FIXING ALL BOT SETTINGS');
+        console.log('='.repeat(60));
+        
+        // 1. Remove old menu button
+        await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/setChatMenuButton`, {
+            menu_button: {}
+        });
+        console.log('✅ Old menu button removed');
+        
+        // 2. Set new menu button
+        await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/setChatMenuButton`, {
+            menu_button: {
+                type: "web_app",
+                text: "🎮 Play Sheba Bingo",
+                web_app: {
+                    url: `${RENDER_URL}/?user=menu&tgWebApp=true`
+                }
+            }
+        });
+        console.log('✅ New menu button set:', `${RENDER_URL}/?user=menu`);
+        
+        // 3. Update bot commands
+        await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/setMyCommands`, {
+            commands: [
+                { command: "start", description: "🚀 Start bot" },
+                { command: "play", description: "🎮 Play game" },
+                { command: "deposit", description: "💰 Deposit money" },
+                { command: "balance", description: "📊 Check balance" },
+                { command: "help", description: "❓ Get help" }
+            ]
+        });
+        console.log('✅ Bot commands updated');
+        
+        console.log('='.repeat(60));
+        console.log('✅ ALL BOT SETTINGS FIXED');
+        console.log('='.repeat(60));
+        
+    } catch (error) {
+        console.error('Error fixing bot settings:', error.message);
+    }
+};
+
+// Call it when server starts
+fixAllBotSettings();
 
 // ==================== START SERVER ====================
 const PORT = process.env.PORT || 3000;
@@ -833,4 +881,5 @@ app.listen(PORT, '0.0.0.0', async () => {
     // Setup Telegram webhook
     await setupTelegramWebhook();
 });
+
 
