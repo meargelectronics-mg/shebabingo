@@ -9,7 +9,7 @@ app.use(express.urlencoded({ extended: true }));
 
 // ==================== CONFIGURATION ====================
 const BOT_TOKEN = process.env.BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN || '8274404754:AAGnc1QeczvHP51dIryK2sK-E8aUUyiO6Zc';
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'shebabingo@23';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'Mg@sheba23';
 const RENDER_URL = process.env.RENDER_URL || 'https://shebabingo-bot.onrender.com';
 const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID || '6297094384';
 
@@ -238,7 +238,7 @@ app.post('/telegram-webhook', async (req, res) => {
                     fileId: photo.file_id,
                     status: 'pending_manual',
                     date: new Date().toISOString(),
-                    method: 'telebirr_manual',
+                    method: '_manual',
                     type: 'manual_screenshot'
                 });
                 saveDeposits();
@@ -248,7 +248,7 @@ app.post('/telegram-webhook', async (req, res) => {
                     `✅ Admin will review and add balance.\n` +
                     `⏰ Processing time: 5-10 minutes\n\n` +
                     `💡 *For INSTANT processing* (under 1 minute):\n` +
-                    `1. Use TeleBirr/CBE\n` +
+                    `1. Use /CBE\n` +
                     `2. Copy the confirmation SMS\n` +
                     `3. Paste the SMS text here\n\n` +
                     `💰 Your current balance: *${user.balance} ETB*`
@@ -631,7 +631,7 @@ async function handleCallbackQuery(callback) {
                     `📱 *TeleBirr INSTANT Deposit*\n\n` +
                     `📍 *Send money to this account:*\n` +
                     `➤ **Account:**0914834341\n` +
-                    `➤ **Name:** SHEBA BINGO\n\n` +
+                    `➤ **Name:** Mearg Alemayoh\n\n` +
                     `*CRITICAL INSTRUCTIONS FOR INSTANT CREDIT:*\n` +
                     `1️⃣ Transfer any amount (Min: 10 ETB).\n` +
                     `2️⃣ Wait for the SMS from TeleBirr.\n` +
@@ -649,7 +649,7 @@ async function handleCallbackQuery(callback) {
                     `🏦 *CBE Birr INSTANT Deposit*\n\n` +
                     `📍 *Send money to this account:*\n` +
                     `➤ **Account:** 1000***********\n` +
-                    `➤ **Name:** SHEBA BINGO\n\n` +
+                    `➤ **Name:** Mearig Alemayehu\n\n` +
                     `*CRITICAL INSTRUCTIONS FOR INSTANT CREDIT:*\n` +
                     `1️⃣ Transfer any amount (Min: 10 ETB).\n` +
                     `2️⃣ Wait for the SMS from CBE.\n` +
@@ -665,7 +665,7 @@ async function handleCallbackQuery(callback) {
                     `🏛️ *Bank of Abyssinia INSTANT Deposit*\n\n` +
                     `📍 *Send money to this account:*\n` +
                     `➤ **Account:** 65******\n` +
-                    `➤ **Name:** SHEBA BINGO\n\n` +
+                    `➤ **Name:** Mearig Alemayehu\n\n` +
                     `*Follow these steps for instant credit:*\n` +
                     `1️⃣ Transfer any amount (Min: 10 ETB).\n` +
                     `2️⃣ Wait for the confirmation SMS.\n` +
@@ -1403,3 +1403,4 @@ app.listen(PORT, '0.0.0.0', async () => {
     console.log('✅ Manual deposits still supported as fallback');
     console.log('='.repeat(60));
 });
+
