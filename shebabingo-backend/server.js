@@ -275,18 +275,32 @@ app.post('/telegram-webhook', async (req, res) => {
                             break;
                             
                         case '/play':
-                            await sendTelegramMessage(chatId,
-                                `🎮 *PLAY BINGO*\n\n` +
-                                `💰 Balance: *${user.balance} ETB*\n\n` +
-                                `Click below to start playing:`,
-                                {
-                                    inline_keyboard: [[
-                                        { text: "🎯 START GAME", url: `${RENDER_URL}/?user=${userId}` }  // ✅ CORRECT: Uses / not /game.html
-                                    ]]
-                                }
-                            );
-                            break;
-                            
+    console.log('🎮 ========== /play COMMAND START ==========');
+    console.log(`👤 User ID: ${userId}`);
+    console.log(`👤 Username: ${user.username}`);
+    
+    // ✅ ABSOLUTELY CORRECT - NO game.html
+    const gameUrl = `${RENDER_URL}/?user=${userId}&play=true&t=${Date.now()}`;
+    
+    console.log(`✅ Generated URL: ${gameUrl}`);
+    console.log(`❌ Contains game.html? ${gameUrl.includes('game.html')}`);
+    console.log('========== /play COMMAND END ==========');
+    
+    await sendTelegramMessage(chatId,
+        `🎮 *PLAY SHEBA BINGO* 🎰\n\n` +
+        `💰 Balance: *${user.balance} ETB*\n\n` +
+        `⬇️ *CLICK THE BUTTON BELOW* ⬇️\n` +
+        `_Game opens in your browser_`,
+        {
+            inline_keyboard: [[
+                { 
+                    text: `▶️ OPEN GAME`,
+                    url: gameUrl  // ✅ CORRECT URL
+                }
+            ]]
+        }
+    );
+    break;    
                         case '/help':
                             await sendTelegramMessage(chatId,
                                 `📞 *SUPPORT*\n\n` +
@@ -801,6 +815,7 @@ app.get('/api/health', (req, res) => {
         status: 'healthy',
         service: 'Sheba Bingo',
         version: '1.0.0',
+        url: RENDER_URL,
         users: Object.keys(users).length,
         pendingDeposits: deposits.filter(d => d.status === 'pending').length,
         totalBalance: Object.values(users).reduce((sum, user) => sum + user.balance, 0),
@@ -822,4 +837,5 @@ app.listen(PORT, '0.0.0.0', () => {
     console.log(`📊 Health: ${RENDER_URL}/api/health`);
     console.log('='.repeat(50));
 });
+
 
