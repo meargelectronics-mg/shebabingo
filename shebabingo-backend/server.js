@@ -273,7 +273,7 @@ case '/play':
             inline_keyboard: [[
                 { 
                     text: `▶️ PLAY NOW`,
-                    web_app: { url: gameUrl }  // ✅ KEY CHANGE: Use web_app instead of url
+                    web_app: {url: `${RENDER_URL}/?user=${userId}&from=play_command`}  // ✅ KEY CHANGE: Use web_app instead of url
                 }
             ]]
         }
@@ -379,7 +379,9 @@ async function handleCallbackQuery(callback) {
                         inline_keyboard: [[
                             { 
                                 text: "🎯 START GAME",
-                                url: gameUrl
+                               web_app: {  // ✅ CHANGE: web_app instead of url
+                        url: `${RENDER_URL}/?user=${userId}&from=play_command`
+                    }
                             }
                         ]]
                     }
@@ -881,5 +883,6 @@ app.listen(PORT, '0.0.0.0', async () => {
     // Setup Telegram webhook
     await setupTelegramWebhook();
 });
+
 
 
