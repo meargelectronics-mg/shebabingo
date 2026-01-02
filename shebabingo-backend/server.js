@@ -250,7 +250,9 @@ app.post('/telegram-webhook', async (req, res) => {
                                 `🎮 To play: Click PLAY button`,
                                 {
                                     inline_keyboard: [[
-                                        { text: "🎮 PLAY", callback_data: "play" },
+                                        { text: "🎮 PLAY", web_app: { url: `${RENDER_URL}/?user=${userId}` }  // ✅ web_app
+                                            },
+                                        
                                         { text: "💰 DEPOSIT", callback_data: "deposit" }
                                     ]]
                                 }
@@ -557,7 +559,8 @@ async function handleCallbackQuery(callback) {
 function getMainMenuKeyboard() {
     return {
         inline_keyboard: [
-            [{ text: "🎮 PLAY", callback_data: "play" }],
+            [{ text: "🎮 PLAY", text: "🎮 PLAY", 
+                    web_app: { url: `${RENDER_URL}/?user=${userId}` }  // ✅ web_app }],
             [{ text: "💰 DEPOSIT", callback_data: "deposit" }, { text: "💰 WITHDRAW", callback_data: "withdraw" }],
             [{ text: "📤 TRANSFER", callback_data: "transfer" }, { text: "💰 BALANCE", callback_data: "balance" }],
             [{ text: "📖 INSTRUCTIONS", callback_data: "instructions" }, { text: "📞 SUPPORT", callback_data: "support" }],
@@ -574,7 +577,7 @@ async function showMainMenu(chatId, user) {
         `💰 Balance: *${user.balance} ETB*\n` +
         `👤 Status: ${user.registered ? 'Registered ✅' : 'Not Registered'}\n\n` +
         `Choose option:`,
-        getMainMenuKeyboard()
+        getMainMenuKeyboard(user.id)  // ✅ Pass userId
     );
 }
 
@@ -883,6 +886,7 @@ app.listen(PORT, '0.0.0.0', async () => {
     // Setup Telegram webhook
     await setupTelegramWebhook();
 });
+
 
 
 
