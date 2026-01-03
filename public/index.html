@@ -1657,25 +1657,29 @@ function initializeApp() {
 }
 // NEW FUNCTION: Join multiplayer game
 async function joinMultiplayerGame() {
+    console.log("🎮 Checking multiplayer game status...");
+    
     // 1. FIRST check balance
     if (gameState.currentPlayer.balance < CONFIG.BET_AMOUNT) {
-        alert(`❌ Insufficient balance! You need ${CONFIG.BET_AMOUNT} ETB to play.`);
-        goToDeposit();
+        console.log("❌ Insufficient balance");
+        // Don't alert here - let openRegistrationPopup handle it
         return false;
     }
     
-    // 2. Show the registration popup (YOUR EXISTING POPUP)
-    openRegistrationPopup();
+    // 2. Check if there are active games available
+    const gameAvailable = await checkActiveGames();
     
-    // 3. Start the selection timer
-    startSelectionTimer();
+    if (gameAvailable) {
+        console.log("✅ Active game found - enabling selection");
+        return true;
+    } else {
+        console.log("⏳ No active game - waiting...");
+        return false;
+    }
     
-    // 4. Check if there are active games available
-    await checkActiveGames();
-    
-    return true;
-}
-// NEW FUNCTION: Check for active games
+    // NOTE: REMOVE the openRegistrationPopup() call from here!
+    // Let startBoardSelection() handle showing the popup
+}// NEW FUNCTION: Check for active games
 async function checkActiveGames() {
     try {
         const response = await fetch('/api/game/active');
@@ -3874,26 +3878,36 @@ function initializeTelegramMultiplayer() {
         // Registration Popup Functions
         // REPLACE THE BOARD SELECTION FUNCTIONS:
 
+// UPDATED: openRegistrationPopup function
 function openRegistrationPopup() {
-    // Instead of showing board selection immediately, check if game is ready
+    console.log("🎮 Opening registration popup...");
     
-    // Check if player has enough balance FIRST
-    if (gameState.currentPlayer.balance < CONFIG.BET_AMOUNT) {
-        alert(`❌ Insufficient balance! Minimum ${CONFIG.BET_AMOUNT} ETB needed.`);
-        goToDeposit();
+    // Get the popup element
+    const popup = document.getElementById('registrationPopup');
+    if (!popup) {
+        console.error("❌ Popup element not found!");
         return;
     }
     
-    // Join multiplayer game
-    joinMultiplayerGame().then(success => {
-        if (success) {
-            // Hide the popup since we're joining multiplayer
-            closeRegistrationPopup();
-        } else {
-            // Show wait message
-            showWaitForNextGameMessage();
-        }
-    });
+    // ✅✅✅ MAKE THE POPUP VISIBLE
+    popup.style.display = 'flex';
+    popup.style.opacity = '1';
+    popup.style.visibility = 'visible';
+    popup.style.zIndex = '9999';
+    
+    // Reset selection
+    gameState.selectedBoards.clear();
+    updateSelectionInfo();
+    validateForm();
+    
+    // Generate board options
+    generateBoardOptions();
+    
+    // Reset timer
+    gameState.selectionTimer = CONFIG.SELECTION_TIME;
+    updateTimerDisplay();
+    
+    console.log("✅ Popup should be visible now");
 }
 
         function closeRegistrationPopup() {
@@ -5276,4 +5290,5 @@ function markNumberOnPlayerBoards(number, callElement) {
     </script>
 </body>
 </html>
+
 
