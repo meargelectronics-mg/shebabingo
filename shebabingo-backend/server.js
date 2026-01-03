@@ -138,12 +138,9 @@ function getUniqueNumber(existing, min, max) {
     return num;
 }
 
-function checkBoardForBingo(board, markedNumbers, calledNumbers) {
-    // Convert called numbers to just numbers (remove B, I, N, G, O)
-    const calledNums = calledNumbers.map(cn => {
-        const num = cn.substring(1);
-        return num === 'FREE' ? 'FREE' : parseInt(num);
-    });
+function checkBoardForBingo(boardData, markedNumbers, calledNumbers) {
+    // Convert called numbers to just numbers
+    const calledNums = calledNumbers.map(cn => parseInt(cn.substring(1)));
     
     // Check rows
     for (let i = 0; i < 5; i++) {
@@ -1315,7 +1312,7 @@ async function sendTelegramMessage(chatId, text, replyMarkup = null) {
 
 // ==================== MULTIPLAYER GAME API ENDPOINTS ====================
 app.post('/api/game/join', async (req, res) => {
-    const { userId } = req.body;
+    const { userId, boardNumbers, boardCount } = req.body;
     
     if (!users[userId]) {
         return res.json({ success: false, error: 'User not found' });
@@ -1323,13 +1320,25 @@ app.post('/api/game/join', async (req, res) => {
     
     const user = users[userId];
     
-    // Check balance
-    if (user.balance < GAME_CONFIG.BOARD_PRICE) {
+    // Calculate total cost based on number of boards (1-3)
+    const selectedBoardCount = boardCount || 1;
+    const totalCost = selectedBoardCount * GAME_CONFIG.BOARD_PRICE;
+    
+    // Check balance for ALL boards
+    if (user.balance < totalCost) {
         return res.json({ 
             success: false, 
             error: 'Insufficient balance',
-            required: GAME_CONFIG.BOARD_PRICE,
+            required: totalCost,
             current: user.balance
+        });
+    }
+    
+    // Validate board count (1-3)
+    if (selectedBoardCount < 1 || selectedBoardCount > 3) {
+        return res.json({ 
+            success: false, 
+            error: 'Invalid board count. Choose 1-3 boards.' 
         });
     }
     
@@ -1351,23 +1360,37 @@ app.post('/api/game/join', async (req, res) => {
         });
     }
     
-    // Add player to game
+    // Generate boards for player (1-3 boards)
+    const playerBoards = [];
+    const boardsToUse = boardNumbers || [];
+    
+    for (let i = 0; i < selectedBoardCount; i++) {
+        const boardNumber = boardsToUse[i] || generateBoardNumber();
+        
+        playerBoards.push({
+            boardNumber: boardNumber,
+            boardData: generateBingoBoard(),
+            markedNumbers: [],
+            hasBingo: false,
+            boardId: `B${i + 1}`
+        });
+    }
+    
+    // Add player to game with MULTIPLE BOARDS
     game.players[userId] = {
         id: userId,
         username: user.username,
-        board: generateBingoBoard(),
-        markedNumbers: [],
+        boards: playerBoards,  // ← NOW AN ARRAY OF BOARDS
         hasBingo: false,
-        joinedAt: new Date().toISOString(),
-        boardId: `B${Object.keys(game.players).length + 1}`
+        joinedAt: new Date().toISOString()
     };
     
-    // Deduct balance
-    user.balance -= GAME_CONFIG.BOARD_PRICE;
-    user.totalWagered = (user.totalWagered || 0) + GAME_CONFIG.BOARD_PRICE;
+    // Deduct balance for ALL boards
+    user.balance -= totalCost;
+    user.totalWagered = (user.totalWagered || 0) + totalCost;
     
-    // Add to prize pool
-    game.prizePool += GAME_CONFIG.BOARD_PRICE * (GAME_CONFIG.PRIZE_POOL_PERCENT / 100);
+    // Add to prize pool (for all boards)
+    game.prizePool += totalCost * (GAME_CONFIG.PRIZE_POOL_PERCENT / 100);
     
     saveUsers();
     saveActiveGames();
@@ -1377,15 +1400,19 @@ app.post('/api/game/join', async (req, res) => {
     games.push({
         id: gameRecordId,
         userId: userId,
-        amount: GAME_CONFIG.BOARD_PRICE,
+        amount: totalCost,
         date: new Date().toISOString(),
         type: 'join',
-        gameId: gameId
+        gameId: gameId,
+        boardCount: selectedBoardCount
     });
     saveGames();
     
     // Notify all players about new player
-    await notifyGamePlayers(gameId, `🆕 ${user.username} joined the game! Players: ${Object.keys(game.players).length}/${GAME_CONFIG.MAX_PLAYERS}`);
+    await notifyGamePlayers(gameId, 
+        `🆕 ${user.username} joined with ${selectedBoardCount} board(s)! ` +
+        `Players: ${Object.keys(game.players).length}/${GAME_CONFIG.MAX_PLAYERS}`
+    );
     
     // Start game if enough players
     if (Object.keys(game.players).length >= GAME_CONFIG.MIN_PLAYERS && game.status === 'waiting') {
@@ -1395,15 +1422,21 @@ app.post('/api/game/join', async (req, res) => {
     res.json({
         success: true,
         gameId: gameId,
-        board: game.players[userId].board,
+        boards: playerBoards,  // ← Send ALL boards back
+        board: playerBoards[0], // ← Keep for backward compatibility
         players: Object.keys(game.players).length,
         requiredPlayers: GAME_CONFIG.MIN_PLAYERS,
         gameStatus: game.status,
         prizePool: game.prizePool,
-        yourBalance: user.balance
+        yourBalance: user.balance,
+        boardCount: selectedBoardCount
     });
 });
 
+// ADD THIS FUNCTION RIGHT AFTER THE /api/game/join ENDPOINT:
+function generateBoardNumber() {
+    return Math.floor(Math.random() * 400) + 1; // Generates 1-400
+}
 app.get('/api/game/active', (req, res) => {
     const active = Object.values(activeGames).filter(game => 
         game.status === 'waiting' || game.status === 'active'
@@ -2016,3 +2049,4 @@ app.listen(PORT, '0.0.0.0', async () => {
     console.log('✅ Admin panel for monitoring at /admin.html');
     console.log('='.repeat(60));
 });
+
