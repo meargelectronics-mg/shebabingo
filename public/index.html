@@ -1631,10 +1631,7 @@ function initializeApp() {
     initializeMultiplayer();
      initializeTelegramMultiplayer();
      setupTelegramForMultiplayer();
-     
 
-
-     
     // Initialize support buttons
     supportManager.init();
     
@@ -1717,13 +1714,6 @@ function startGamePolling() {
     multiplayerGame.gameInterval = setInterval(() => {
         updateMultiplayerGame();
     }, 2000);
-    
-    // Also update display every 1 second for smooth UI
-    setInterval(() => {
-        if (multiplayerGame.gameId) {
-            updateMultiplayerDisplay();
-        }
-    }, 1000);
 }
 
 // NEW FUNCTION: Update multiplayer game state
@@ -1735,168 +1725,26 @@ async function updateMultiplayerGame() {
         const data = await response.json();
         
         if (data.success) {
-            // Update game state from server
             updateGameFromServer(data);
-            
-            // Update the display
-            updateMultiplayerDisplay();
         }
     } catch (error) {
         console.error('Update game error:', error);
     }
 }
 
-// ==================== REAL-TIME MULTIPLAYER UPDATES ====================
-
-function updateMultiplayerDisplay() {
-    if (!multiplayerGame.gameId) return;
-    
-    const t = TRANSLATIONS[gameState.currentLanguage];
-    
-    // ========== UPDATE DASHBOARD WITH CORRECT VALUES ==========
-    
-     // 1. Update players count
-    elements.playersValue.textContent = multiplayerGame.currentPlayerCount;
-    
-    // 2. Calculate and show prize pool
-    calculatePrizePool(); // ← This will update prize display
-    
-    // 3. Calculate and show total bet for reference
-    const totalBet = multiplayerGame.currentPlayerCount * CONFIG.BET_AMOUNT;
-    
-    // 4. Update called numbers count
-    elements.calledCount.textContent = multiplayerGame.calledNumbers.length;
-    
-    // 5. Update status with player info
-    let statusText = '';
-    let statusClass = '';
-    
-    switch(multiplayerGame.status) {
-        case 'waiting':
-            const needed = multiplayerGame.requiredPlayers - multiplayerGame.currentPlayerCount;
-            statusText = `${t.waiting} (${multiplayerGame.currentPlayerCount}/${multiplayerGame.requiredPlayers})`;
-            if (needed > 0) {
-                statusText += ` - Need ${needed} more`;
-            }
-            statusClass = 'game-waiting';
-            break;
-            
-        case 'active':
-            statusText = `🎮 ${t.started} - ${multiplayerGame.currentPlayerCount} ${t.players}`;
-            statusClass = 'game-started';
-            
-            // Show prize breakdown in console
-            console.log(`📊 Live Game: ${multiplayerGame.currentPlayerCount} players × ${CONFIG.BET_AMOUNT} ETB = ${totalBet} ETB total`);
-            console.log(`🏆 80% Prize Pool: ${multiplayerGame.prizePool} ETB`);
-            console.log(`🏦 20% Commission: ${totalBet - multiplayerGame.prizePool} ETB`);
-            break;
-            
-        case 'finished':
-            statusText = t.finished;
-            statusClass = 'game-finished';
-            break;
-            
-        default:
-            statusText = t.waiting;
-            statusClass = 'game-waiting';
-    }
-    
-    // Update game status display
-    elements.gameStatus.textContent = statusText;
-    elements.gameStatus.className = 'status-badge ' + statusClass;
-    
-    // If game is active, show live indicator
-    if (multiplayerGame.status === 'active') {
-        showLiveIndicator();
-    } else {
-        hideLiveIndicator();
-    }
-    
-    // Update called numbers list
-    updateCalledNumbersList();
-}
-
-// Show live game indicator
-function showLiveIndicator() {
-    let liveIndicator = document.getElementById('liveIndicator');
-    
-    if (!liveIndicator) {
-        liveIndicator = document.createElement('div');
-        liveIndicator.id = 'liveIndicator';
-        liveIndicator.style.cssText = `
-            position: absolute;
-            top: 5px;
-            right: 5px;
-            background: #e74c3c;
-            color: white;
-            font-size: 0.6rem;
-            font-weight: bold;
-            padding: 2px 6px;
-            border-radius: 10px;
-            animation: pulse 1.5s infinite;
-        `;
-        elements.gameStatus.style.position = 'relative';
-        elements.gameStatus.appendChild(liveIndicator);
-    }
-    
-    const t = TRANSLATIONS[gameState.currentLanguage];
-    liveIndicator.textContent = t.live || 'LIVE';
-}
-
-function hideLiveIndicator() {
-    const liveIndicator = document.getElementById('liveIndicator');
-    if (liveIndicator) {
-        liveIndicator.remove();
-    }
-}
-
-// Add pulse animation to CSS
-const style = document.createElement('style');
-style.textContent = `
-    @keyframes pulse {
-        0% { opacity: 1; }
-        50% { opacity: 0.5; }
-        100% { opacity: 1; }
-    }
-`;
-document.head.appendChild(style);
-
-// REPLACE THE OLD FUNCTION WITH THIS:
+// NEW FUNCTION: Update game from server data
 function updateGameFromServer(serverData) {
     const game = serverData.game;
     const player = serverData.player;
     
-    // Update multiplayer state
-    multiplayerGame.status = game.status || 'waiting';
-    multiplayerGame.calledNumbers = game.calledNumbers || [];
-    multiplayerGame.currentCall = game.currentCall || null;
+    // Update game state
+    multiplayerGame.status = game.status;
+    multiplayerGame.calledNumbers = game.calledNumbers;
+    multiplayerGame.currentCall = game.currentCall;
+    multiplayerGame.prizePool = game.prizePool;
+    multiplayerGame.currentPlayerCount = game.players;
     
-    // CORRECT PRIZE CALCULATION: 80% of total bets
-    // Server should send total prize pool (already calculated as 80%)
-    multiplayerGame.prizePool = game.prizePool || 0;
-    
-    multiplayerGame.currentPlayerCount = game.players || 0;
-    multiplayerGame.requiredPlayers = game.requiredPlayers || 2;
-    
-    // Show calculation details in console
-    if (game.players > 0 && game.prizePool > 0) {
-        const totalBet = game.players * CONFIG.BET_AMOUNT;
-        const calculatedPrize = Math.floor(totalBet * 0.8);
-        console.log(`🎰 Prize Calculation: ${game.players} players × ${CONFIG.BET_AMOUNT} ETB = ${totalBet} ETB total bet`);
-        console.log(`💰 80% Prize Pool = ${calculatedPrize} ETB (Server: ${game.prizePool} ETB)`);
-    }
-    
-    // Update current call display
-    if (multiplayerGame.currentCall) {
-        const call = multiplayerGame.currentCall;
-        elements.currentLetter.textContent = call.charAt(0);
-        elements.currentNumber.textContent = call.substring(1);
-    } else {
-        elements.currentLetter.textContent = '-';
-        elements.currentNumber.textContent = '-';
-    }
-    
-    // Update player boards if available
+    // Update player boards
     if (player && player.board) {
         multiplayerGame.playerBoards = [{
             boardNumber: player.boardId || '1',
@@ -1906,8 +1754,8 @@ function updateGameFromServer(serverData) {
         }];
     }
     
-    // Update the display
-    updateMultiplayerDisplay();
+    // Update UI
+    updateGameUI();
 }
 
 // NEW FUNCTION: Update UI based on multiplayer state
@@ -3733,109 +3581,49 @@ function initializeTelegramMultiplayer() {
 }
 
         // Update all game statistics with proper balance display
-      function updateGameStats() {
-    // Update balance display
-    elements.balanceValue.textContent = gameState.currentPlayer.balance;
-    
-    // ========== MULTIPLAYER vs SOLO DISPLAY ==========
-    if (multiplayerGame.gameId && multiplayerGame.status !== 'waiting') {
-        // MULTIPLAYER: Show real player count and server prize
-        elements.playersValue.textContent = multiplayerGame.currentPlayerCount || 0;
-        elements.prizeValue.textContent = multiplayerGame.prizePool || gameState.totalPrizePool || 0;
-        
-        // Update called count from multiplayer
-        elements.calledCount.textContent = multiplayerGame.calledNumbers.length || gameState.calledNumbers.length;
-        
-    } else {
-        // SOLO MODE: Show bot counts
-        let totalBoards = 0;
-        gameState.activePlayers.forEach(player => {
-            totalBoards += player.boards.length;
-        });
-        elements.playersValue.textContent = totalBoards;
-        elements.prizeValue.textContent = gameState.totalPrizePool;
-        elements.calledCount.textContent = gameState.calledNumbers.length;
-    }
-    
-    console.log(`📊 Dashboard Updated: Players=${elements.playersValue.textContent}, Prize=${elements.prizeValue.textContent}`);
-}
+        function updateGameStats() {
+            // Update balance display immediately
+            elements.balanceValue.textContent = gameState.currentPlayer.balance;
+            elements.prizeValue.textContent = gameState.totalPrizePool;
+            
+            let totalBoards = 0;
+            gameState.activePlayers.forEach(player => {
+                totalBoards += player.boards.length;
+            });
+            elements.playersValue.textContent = totalBoards;
+            
+            elements.calledCount.textContent = gameState.calledNumbers.length;
+            
+            console.log(`📊 Stats Update: Balance: $${gameState.currentPlayer.balance}, Total Boards: ${totalBoards}, Prize: ${gameState.totalPrizePool}`);
+        }
 
-       function calculatePrizePool() {
-    let totalBoards = 0;
-    let totalPlayers = 0;
-    
-    // ========== CHECK IF IN MULTIPLAYER MODE ==========
-    if (multiplayerGame.gameId && multiplayerGame.status !== 'waiting') {
-        // MULTIPLAYER MODE: Use real player count from server
-        totalPlayers = multiplayerGame.currentPlayerCount || 0;
-        
-        // Each player has 1 board in multiplayer (for now)
-        totalBoards = totalPlayers;
-        
-        // Prize pool comes from server (already calculated as 80%)
-        const totalBet = totalPlayers * CONFIG.BET_AMOUNT;
-        const serverPrizePool = multiplayerGame.prizePool || 0;
-        const calculatedPrize = Math.floor(totalBet * 0.8);
-        
-        // Use server's prize pool if available, otherwise calculate
-        gameState.totalPrizePool = serverPrizePool > 0 ? serverPrizePool : calculatedPrize;
-        gameState.ownerCommission = totalBet - gameState.totalPrizePool;
-        
-        console.log(`🎯 MULTIPLAYER PRIZE CALCULATION:`);
-        console.log(`👥 Real Players: ${totalPlayers}`);
-        console.log(`📊 Total Boards: ${totalPlayers} (1 per player)`);
-        console.log(`💰 Bet per Board: ${CONFIG.BET_AMOUNT} ETB`);
-        console.log(`💵 Total Bet: ${totalPlayers} × ${CONFIG.BET_AMOUNT} = ${totalBet} ETB`);
-        console.log(`🏆 Prize Pool (80%): ${gameState.totalPrizePool} ETB`);
-        console.log(`🏦 Commission (20%): ${gameState.ownerCommission} ETB`);
-        
-    } else {
-        // SOLO MODE: Use bot players (your original code)
-        gameState.activePlayers.forEach(player => {
-            totalBoards += player.boards.length;
-        });
-        
-        const totalBet = totalBoards * CONFIG.BET_AMOUNT;
-        gameState.ownerCommission = Math.floor(totalBet * gameState.commissionRate);
-        gameState.totalPrizePool = totalBet - gameState.ownerCommission;
-        gameState.totalCommissionEarned += gameState.ownerCommission;
-        
-        console.log(`🎯 SOLO MODE PRIZE CALCULATION:`);
-        console.log(`📊 Total Boards: ${totalBoards}`);
-        console.log(`💰 Bet per Board: ${CONFIG.BET_AMOUNT}`);
-        console.log(`💵 Total Bet: ${totalBoards} × ${CONFIG.BET_AMOUNT} = ${totalBet}`);
-        console.log(`🏦 Owner Commission (20%): ${gameState.ownerCommission}`);
-        console.log(`🏆 Prize Pool (80%): ${gameState.totalPrizePool}`);
-    }
-    
-    // Update the dashboard display
-    updateGameStats();
-}
+        function calculatePrizePool() {
+            let totalBoards = 0;
+            gameState.activePlayers.forEach(player => {
+                totalBoards += player.boards.length;
+            });
+            
+            const totalBet = totalBoards * CONFIG.BET_AMOUNT;
+            gameState.ownerCommission = Math.floor(totalBet * gameState.commissionRate);
+            gameState.totalPrizePool = totalBet - gameState.ownerCommission;
+            gameState.totalCommissionEarned += gameState.ownerCommission;
+            
+            console.log(`🎯 PRIZE CALCULATION:`);
+            console.log(`📊 Total Boards: ${totalBoards}`);
+            console.log(`💰 Bet per Board: ${CONFIG.BET_AMOUNT}`);
+            console.log(`💵 Total Bet: ${totalBoards} × ${CONFIG.BET_AMOUNT} = ${totalBet}`);
+            console.log(`🏦 Owner Commission (20%): ${gameState.ownerCommission}`);
+            console.log(`🏆 Prize Pool (80%): ${gameState.totalPrizePool}`);
+            
+            updateGameStats();
+        }
 
         // Registration Popup Functions
-        // REPLACE THE BOARD SELECTION FUNCTIONS:
-
-function openRegistrationPopup() {
-    // Instead of showing board selection immediately, check if game is ready
-    
-    // Check if player has enough balance FIRST
-    if (gameState.currentPlayer.balance < CONFIG.BET_AMOUNT) {
-        alert(`❌ Insufficient balance! Minimum ${CONFIG.BET_AMOUNT} ETB needed.`);
-        goToDeposit();
-        return;
-    }
-    
-    // Join multiplayer game
-    joinMultiplayerGame().then(success => {
-        if (success) {
-            // Hide the popup since we're joining multiplayer
-            closeRegistrationPopup();
-        } else {
-            // Show wait message
-            showWaitForNextGameMessage();
+        function openRegistrationPopup() {
+            elements.registrationPopup.style.display = 'flex';
+            generateBoardOptions();
+            updateSelectionInfo();
         }
-    });
-}
 
         function closeRegistrationPopup() {
             elements.registrationPopup.style.display = 'none';
@@ -4395,11 +4183,8 @@ function updateCalledNumbersList() {
     const container = elements.calledNumbersList;
     container.innerHTML = '';
     
-    // Use multiplayer called numbers if available, otherwise solo numbers
-const calledNumbers = multiplayerGame.gameId ? 
-    multiplayerGame.calledNumbers || [] : 
-    gameState.calledNumbers;
-const recentCalls = calledNumbers.slice(-5);
+    // Get ONLY last 5 called numbers
+    const recentCalls = gameState.calledNumbers.slice(-5);
     
     if (recentCalls.length === 0) {
         container.innerHTML = '<div style="color:#aaa;font-size:0.55rem;text-align:center;padding:4px;">- - -</div>';
@@ -4510,25 +4295,15 @@ const recentCalls = calledNumbers.slice(-5);
         let isMarkedOnAny = false;
         let isUnmarkedOnAny = false;
         
-       if (multiplayerGame.gameId && multiplayerGame.playerBoards.length > 0) {
-    // Multiplayer: Check player's boards from server
-    multiplayerGame.playerBoards.forEach(board => {
-        if (board.markedNumbers.has(number)) {
-            isMarkedOnAny = true;
-        } else {
-            isUnmarkedOnAny = true;
+        if (gameState.currentPlayer.isActive) {
+            gameState.currentPlayer.boards.forEach(board => {
+                if (!board.isEliminated && board.markedNumbers.has(number)) {
+                    isMarkedOnAny = true;
+                } else if (!board.isEliminated) {
+                    isUnmarkedOnAny = true;
+                }
+            });
         }
-    });
-} else if (gameState.currentPlayer.isActive) {
-    // Solo game: Check current player's boards
-    gameState.currentPlayer.boards.forEach(board => {
-        if (!board.isEliminated && board.markedNumbers.has(number)) {
-            isMarkedOnAny = true;
-        } else if (!board.isEliminated) {
-            isUnmarkedOnAny = true;
-        }
-    });
-}
         
         // Add marking indicator (very small)
         if (isMarkedOnAny && !isUnmarkedOnAny) {
@@ -4548,32 +4323,18 @@ const recentCalls = calledNumbers.slice(-5);
             callElement.appendChild(indicator);
         }
         
-        // Add click handler for multiplayer or solo
-if (multiplayerGame.gameId) {
-    callElement.addEventListener('click', function() {
-        markNumberMultiplayer(number, this);
-        
-        // Quick feedback
-        this.style.opacity = '0.7';
-        this.style.transform = 'scale(0.95)';
-        setTimeout(() => {
-            this.style.opacity = '1';
-            this.style.transform = isMostRecent ? 'scale(1.05)' : 'scale(1)';
-        }, 150);
-    });
-} else {
-    callElement.addEventListener('click', function() {
-        markNumberOnPlayerBoards(number, this);
-        
-        // Quick feedback
-        this.style.opacity = '0.7';
-        this.style.transform = 'scale(0.95)';
-        setTimeout(() => {
-            this.style.opacity = '1';
-            this.style.transform = isMostRecent ? 'scale(1.05)' : 'scale(1)';
-        }, 150);
-    });
-}
+        // Add click handler
+        callElement.addEventListener('click', function() {
+            markNumberOnPlayerBoards(number, this);
+            
+            // Quick feedback
+            this.style.opacity = '0.7';
+            this.style.transform = 'scale(0.95)';
+            setTimeout(() => {
+                this.style.opacity = '1';
+                this.style.transform = isMostRecent ? 'scale(1.05)' : 'scale(1)';
+            }, 150);
+        });
         
         // Add hover effect (desktop only)
         if (!isMobile) {
