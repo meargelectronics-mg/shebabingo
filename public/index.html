@@ -1657,39 +1657,46 @@ function initializeApp() {
 }
 // NEW FUNCTION: Join multiplayer game
 // SIMPLE FIX: Remove async/await from joinMultiplayerGame
-function joinMultiplayerGame() {
+async function joinMultiplayerGame() {
     console.log("🎮 Checking multiplayer game status...");
     
-    // 1. Check balance (non-blocking)
+    // 1. FIRST check balance
     if (gameState.currentPlayer.balance < CONFIG.BET_AMOUNT) {
         console.log("❌ Insufficient balance");
-        // Show message in popup
-        const statusEl = document.querySelector('.selection-info');
-        if (statusEl) {
-            const warning = document.createElement('div');
-            warning.style.cssText = 'color:red;font-size:12px;padding:5px;';
-            warning.textContent = `Need ${CONFIG.BET_AMOUNT} ETB to play`;
-            statusEl.appendChild(warning);
-        }
+        // Don't alert here - let openRegistrationPopup handle it
         return false;
     }
     
-    // 2. Check active games (non-blocking)
-    checkActiveGames().then(gameAvailable => {
-        if (gameAvailable) {
-            console.log("✅ Active game found");
-            // Enable confirm button if we have selection
-            validateForm();
-        } else {
-            console.log("⏳ No active game - will create new one");
-        }
-    });
+    // 2. Check if there are active games available
+    const gameAvailable = await checkActiveGames();
     
-    return true; // Always return true immediately
+    if (gameAvailable) {
+        console.log("✅ Active game found - enabling selection");
+        return true;
+    } else {
+        console.log("⏳ No active game - waiting...");
+        return false;
+    }
+    
+    // NOTE: REMOVE the openRegistrationPopup() call from here!
+    // Let startBoardSelection() handle showing the popup
 }
+
         }// NEW FUNCTION: Check for active games
 async function checkActiveGames() {
-    return Promise.resolve(true);
+    async function checkActiveGames() {
+    try {
+        const response = await fetch('/api/game/active');
+        const data = await response.json();
+        
+        if (data.success && data.games.length > 0) {
+            // There are active games - update the popup to show this
+            updatePopupWithActiveGames(data.games);
+        }
+    } catch (error) {
+        console.error('Check active games error:', error);
+    }
+}
 }
 
 // NEW FUNCTION: Update popup with active games
@@ -2713,38 +2720,46 @@ function startGameCycle() {
     });
 }
 
-        function startBoardSelection() {
-            gameState.gamePhase = 'selecting';
-            updateGameStatus();
-            
-            // Reset game state for new round
-            gameState.calledNumbers = [];
-            gameState.currentCall = null;
-            gameState.selectedBoards.clear();
-            gameState.activePlayers = [];
-            gameState.totalPrizePool = 0;
-            gameState.ownerCommission = 0;
-            gameState.winners = [];
-            gameState.currentBoardIndex = 0;
+function startBoardSelection() {
+    console.log("🎮 Starting board selection...");
+    
+    gameState.gamePhase = 'selecting';
+    updateGameStatus();
+    
+    // Reset game state
+    gameState.calledNumbers = [];
+    gameState.currentCall = null;
+    gameState.selectedBoards.clear();
+    gameState.activePlayers = [];
+    gameState.totalPrizePool = 0;
+    gameState.ownerCommission = 0;
+    gameState.winners = [];
+    gameState.currentBoardIndex = 0;
 
-            gameState.ownerCommissionTotal = 0;
-            gameState.commissionHistory = [];
-            gameState.withdrawalHistory = [];
-
-
-            
-            // Clear any existing intervals
-            if (gameState.callInterval) {
-                clearInterval(gameState.callInterval);
-                gameState.callInterval = null;
-            }
-            
-            // Open registration popup automatically
-            openRegistrationPopup();
-            
-            // Start selection timer
-            startSelectionTimer();
+    // Clear any existing intervals
+    if (gameState.callInterval) {
+        clearInterval(gameState.callInterval);
+        gameState.callInterval = null;
+    }
+    
+    // ✅ 1. SHOW POPUP IMMEDIATELY (don't wait for multiplayer check)
+    openRegistrationPopup();
+    
+    // ✅ 2. Start the timer
+    startSelectionTimer();
+    
+    // ✅ 3. Check multiplayer IN BACKGROUND (non-blocking)
+    joinMultiplayerGame().then(multiplayerReady => {
+        if (multiplayerReady) {
+            console.log("✅ Multiplayer ready");
+            // Optional: Update UI
+            document.getElementById('gameStatus').textContent += " (Multiplayer)";
         }
+    }).catch(error => {
+        console.error("Multiplayer check failed:", error);
+        // Continue anyway
+    });
+}
 
         function startSelectionTimer() {
             gameState.selectionTimer = CONFIG.SELECTION_TIME;
@@ -5288,6 +5303,7 @@ function markNumberOnPlayerBoards(number, callElement) {
     </script>
 </body>
 </html>
+
 
 
 
