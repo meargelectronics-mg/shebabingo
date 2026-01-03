@@ -1655,6 +1655,97 @@ function initializeApp() {
         console.log('🌐 Browser mode: Starting game immediately');
     }
 }
+
+        // ==================== POPUP FIX ONLY ====================
+console.log("🔧 Applying popup fix...");
+
+// 1. FIX: Make sure startBoardSelection shows the popup
+const originalStartBoardSelection = window.startBoardSelection;
+
+window.startBoardSelection = function() {
+    console.log("🎯 FIXED: startBoardSelection called");
+    
+    // Call original function first
+    if (typeof originalStartBoardSelection === 'function') {
+        originalStartBoardSelection();
+    }
+    
+    // THEN show the popup (this is the fix!)
+    setTimeout(() => {
+        forceShowRegistrationPopup();
+    }, 100);
+};
+
+// 2. FIX: Direct function to show the popup
+function forceShowRegistrationPopup() {
+    console.log("📱 FORCE SHOWING POPUP...");
+    
+    const popup = document.getElementById('registrationPopup');
+    if (!popup) {
+        console.error("❌ Popup element not found!");
+        return;
+    }
+    
+    // METHOD 1: Use style.cssText to override everything
+    popup.style.cssText = `
+        display: flex !important;
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        width: 100vw !important;
+        height: 100vh !important;
+        background: rgba(0,0,0,0.85) !important;
+        backdrop-filter: blur(10px) !important;
+        z-index: 10000 !important;
+        align-items: center !important;
+        justify-content: center !important;
+        opacity: 1 !important;
+        visibility: visible !important;
+        padding: 20px !important;
+    `;
+    
+    // METHOD 2: Also set inline style
+    popup.setAttribute('style', popup.style.cssText);
+    
+    // METHOD 3: Force reflow
+    popup.offsetHeight;
+    
+    console.log("✅ Popup forced visible");
+    
+    // Generate boards if not already done
+    if (typeof generateBoardOptions === 'function') {
+        generateBoardOptions();
+    }
+    
+    if (typeof updateSelectionInfo === 'function') {
+        updateSelectionInfo();
+    }
+    
+    if (typeof validateForm === 'function') {
+        validateForm();
+    }
+    
+    // Start timer
+    if (typeof startSelectionTimer === 'function') {
+        startSelectionTimer();
+    }
+}
+
+// 3. FIX: Override openRegistrationPopup to use our fix
+const originalOpenRegistrationPopup = window.openRegistrationPopup;
+
+window.openRegistrationPopup = function() {
+    console.log("📱 FIXED: openRegistrationPopup called");
+    forceShowRegistrationPopup();
+    
+    // Also call original if it exists
+    if (typeof originalOpenRegistrationPopup === 'function') {
+        setTimeout(originalOpenRegistrationPopup, 50);
+    }
+};
+
+console.log("✅ Popup fix applied");
+// ==================== END POPUP FIX ==================== 
 // NEW FUNCTION: Join multiplayer game
 // SIMPLE FIX: Remove async/await from joinMultiplayerGame
 async function joinMultiplayerGame() {
@@ -5303,6 +5394,7 @@ function markNumberOnPlayerBoards(number, callElement) {
     </script>
 </body>
 </html>
+
 
 
 
