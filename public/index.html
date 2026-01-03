@@ -1657,49 +1657,108 @@ function initializeApp() {
 }
 // NEW FUNCTION: Join multiplayer game
 async function joinMultiplayerGame() {
-    // Check balance first
+    // 1. FIRST check balance
     if (gameState.currentPlayer.balance < CONFIG.BET_AMOUNT) {
         alert(`❌ Insufficient balance! You need ${CONFIG.BET_AMOUNT} ETB to play.`);
         goToDeposit();
         return false;
     }
     
+    // 2. Show the registration popup (YOUR EXISTING POPUP)
+    openRegistrationPopup();
+    
+    // 3. Start the selection timer
+    startSelectionTimer();
+    
+    // 4. Check if there are active games available
+    await checkActiveGames();
+    
+    return true;
+}
+// NEW FUNCTION: Check for active games
+async function checkActiveGames() {
     try {
-        // Call API to join multiplayer game
+        const response = await fetch('/api/game/active');
+        const data = await response.json();
+        
+        if (data.success && data.games.length > 0) {
+            // There are active games - update the popup to show this
+            updatePopupWithActiveGames(data.games);
+        }
+    } catch (error) {
+        console.error('Check active games error:', error);
+    }
+}
+
+// NEW FUNCTION: Update popup with active games
+function updatePopupWithActiveGames(games) {
+    const popup = document.getElementById('registrationPopup');
+    if (!popup) return;
+    
+    // Remove any existing active games info
+    const oldInfo = document.querySelector('.active-games-info');
+    if (oldInfo) oldInfo.remove();
+    
+    // Add game info to popup
+    const activeGamesInfo = document.createElement('div');
+    activeGamesInfo.className = 'active-games-info';
+    activeGamesInfo.innerHTML = `
+        <div style="background: rgba(52, 152, 219, 0.1); padding: 10px; border-radius: 8px; margin: 10px 0; border: 1px solid #3498db;">
+            <strong style="color: #3498db;">🎮 Active Games Available:</strong>
+            ${games.map(game => `
+                <div style="margin: 5px 0; font-size: 0.9rem; color: #2c3e50;">
+                    👥 ${game.players} players • 💰 ${game.prizePool || 0} ETB • ⏱️ ${game.status}
+                </div>
+            `).join('')}
+        </div>
+    `;
+    
+    // Insert after selection-info
+    const selectionInfo = document.querySelector('.selection-info');
+    if (selectionInfo) {
+        selectionInfo.parentNode.insertBefore(activeGamesInfo, selectionInfo.nextSibling);
+    }
+}
+
+// NEW: Join server game with selected boards
+async function joinServerGameWithBoards() {
+    try {
+        const boardNumbers = Array.from(gameState.selectedBoards);
+        
         const response = await fetch('/api/game/join', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({ 
                 userId: userId,
-                gameType: 'classic' 
+                gameType: 'classic',
+                boardNumbers: boardNumbers,
+                boardCount: boardNumbers.length
             })
         });
         
         const data = await response.json();
         
         if (data.success) {
-            // Save game info
+            // Save game info from server
             multiplayerGame.gameId = data.gameId;
-            multiplayerGame.playerBoards = data.boards || [];
+            multiplayerGame.playerBoards = data.boards || createPlayerBoards();
             multiplayerGame.status = data.gameStatus;
             multiplayerGame.currentPlayerCount = data.players;
+            multiplayerGame.prizePool = data.prizePool || 0;
             
             // Update UI
             elements.playersValue.textContent = data.players;
             elements.prizeValue.textContent = data.prizePool || 0;
             
-            console.log('✅ Joined multiplayer game:', data.gameId);
-            
-            // Start polling for game updates
-            startGamePolling();
-            
+            console.log('✅ Joined multiplayer game:', data.gameId, 'with boards:', boardNumbers);
             return true;
         } else {
             alert(data.error || 'Failed to join game');
             return false;
         }
     } catch (error) {
-        console.error('Join game error:', error);
+        console.error('Join server error:', error);
+        alert('Network error. Please try again.');
         return false;
     }
 }
@@ -2758,34 +2817,46 @@ function startGameCycle() {
             }, callInterval);
         }
 
-        function callNextNumber() {
-            const letters = ['B', 'I', 'N', 'G', 'O'];
-            const availableLetters = letters.filter(letter => {
-                const numbers = CONFIG.BINGO_NUMBERS[letter];
-                return numbers.some(num => !gameState.calledNumbers.includes(num));
-            });
-
-            if (availableLetters.length === 0) return;
-
-            const randomLetter = availableLetters[Math.floor(Math.random() * availableLetters.length)];
-            const numbers = CONFIG.BINGO_NUMBERS[randomLetter];
-            
-            const availableNumbers = numbers.filter(num => 
-                !gameState.calledNumbers.includes(num)
-            );
-
-            if (availableNumbers.length === 0) return;
-
-            const randomNumber = availableNumbers[Math.floor(Math.random() * availableNumbers.length)];
-            gameState.calledNumbers.push(randomNumber);
-            gameState.currentCall = { letter: randomLetter, number: randomNumber };
-
-
-            updateGameDisplay();
-            
-            // Simulate bot marking
-            simulateBotMarking(randomNumber);
+        async function callNextNumber(gameId) {
+    const game = activeGames[gameId];
+    if (!game || game.status !== 'active') return;
+    
+    // Generate new number
+    let newNumber;
+    do {
+        const letterIndex = Math.floor(Math.random() * 5);
+        const letters = ['B', 'I', 'N', 'G', 'O'];
+        const letter = letters[letterIndex];
+        
+        let min, max;
+        switch(letter) {
+            case 'B': min = 1; max = 15; break;
+            case 'I': min = 16; max = 30; break;
+            case 'N': min = 31; max = 45; break;
+            case 'G': min = 46; max = 60; break;
+            case 'O': min = 61; max = 75; break;
         }
+        
+        newNumber = letter + (Math.floor(Math.random() * (max - min + 1)) + min);
+    } while (game.calledNumbers.includes(newNumber));
+    
+    game.calledNumbers.push(newNumber);
+    game.currentCall = newNumber;
+    
+    // Check for bingos (with await)
+    await checkForBingos(gameId);
+    
+    // Notify all players
+    notifyGamePlayers(gameId, `🔔 *New Call:* ${newNumber}`);
+    
+    // Broadcast game state
+    broadcastGameState(gameId);
+    
+    // Schedule next call only if game is still active
+    if (game.status === 'active' && game.calledNumbers.length < 75) {
+        setTimeout(() => callNextNumber(gameId), GAME_CONFIG.CALL_INTERVAL);
+    }
+}
 
         // Simulate bot marking
         function simulateBotMarking(calledNumber) {
@@ -4068,55 +4139,96 @@ function openRegistrationPopup() {
 }
 
         // Balance deduction when buying boards
-       function confirmSelection() {
+       async function confirmSelection() {
     if (gameState.selectedBoards.size === 0) {
         alert(t('selectOneBoard'));
         return;
     }
     
     const totalCost = gameState.selectedBoards.size * CONFIG.BET_AMOUNT;
-    if (totalCost > gameState.currentPlayer.balance) {
+    
+    // Check balance on server (NEW)
+    const canPlay = await checkServerBalance(totalCost);
+    if (!canPlay) {
         alert(t('insufficientBalance'));
         return;
     }
     
-    // Deduct cost from balance
-    const oldBalance = gameState.currentPlayer.balance;
-    gameState.currentPlayer.balance -= totalCost;
-    console.log(`💰 Balance deducted: ${totalCost} (${oldBalance} → ${gameState.currentPlayer.balance})`);
+    // Join multiplayer game with selected boards (NEW)
+    const joined = await joinServerGameWithBoards();
     
-    gameState.currentPlayer.isActive = true;
-    gameState.currentPlayer.boards = createPlayerBoards();
-    gameState.currentPlayer.totalPaid = totalCost;
-    gameState.activePlayers.push(gameState.currentPlayer);
-    
-    console.log(`✅ YOU selected ${gameState.selectedBoards.size} boards:`);
-    gameState.selectedBoards.forEach(boardNum => {
-        console.log(`   - Board #${boardNum}`);
-    });
-    
-    // Update board display to show player's boards as selected (not taken)
-    gameState.selectedBoards.forEach(boardNumber => {
-        const boardElements = document.querySelectorAll('.board-option');
-        boardElements.forEach(element => {
-            const elementBoardNum = parseInt(element.querySelector('.board-number').textContent);
-            if (elementBoardNum === boardNumber) {
-                element.classList.remove('taken');
-                element.classList.add('selected');
-                element.style.background = 'linear-gradient(135deg, #2ecc71, #27ae60)';
-                element.style.color = 'white';
-                element.style.cursor = 'pointer';
-                element.style.opacity = '1';
-                element.style.border = '2px solid #27ae60';
-            }
+    if (joined) {
+        // Update board display to show player's boards as selected
+        gameState.selectedBoards.forEach(boardNumber => {
+            const boardElements = document.querySelectorAll('.board-option');
+            boardElements.forEach(element => {
+                const elementBoardNum = parseInt(element.querySelector('.board-number').textContent);
+                if (elementBoardNum === boardNumber) {
+                    element.classList.remove('taken');
+                    element.classList.add('selected');
+                    element.style.background = 'linear-gradient(135deg, #2ecc71, #27ae60)';
+                    element.style.color = 'white';
+                    element.style.cursor = 'pointer';
+                    element.style.opacity = '1';
+                    element.style.border = '2px solid #27ae60';
+                }
+            });
         });
-    });
+        
+        // Update balance display
+        await loadBalanceFromServer(); // Refresh balance from server
+        
+        closeRegistrationPopup();
+        startGamePolling(); // Start polling for game updates
+        showWaitForGameStart(); // Show waiting message
+    }
+}
+// NEW: Check balance on server
+async function checkServerBalance(amount) {
+    try {
+        const response = await fetch(`/api/user/${userId}/balance`);
+        const data = await response.json();
+        
+        if (data.success) {
+            const currentBalance = data.balance;
+            const hasEnough = currentBalance >= amount;
+            
+            if (!hasEnough) {
+                console.log(`❌ Insufficient server balance: ${currentBalance} < ${amount}`);
+            }
+            
+            return hasEnough;
+        }
+        return false;
+    } catch (error) {
+        console.error('Balance check error:', error);
+        return false;
+    }
+}
+// NEW: Show wait for game start
+function showWaitForGameStart() {
+    elements.gamePlaySection.style.display = 'block';
+    elements.boardsCarousel.innerHTML = '';
+    elements.currentBoard.innerHTML = '';
     
-    // Update balance display immediately
-    updateGameStats();
+    const waitMessage = document.createElement('div');
+    waitMessage.className = 'wait-message';
+    waitMessage.innerHTML = `
+        <div style="text-align: center; padding: 30px;">
+            <h3 style="color: var(--sunset-orange); margin-bottom: 15px;">⏳ Game Starting Soon</h3>
+            <div style="font-size: 2rem; margin: 20px 0; color: #3498db;">
+                ${multiplayerGame.currentPlayerCount} Players Joined
+            </div>
+            <p style="color: #7f8c8d;">Waiting for game to start...</p>
+            <div style="margin-top: 20px; background: rgba(52, 152, 219, 0.1); padding: 15px; border-radius: 10px;">
+                <div style="margin: 5px 0;">📋 Selected Boards: ${gameState.selectedBoards.size}</div>
+                <div style="margin: 5px 0;">💰 Prize Pool: ${multiplayerGame.prizePool} ETB</div>
+                <div style="margin: 5px 0;">🎮 Game ID: ${multiplayerGame.gameId?.substring(0, 8) || 'Creating...'}</div>
+            </div>
+        </div>
+    `;
     
-    closeRegistrationPopup();
-    startShufflingPhase();
+    elements.currentBoard.appendChild(waitMessage);
 }
 
         function createPlayerBoards() {
