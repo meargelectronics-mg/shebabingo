@@ -1632,6 +1632,9 @@ function initializeApp() {
      initializeTelegramMultiplayer();
      setupTelegramForMultiplayer();
      
+
+
+     
     // Initialize support buttons
     supportManager.init();
     
@@ -1656,116 +1659,50 @@ function initializeApp() {
     }
 }
 // NEW FUNCTION: Join multiplayer game
-// NEW FUNCTION: Join multiplayer game
 async function joinMultiplayerGame() {
-    console.log("🎮 Checking multiplayer game status...");
-    
-    // 1. FIRST check balance
+    // Check balance first
     if (gameState.currentPlayer.balance < CONFIG.BET_AMOUNT) {
-        console.log("❌ Insufficient balance");
-        // Don't alert here - let openRegistrationPopup handle it
+        alert(`❌ Insufficient balance! You need ${CONFIG.BET_AMOUNT} ETB to play.`);
+        goToDeposit();
         return false;
     }
     
-    // 2. Check if there are active games available
-    const gameAvailable = await checkActiveGames();
-    
-    if (gameAvailable) {
-        console.log("✅ Active game found - enabling selection");
-        return true;
-    } else {
-        console.log("⏳ No active game - waiting...");
-        return false;
-    }
-    
-    // NOTE: REMOVE the openRegistrationPopup() call from here!
-    // Let startBoardSelection() handle showing the popup
-}
-
-// NEW FUNCTION: Check for active games
-async function checkActiveGames() {
     try {
-        const response = await fetch('/api/game/active');
-        const data = await response.json();
-        
-        if (data.success && data.games.length > 0) {
-            // There are active games - update the popup to show this
-            updatePopupWithActiveGames(data.games);
-        }
-    } catch (error) {
-        console.error('Check active games error:', error);
-    }
-}
-
-// NEW FUNCTION: Update popup with active games
-function updatePopupWithActiveGames(games) {
-    const popup = document.getElementById('registrationPopup');
-    if (!popup) return;
-    
-    // Remove any existing active games info
-    const oldInfo = document.querySelector('.active-games-info');
-    if (oldInfo) oldInfo.remove();
-    
-    // Add game info to popup
-    const activeGamesInfo = document.createElement('div');
-    activeGamesInfo.className = 'active-games-info';
-    activeGamesInfo.innerHTML = `
-        <div style="background: rgba(52, 152, 219, 0.1); padding: 10px; border-radius: 8px; margin: 10px 0; border: 1px solid #3498db;">
-            <strong style="color: #3498db;">🎮 Active Games Available:</strong>
-            ${games.map(game => `
-                <div style="margin: 5px 0; font-size: 0.9rem; color: #2c3e50;">
-                    👥 ${game.players} players • 💰 ${game.prizePool || 0} ETB • ⏱️ ${game.status}
-                </div>
-            `).join('')}
-        </div>
-    `;
-    
-    // Insert after selection-info
-    const selectionInfo = document.querySelector('.selection-info');
-    if (selectionInfo) {
-        selectionInfo.parentNode.insertBefore(activeGamesInfo, selectionInfo.nextSibling);
-    }
-}
-
-// NEW: Join server game with selected boards
-async function joinServerGameWithBoards() {
-    try {
-        const boardNumbers = Array.from(gameState.selectedBoards);
-        
+        // Call API to join multiplayer game
         const response = await fetch('/api/game/join', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({ 
                 userId: userId,
-                gameType: 'classic',
-                boardNumbers: boardNumbers,
-                boardCount: boardNumbers.length
+                gameType: 'classic' 
             })
         });
         
         const data = await response.json();
         
         if (data.success) {
-            // Save game info from server
+            // Save game info
             multiplayerGame.gameId = data.gameId;
-            multiplayerGame.playerBoards = data.boards || createPlayerBoards();
+            multiplayerGame.playerBoards = data.boards || [];
             multiplayerGame.status = data.gameStatus;
             multiplayerGame.currentPlayerCount = data.players;
-            multiplayerGame.prizePool = data.prizePool || 0;
             
             // Update UI
             elements.playersValue.textContent = data.players;
             elements.prizeValue.textContent = data.prizePool || 0;
             
-            console.log('✅ Joined multiplayer game:', data.gameId, 'with boards:', boardNumbers);
+            console.log('✅ Joined multiplayer game:', data.gameId);
+            
+            // Start polling for game updates
+            startGamePolling();
+            
             return true;
         } else {
             alert(data.error || 'Failed to join game');
             return false;
         }
     } catch (error) {
-        console.error('Join server error:', error);
-        alert('Network error. Please try again.');
+        console.error('Join game error:', error);
         return false;
     }
 }
@@ -2385,6 +2322,15 @@ function setupTelegramForMultiplayer() {
     console.log('✅ Telegram configured for multiplayer');
 }
 
+// Add this to your initializeApp()
+function initializeApp() {
+    // ... existing code ...
+    
+    // Setup Telegram
+    setupTelegramForMultiplayer();
+    
+    // ... rest of your code ...
+}
 // ==================== TELEGRAM INTEGRATION ====================
 
 // 1. Initialize Telegram Web App// Initialize Telegram Web App
@@ -2719,26 +2665,37 @@ function startGameCycle() {
 }
 
         function startBoardSelection() {
-    gameState.gamePhase = 'selecting';
-    updateGameStatus();
-    
-    // 1. Show the popup FIRST
-    openRegistrationPopup();
-    
-    // 2. Start the timer
-    startSelectionTimer();
-    
-    // 3. Check multiplayer in background
-    joinMultiplayerGame().then(multiplayerReady => {
-        if (multiplayerReady) {
-            console.log("✅ Multiplayer ready");
-            // Update UI to show multiplayer status
-            document.getElementById('gameStatus').textContent = "Multiplayer Game Ready!";
-        } else {
-            console.log("ℹ️ Playing in single player mode");
+            gameState.gamePhase = 'selecting';
+            updateGameStatus();
+            
+            // Reset game state for new round
+            gameState.calledNumbers = [];
+            gameState.currentCall = null;
+            gameState.selectedBoards.clear();
+            gameState.activePlayers = [];
+            gameState.totalPrizePool = 0;
+            gameState.ownerCommission = 0;
+            gameState.winners = [];
+            gameState.currentBoardIndex = 0;
+
+            gameState.ownerCommissionTotal = 0;
+            gameState.commissionHistory = [];
+            gameState.withdrawalHistory = [];
+
+
+            
+            // Clear any existing intervals
+            if (gameState.callInterval) {
+                clearInterval(gameState.callInterval);
+                gameState.callInterval = null;
+            }
+            
+            // Open registration popup automatically
+            openRegistrationPopup();
+            
+            // Start selection timer
+            startSelectionTimer();
         }
-    });
-}
 
         function startSelectionTimer() {
             gameState.selectionTimer = CONFIG.SELECTION_TIME;
@@ -2813,46 +2770,34 @@ function startGameCycle() {
             }, callInterval);
         }
 
-        async function callNextNumber(gameId) {
-    const game = activeGames[gameId];
-    if (!game || game.status !== 'active') return;
-    
-    // Generate new number
-    let newNumber;
-    do {
-        const letterIndex = Math.floor(Math.random() * 5);
-        const letters = ['B', 'I', 'N', 'G', 'O'];
-        const letter = letters[letterIndex];
-        
-        let min, max;
-        switch(letter) {
-            case 'B': min = 1; max = 15; break;
-            case 'I': min = 16; max = 30; break;
-            case 'N': min = 31; max = 45; break;
-            case 'G': min = 46; max = 60; break;
-            case 'O': min = 61; max = 75; break;
+        function callNextNumber() {
+            const letters = ['B', 'I', 'N', 'G', 'O'];
+            const availableLetters = letters.filter(letter => {
+                const numbers = CONFIG.BINGO_NUMBERS[letter];
+                return numbers.some(num => !gameState.calledNumbers.includes(num));
+            });
+
+            if (availableLetters.length === 0) return;
+
+            const randomLetter = availableLetters[Math.floor(Math.random() * availableLetters.length)];
+            const numbers = CONFIG.BINGO_NUMBERS[randomLetter];
+            
+            const availableNumbers = numbers.filter(num => 
+                !gameState.calledNumbers.includes(num)
+            );
+
+            if (availableNumbers.length === 0) return;
+
+            const randomNumber = availableNumbers[Math.floor(Math.random() * availableNumbers.length)];
+            gameState.calledNumbers.push(randomNumber);
+            gameState.currentCall = { letter: randomLetter, number: randomNumber };
+
+
+            updateGameDisplay();
+            
+            // Simulate bot marking
+            simulateBotMarking(randomNumber);
         }
-        
-        newNumber = letter + (Math.floor(Math.random() * (max - min + 1)) + min);
-    } while (game.calledNumbers.includes(newNumber));
-    
-    game.calledNumbers.push(newNumber);
-    game.currentCall = newNumber;
-    
-    // Check for bingos (with await)
-    await checkForBingos(gameId);
-    
-    // Notify all players
-    notifyGamePlayers(gameId, `🔔 *New Call:* ${newNumber}`);
-    
-    // Broadcast game state
-    broadcastGameState(gameId);
-    
-    // Schedule next call only if game is still active
-    if (game.status === 'active' && game.calledNumbers.length < 75) {
-        setTimeout(() => callNextNumber(gameId), GAME_CONFIG.CALL_INTERVAL);
-    }
-}
 
         // Simulate bot marking
         function simulateBotMarking(calledNumber) {
@@ -3869,78 +3814,25 @@ function initializeTelegramMultiplayer() {
 
         // Registration Popup Functions
         // REPLACE THE BOARD SELECTION FUNCTIONS:
+
 function openRegistrationPopup() {
-    console.log("🎮 Opening registration popup...");
+    // Instead of showing board selection immediately, check if game is ready
     
-    // Get the popup element
-    const popup = document.getElementById('registrationPopup');
-    if (!popup) {
-        console.error("❌ Popup element not found!");
-        return;
-    }
-    
-    // ✅✅✅ ADD THIS - MAKE THE POPUP VISIBLE FIRST
-    popup.style.display = 'flex';
-    popup.style.opacity = '1';
-    popup.style.visibility = 'visible';
-    popup.style.zIndex = '9999';
-    
-    // Reset selection
-    gameState.selectedBoards.clear();
-    updateSelectionInfo();
-    validateForm();
-    
-    // Generate board options
-    generateBoardOptions();
-    
-    // Reset timer
-    gameState.selectionTimer = CONFIG.SELECTION_TIME;
-    updateTimerDisplay();
-    
-    console.log("✅ Popup visible, now checking multiplayer...");
-    
-    // KEEP YOUR MULTIPLAYER LOGIC but AFTER showing popup
     // Check if player has enough balance FIRST
     if (gameState.currentPlayer.balance < CONFIG.BET_AMOUNT) {
-        // Hide popup and show deposit
-        setTimeout(() => {
-            popup.style.display = 'none';
-            alert(`❌ Insufficient balance! Minimum ${CONFIG.BET_AMOUNT} ETB needed.`);
-            goToDeposit(); // Make sure this function exists
-        }, 500);
+        alert(`❌ Insufficient balance! Minimum ${CONFIG.BET_AMOUNT} ETB needed.`);
+        goToDeposit();
         return;
     }
     
-    // Show "Joining game..." in the popup while checking multiplayer
-    const confirmBtn = document.getElementById('confirmSelection');
-    if (confirmBtn) {
-        confirmBtn.textContent = "🔄 Checking game status...";
-        confirmBtn.disabled = true;
-    }
-    
-    // Join multiplayer game (your existing logic)
+    // Join multiplayer game
     joinMultiplayerGame().then(success => {
         if (success) {
-            console.log("✅ Multiplayer game ready - showing board selection");
-            // Enable selection
-            if (confirmBtn) {
-                confirmBtn.textContent = "Confirm Selection & Join Game";
-                confirmBtn.disabled = false;
-            }
+            // Hide the popup since we're joining multiplayer
+            closeRegistrationPopup();
         } else {
-            console.log("⏳ No active game found - showing wait message");
-            // Close popup and show wait message
-            setTimeout(() => {
-                popup.style.display = 'none';
-                showWaitForNextGameMessage();
-            }, 1000);
-        }
-    }).catch(error => {
-        console.error("❌ Multiplayer error:", error);
-        // Still show board selection in single player mode
-        if (confirmBtn) {
-            confirmBtn.textContent = "Confirm Selection & Play Solo";
-            confirmBtn.disabled = false;
+            // Show wait message
+            showWaitForNextGameMessage();
         }
     });
 }
@@ -4188,96 +4080,55 @@ function openRegistrationPopup() {
 }
 
         // Balance deduction when buying boards
-       async function confirmSelection() {
+       function confirmSelection() {
     if (gameState.selectedBoards.size === 0) {
         alert(t('selectOneBoard'));
         return;
     }
     
     const totalCost = gameState.selectedBoards.size * CONFIG.BET_AMOUNT;
-    
-    // Check balance on server (NEW)
-    const canPlay = await checkServerBalance(totalCost);
-    if (!canPlay) {
+    if (totalCost > gameState.currentPlayer.balance) {
         alert(t('insufficientBalance'));
         return;
     }
     
-    // Join multiplayer game with selected boards (NEW)
-    const joined = await joinServerGameWithBoards();
+    // Deduct cost from balance
+    const oldBalance = gameState.currentPlayer.balance;
+    gameState.currentPlayer.balance -= totalCost;
+    console.log(`💰 Balance deducted: ${totalCost} (${oldBalance} → ${gameState.currentPlayer.balance})`);
     
-    if (joined) {
-        // Update board display to show player's boards as selected
-        gameState.selectedBoards.forEach(boardNumber => {
-            const boardElements = document.querySelectorAll('.board-option');
-            boardElements.forEach(element => {
-                const elementBoardNum = parseInt(element.querySelector('.board-number').textContent);
-                if (elementBoardNum === boardNumber) {
-                    element.classList.remove('taken');
-                    element.classList.add('selected');
-                    element.style.background = 'linear-gradient(135deg, #2ecc71, #27ae60)';
-                    element.style.color = 'white';
-                    element.style.cursor = 'pointer';
-                    element.style.opacity = '1';
-                    element.style.border = '2px solid #27ae60';
-                }
-            });
-        });
-        
-        // Update balance display
-        await loadBalanceFromServer(); // Refresh balance from server
-        
-        closeRegistrationPopup();
-        startGamePolling(); // Start polling for game updates
-        showWaitForGameStart(); // Show waiting message
-    }
-}
-// NEW: Check balance on server
-async function checkServerBalance(amount) {
-    try {
-        const response = await fetch(`/api/user/${userId}/balance`);
-        const data = await response.json();
-        
-        if (data.success) {
-            const currentBalance = data.balance;
-            const hasEnough = currentBalance >= amount;
-            
-            if (!hasEnough) {
-                console.log(`❌ Insufficient server balance: ${currentBalance} < ${amount}`);
+    gameState.currentPlayer.isActive = true;
+    gameState.currentPlayer.boards = createPlayerBoards();
+    gameState.currentPlayer.totalPaid = totalCost;
+    gameState.activePlayers.push(gameState.currentPlayer);
+    
+    console.log(`✅ YOU selected ${gameState.selectedBoards.size} boards:`);
+    gameState.selectedBoards.forEach(boardNum => {
+        console.log(`   - Board #${boardNum}`);
+    });
+    
+    // Update board display to show player's boards as selected (not taken)
+    gameState.selectedBoards.forEach(boardNumber => {
+        const boardElements = document.querySelectorAll('.board-option');
+        boardElements.forEach(element => {
+            const elementBoardNum = parseInt(element.querySelector('.board-number').textContent);
+            if (elementBoardNum === boardNumber) {
+                element.classList.remove('taken');
+                element.classList.add('selected');
+                element.style.background = 'linear-gradient(135deg, #2ecc71, #27ae60)';
+                element.style.color = 'white';
+                element.style.cursor = 'pointer';
+                element.style.opacity = '1';
+                element.style.border = '2px solid #27ae60';
             }
-            
-            return hasEnough;
-        }
-        return false;
-    } catch (error) {
-        console.error('Balance check error:', error);
-        return false;
-    }
-}
-// NEW: Show wait for game start
-function showWaitForGameStart() {
-    elements.gamePlaySection.style.display = 'block';
-    elements.boardsCarousel.innerHTML = '';
-    elements.currentBoard.innerHTML = '';
+        });
+    });
     
-    const waitMessage = document.createElement('div');
-    waitMessage.className = 'wait-message';
-    waitMessage.innerHTML = `
-        <div style="text-align: center; padding: 30px;">
-            <h3 style="color: var(--sunset-orange); margin-bottom: 15px;">⏳ Game Starting Soon</h3>
-            <div style="font-size: 2rem; margin: 20px 0; color: #3498db;">
-                ${multiplayerGame.currentPlayerCount} Players Joined
-            </div>
-            <p style="color: #7f8c8d;">Waiting for game to start...</p>
-            <div style="margin-top: 20px; background: rgba(52, 152, 219, 0.1); padding: 15px; border-radius: 10px;">
-                <div style="margin: 5px 0;">📋 Selected Boards: ${gameState.selectedBoards.size}</div>
-                <div style="margin: 5px 0;">💰 Prize Pool: ${multiplayerGame.prizePool} ETB</div>
-                <div style="margin: 5px 0;">🎮 Game ID: ${multiplayerGame.gameId?.substring(0, 8) || 'Creating...'}</div>
-            </div>
-        </div>
-    `;
+    // Update balance display immediately
+    updateGameStats();
     
-    elements.currentBoard.appendChild(waitMessage);
+    closeRegistrationPopup();
+    startShufflingPhase();
 }
 
         function createPlayerBoards() {
