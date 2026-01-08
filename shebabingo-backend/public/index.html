@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ShebaBingo - Premium Ethiopian Bingo</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#f1c40f">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.5, user-scalable=yes, viewport-fit=cover">
+    <meta name="telegram-web-app" content="sheba-bingo">
+    <link rel="stylesheet" href="style.css">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>   
+    
+</head>
+<body>   
+    <div class="game-container">
+      <nav class="top-nav">            
+        <!-- Header -->
+        <div class="header">
+            <h1> 🎯 ShebaBingo </h1>        
+        </div>
+            <div class="nav-right">                
+                <div class="language-selector"  id ="languageSelector">
+                    <select id="languageSelect">
+                        <option value="en">EN</option>
+                        <option value="am">AM</option>
+                    </select>
+                    
+                </div>
+            </div>
+        </nav>     
+        
+        <!-- Main Stats Dashboard -->
+        <div class="stats-dashboard">
+            <div class="stat-card">
+                <div class="stat-label">💰 Balance</div>
+                <div class="stat-value" id="balanceValue">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">🏆 Prize</div>
+                <div class="stat-value" id="prizeValue">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">👥 Players</div>
+                <div class="stat-value" id="playersValue">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">⚡ Bet</div>
+                <div class="stat-value">10</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">🎯 Called</div>
+                <div class="stat-value" id="calledCount">0</div>
+            </div>
+        </div>
+
+        <!-- Main Game Layout -->
+        <div class="game-layout">
+            <!-- Main Bingo Board Section -->
+            <div class="main-bingo-board">
+               <div class="board-header">
+    <div class="board-letter b">B</div>
+    <div class="board-letter i">I</div>
+    <div class="board-letter n">N</div>
+    <div class="board-letter g">G</div>
+    <div class="board-letter o">O</div>
+</div>
+                
+                <div class="main-bingo-grid" id="bingoGrid">
+                    <!-- Main bingo board numbers will be generated here -->
+                </div>
+            </div>
+            
+            <!-- Game Status Panel -->
+            <div class="game-status-panel">
+                <div class="status-badge" id="gameStatus">Waiting for Next Game</div>
+                
+                <div class="current-call">
+                    <div class="call-label">Current Call</div>
+                    <div class="call-display">
+                        <div class="call-letter" id="currentLetter">-</div>
+                        <div class="call-number" id="currentNumber">-</div>
+                    </div>
+                </div>
+                
+                <div class="called-numbers-section">
+                    <div class="called-numbers-label">Recently Called</div>
+                    <div class="called-numbers-list" id="calledNumbersList">
+                        <!-- Called numbers will appear here -->
+                    </div>
+                </div>
+                
+ <!-- Player Boards Section -->
+            <div class="player-boards-section" id="gamePlaySection" style="display: none;">
+                <div class="player-boards-container">
+                    <h3 class="player-boards-title">Your Bingo Boards</h3>          
+                        <div class="boards-carousel" id="boardsCarousel">
+                            <!-- Player's boards will be displayed here -->
+                        </div>
+                    </div>                   
+                    
+                    <div class="current-board-container">
+                        <div class="player-bingo-board" id="currentBoard">
+                            <!-- Current board will be displayed here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+            </div>           
+        </div>
+    </div>
+
+    <!-- Registration Popup (Board Selection) -->
+    <div id="registrationPopup" class="popup-overlay" style="display: none;">
+        <div class="popup-content large-popup">
+            
+            <div class="board-selection-section">
+                <div class="selection-info">
+                    <div class="info-item">
+                        <span>Price per board:</span>
+                        <strong>10</strong>
+                    </div>
+                    <div class="info-item">
+                        <span>Max boards per player:</span>
+                        <strong>3</strong>
+                    </div>
+                    <div class="info-item">
+                        <span>Time remaining:</span>
+                        <strong id="selectionTimer">25 seconds</strong>
+                    </div>
+                </div>
+                
+                <div class="boards-grid" id="boardsGrid">
+                    <!-- Boards will be generated by JavaScript -->
+                </div>
+                
+                <div class="selection-summary">
+                    <div class="summary-item">
+                        <span>Boards Selected:</span>
+                        <strong id="selectedCount">0</strong>
+                    </div>
+                    <div class="summary-item">
+                        <span>Total Cost:</span>
+                        <strong id="totalCost">0</strong>
+                    </div>
+                </div>
+
+                <div class="popup-actions">
+                    <button class="btn-secondary" onclick="closeRegistrationPopup()">Cancel</button>
+                    <button id="confirmSelection" class="btn-primary" disabled>Confirm Selection & Join Game</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+       <script src="script.js"></script>
+</body>
+</html>
