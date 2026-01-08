@@ -12,7 +12,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(express.static(path.join(__dirname, '../public')));
+app.use(express.static(path.join(__dirname, 'public')));
 
 // ==================== CONFIGURATION ====================
 const BOT_TOKEN = process.env.BOT_TOKEN || '8274404754:AAGnc1QeczvHP51dIryK2sK-E8aUUyiO6Zc';
@@ -128,6 +128,16 @@ wss.on('connection', (ws, request) => {
     const params = new URLSearchParams(request.url.split('?')[1]);
     const gameId = params.get('gameId');
     const userId = params.get('userId');
+
+    // ADD THIS VALIDATION:
+    if (!gameId || !userId) {
+        console.error('❌ WebSocket connection rejected: Missing gameId or userId');
+        ws.close(1008, 'Missing parameters');
+        return;
+    }
+     // Store user ID with the connection
+    ws.userId = userId;
+    ws.gameId = gameId;
     
     if (!gameId || !userId) {
         ws.close();
@@ -223,6 +233,20 @@ function broadcastToGame(gameId, message) {
         }
     });
 }
+
+// ADD THIS NEW FUNCTION RIGHT HERE:
+function cleanupGameConnections(gameId) {
+    const connections = gameConnections.get(gameId);
+    if (connections) {
+        connections.forEach(ws => {
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.close(1001, 'Game ended');
+            }
+        });
+        gameConnections.delete(gameId);
+    }
+}
+
 
 // ==================== DATABASE FUNCTIONS ====================
 async function getNextGameNumber() {
@@ -927,6 +951,9 @@ async function checkForWinners(gameId) {
 
 async function endGameNoWinner(gameId) {
     try {
+        // ADD THIS LINE at the beginning:
+        cleanupGameConnections(gameId);
+
         await pool.query(
             `UPDATE multiplayer_games 
              SET status = 'completed', end_time = $1
@@ -982,6 +1009,9 @@ async function endGameNoWinner(gameId) {
 
 async function cancelGame(gameId) {
     try {
+        // ADD THIS LINE at the beginning:
+        cleanupGameConnections(gameId);
+        
         await pool.query(
             `UPDATE multiplayer_games 
              SET status = 'cancelled', end_time = $1
@@ -2295,6 +2325,46 @@ app.get('/game-ws', (req, res) => {
     });
 });
 
+// Get user's active games
+app.get('/api/user/:id/games', async (req, res) => {
+    try {
+        const userId = req.params.id;
+        
+        const result = await pool.query(`
+            SELECT mg.*, gp.boards, gp.marked_numbers
+            FROM multiplayer_games mg
+            INNER JOIN game_players gp ON mg.id = gp.game_id
+            WHERE gp.user_id = $1 
+            AND mg.status IN ('selecting', 'shuffling', 'active')
+            ORDER BY mg.created_at DESC
+            LIMIT 5
+        `, [userId]);
+        
+        res.json({ success: true, games: result.rows });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Update user balance (for script.js)
+app.post('/api/user/update-balance', async (req, res) => {
+    try {
+        const { userId, balance } = req.body;
+        
+        if (!users[userId]) {
+            return res.json({ success: false, error: 'User not found' });
+        }
+        
+        users[userId].balance = balance;
+        saveUsers();
+        
+        res.json({ success: true, newBalance: balance });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+
 // ==================== START SERVER ====================
 const PORT = process.env.PORT || 3000;
 
@@ -2312,6 +2382,9 @@ const server = app.listen(PORT, '0.0.0.0', async () => {
     
     // Initialize database tables
     await initializeDatabase();
+
+    // Run database migrations
+    await migrateDatabase();  // ⬅️ ADD THIS LINE
     
     // Setup Telegram webhook
     await setupTelegramWebhook();
@@ -2344,7 +2417,7 @@ server.on('upgrade', (request, socket, head) => {
 // Initialize database tables
 async function initializeDatabase() {
     try {
-        // Create multiplayer_games table
+        // Update multiplayer_games table
         await pool.query(`
             CREATE TABLE IF NOT EXISTS multiplayer_games (
                 id VARCHAR(50) PRIMARY KEY,
@@ -2357,11 +2430,16 @@ async function initializeDatabase() {
                 end_time TIMESTAMP,
                 selection_end_time TIMESTAMP,
                 winner_id INTEGER,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                -- ADD THESE NEW COLUMNS:
+                total_boards INTEGER DEFAULT 0,
+                min_players INTEGER DEFAULT 2,
+                max_players INTEGER DEFAULT 100,
+                game_mode VARCHAR(20) DEFAULT 'classic'
             )
         `);
         
-        // Create game_players table
+        // Update game_players table
         await pool.query(`
             CREATE TABLE IF NOT EXISTS game_players (
                 id SERIAL PRIMARY KEY,
@@ -2371,16 +2449,19 @@ async function initializeDatabase() {
                 marked_numbers JSONB DEFAULT '[]',
                 has_bingo BOOLEAN DEFAULT FALSE,
                 joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                -- ADD THESE NEW COLUMNS:
+                board_count INTEGER DEFAULT 1,
+                total_paid DECIMAL(10,2) DEFAULT 0,
+                last_active TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(game_id, user_id)
             )
         `);
         
-        console.log('✅ Database tables initialized');
+        console.log('✅ Database tables initialized/updated');
     } catch (error) {
         console.error('Error initializing database:', error);
     }
 }
-
 // Graceful shutdown
 process.on('SIGTERM', async () => {
     console.log('SIGTERM received, shutting down gracefully...');
@@ -2399,3 +2480,31 @@ process.on('SIGTERM', async () => {
     console.log('Data saved, server shutting down...');
     process.exit(0);
 });
+
+// ==================== DATABASE MIGRATION ====================
+async function migrateDatabase() {
+    try {
+        console.log('🔄 Running database migrations...');
+        
+        // Add missing columns to multiplayer_games
+        await pool.query(`
+            ALTER TABLE multiplayer_games 
+            ADD COLUMN IF NOT EXISTS total_boards INTEGER DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS min_players INTEGER DEFAULT 2,
+            ADD COLUMN IF NOT EXISTS max_players INTEGER DEFAULT 100,
+            ADD COLUMN IF NOT EXISTS game_mode VARCHAR(20) DEFAULT 'classic'
+        `);
+        
+        // Add missing columns to game_players
+        await pool.query(`
+            ALTER TABLE game_players 
+            ADD COLUMN IF NOT EXISTS board_count INTEGER DEFAULT 1,
+            ADD COLUMN IF NOT EXISTS total_paid DECIMAL(10,2) DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS last_active TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        `);
+        
+        console.log('✅ Database migrations completed');
+    } catch (error) {
+        console.error('❌ Database migration error:', error.message);
+    }
+}
