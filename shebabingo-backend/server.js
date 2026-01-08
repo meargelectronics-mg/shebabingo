@@ -23,8 +23,12 @@ const DATABASE_URL = process.env.DATABASE_URL;
 
 console.log('='.repeat(60));
 console.log('🚀 SHEBA BINGO - MULTIPLAYER SERVER STARTING');
+console.log('📅 Time:', new Date().toISOString());
+console.log('🔄 NODE_ENV:', process.env.NODE_ENV || 'development');
+console.log('🔑 BOT_TOKEN exists:', !!process.env.BOT_TOKEN);
+console.log('🗄️ DATABASE_URL exists:', !!process.env.DATABASE_URL);
+console.log('🌐 RENDER_URL:', process.env.RENDER_URL || 'Not set');
 console.log('='.repeat(60));
-
 // ==================== DATABASE CONNECTION ====================
 const pool = new Pool({
     connectionString: DATABASE_URL,
@@ -2317,6 +2321,21 @@ app.get('/api/health', (req, res) => {
     });
 });
 
+// ADD this simple /health endpoint for Render monitoring
+app.get('/health', (req, res) => {
+    res.status(200).json({
+        status: 'ok',
+        service: 'shebabingo-bot',
+        timestamp: new Date().toISOString(),
+        uptime: process.uptime()
+    });
+});
+
+// You should already have this root endpoint
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
 // WebSocket endpoint
 app.get('/game-ws', (req, res) => {
     res.json({ 
@@ -2508,3 +2527,4 @@ async function migrateDatabase() {
         console.error('❌ Database migration error:', error.message);
     }
 }
+
