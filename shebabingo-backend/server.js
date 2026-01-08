@@ -32,18 +32,31 @@ console.log('='.repeat(60));
 // ==================== DATABASE CONNECTION ====================
 const pool = new Pool({
     connectionString: DATABASE_URL,
-    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+    ssl: {
+        rejectUnauthorized: false
+    }
+});
+
+// Add connection error handling
+pool.on('error', (err) => {
+    console.error('❌ Unexpected database error:', err.message);
 });
 
 // Test database connection
 pool.connect((err, client, release) => {
     if (err) {
-        console.error('❌ Database connection error:', err.message);
+        console.error('❌ Database connection FAILED:', err.message);
+        console.error('💡 DATABASE_URL:', DATABASE_URL ? 'Set' : 'NOT SET!');
+        
+        // If no DATABASE_URL, use file-based fallback
+        if (!DATABASE_URL) {
+            console.log('⚠️ Using file-based storage (no database)');
+        }
     } else {
         console.log('✅ PostgreSQL connected successfully');
         release();
     }
-});
+});;
 
 // ==================== FILE-BASED STORAGE (BACKUP) ====================
 const USERS_FILE = path.join(__dirname, 'users.json');
@@ -2527,4 +2540,5 @@ async function migrateDatabase() {
         console.error('❌ Database migration error:', error.message);
     }
 }
+
 
