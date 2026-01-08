@@ -1,24 +1,29 @@
 {
   "name": "shebabingo-backend",
   "version": "1.0.0",
-  "description": "Sheba Bingo Multiplayer Telegram Bot",
+  "description": "ShebaBingo Backend Server",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js",
-    "test": "echo \"No tests specified\" && exit 0"
+    "dev": "nodemon server.js"
   },
-  "keywords": ["bingo", "telegram", "multiplayer", "game"],
-  "author": "Your Name",
+  "keywords": ["bingo", "telegram", "multiplayer", "game", "shebabingo"],
+  "author": "ShebaBingo Team",
   "license": "ISC",
   "dependencies": {
-    "express": "^4.18.2",
-    "axios": "^1.6.2",
-    "pg": "^8.11.3",
-    "ws": "^8.14.2",
-    "cors": "^2.8.5"
+    "axios": "^1.13.2",
+    "pg": "^8.11.0",
+    "ws": "^8.14.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.6.1",
+    "express": "^4.22.1",
+    "path": "^0.12.7",
+    "socket.io": "^4.7.2"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=16.0.0"
+  },
+  "render": {
+    "start": "node server.js"
   }
 }
