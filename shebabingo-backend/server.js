@@ -29,6 +29,8 @@ console.log('🔑 BOT_TOKEN exists:', !!process.env.BOT_TOKEN);
 console.log('🗄️ DATABASE_URL exists:', !!process.env.DATABASE_URL);
 console.log('🌐 RENDER_URL:', process.env.RENDER_URL || 'Not set');
 console.log('='.repeat(60));
+
+// ==================== DATABASE CONNECTION ====================
 // ==================== DATABASE CONNECTION ====================
 const pool = new Pool({
     connectionString: DATABASE_URL,
@@ -56,8 +58,7 @@ pool.connect((err, client, release) => {
         console.log('✅ PostgreSQL connected successfully');
         release();
     }
-});;
-
+});
 // ==================== FILE-BASED STORAGE (BACKUP) ====================
 const USERS_FILE = path.join(__dirname, 'users.json');
 const DEPOSITS_FILE = path.join(__dirname, 'deposits.json');
@@ -125,17 +126,19 @@ const GAME_CONFIG = {
     BOARD_PRICE: 10,
     PRIZE_POOL_PERCENT: 80,
     MAX_CALLS: 45,
-    CALL_INTERVAL: 3000,
-    SELECTION_TIME: 25,
-    SHUFFLE_TIME: 5,
-    GAME_DURATION: 90000,
-    RESULTS_TIME: 10,
-    NEXT_GAME_DELAY: 0,
+    CALL_INTERVAL: 5000,           // 5 seconds between numbers
+    SELECTION_TIME: 25,            // 25 seconds board selection (NOT 2 minutes!)
+    SHUFFLE_TIME: 30,              // 30 seconds shuffling countdown
+    GAME_DURATION: 300000,         // 5 minutes active game
+    RESULTS_TIME: 30,              // 30 seconds results
+    NEXT_GAME_DELAY: 5000,         // 5 seconds between games
     MIN_PLAYERS: 2,
     MAX_PLAYERS: 100,
     MAX_BOARDS_PER_PLAYER: 3,
     TOTAL_BOARDS: 400
 };
+
+
 
 // ==================== WEBSOCKET FOR REAL-TIME ====================
 const wss = new WebSocket.Server({ noServer: true });
@@ -251,6 +254,28 @@ function broadcastToGame(gameId, message) {
     });
 }
 
+// Add these variables near the top of your server.js
+const gameIntervals = {};
+const gameTimers = {};
+
+// Add cleanup function
+function cleanupGame(gameId) {
+    cleanupGameConnections(gameId);
+    
+    if (gameIntervals[gameId]) {
+        clearInterval(gameIntervals[gameId]);
+        delete gameIntervals[gameId];
+    }
+    
+    if (gameTimers[gameId]) {
+        clearTimeout(gameTimers[gameId]);
+        delete gameTimers[gameId];
+    }
+}
+
+
+
+
 // ADD THIS NEW FUNCTION RIGHT HERE:
 function cleanupGameConnections(gameId) {
     const connections = gameConnections.get(gameId);
@@ -306,17 +331,22 @@ async function createMultiplayerGame() {
 
 async function checkAndStartGame(gameId) {
     try {
+        console.log(`🔍 Checking game ${gameId} for starting...`);
+        
+        // Get player count
         const playerCount = await getPlayerCount(gameId);
+        console.log(`📊 Game ${gameId} has ${playerCount} players, minimum: ${GAME_CONFIG.MIN_PLAYERS}`);
         
         if (playerCount >= GAME_CONFIG.MIN_PLAYERS) {
-            console.log(`🎮 Starting Game ${gameId} with ${playerCount} players`);
+            console.log(`✅ Game ${gameId} meets minimum players (${playerCount} >= ${GAME_CONFIG.MIN_PLAYERS})`);
+            console.log(`🎮 STARTING Game ${gameId} with ${playerCount} players`);
             await startGamePlay(gameId);
         } else {
-            console.log(`❌ Game ${gameId} cancelled - only ${playerCount} players`);
+            console.log(`❌ Game ${gameId} cancelled - only ${playerCount} players (need ${GAME_CONFIG.MIN_PLAYERS})`);
             await cancelGame(gameId);
         }
     } catch (error) {
-        console.error('Error checking game:', error);
+        console.error('❌ Error checking game:', error.message);
     }
 }
 
@@ -770,33 +800,54 @@ function checkBoardForBingo(boardData, markedNumbers, calledNumbers) {
 async function startGameCycle() {
     console.log('🔄 Starting 24/7 game cycle...');
     
-    // Check for games needing to start
+    // Create first game immediately
+    await createMultiplayerGame();
+    console.log('🆕 First game created');
+    
+    // Check for games needing to start every 10 seconds
     setInterval(async () => {
         try {
-            const result = await pool.query(
-                `SELECT * FROM multiplayer_games 
-                 WHERE status = 'selecting' 
-                 AND selection_end_time <= $1`,
-                [new Date().toISOString()]
-            );
+            // 1. Check for games that need to start
+            const result = await pool.query(`
+                SELECT * FROM multiplayer_games 
+                WHERE status = 'selecting' 
+                AND selection_end_time <= $1
+                AND status != 'cancelled'
+                LIMIT 3
+            `, [new Date().toISOString()]);
             
             for (const game of result.rows) {
+                console.log(`⏰ Game ${game.id} selection time ended, checking players...`);
                 await checkAndStartGame(game.id);
             }
+            
+            // 2. Check if we need to create new games
+            const selectingGames = await pool.query(`
+                SELECT COUNT(*) as count FROM multiplayer_games 
+                WHERE status = 'selecting'
+                AND status != 'cancelled'
+            `);
+            
+            const selectingCount = parseInt(selectingGames.rows[0].count);
+            
+            if (selectingCount === 0) {
+                console.log('🆕 No active selection games, creating new one...');
+                await createMultiplayerGame();
+            } else {
+                console.log(`📊 Currently ${selectingCount} game(s) in selection phase`);
+            }
+            
         } catch (error) {
-            console.error('Error in game cycle:', error);
+            console.error('❌ Error in game cycle:', error.message);
         }
-    }, 5000);
-    
-    // Create first game
-    setTimeout(async () => {
-        await createMultiplayerGame();
-    }, 2000);
+    }, 10000); // Check every 10 seconds
 }
 
 async function startGamePlay(gameId) {
     try {
-        // 1. Shuffling phase
+        console.log(`🚀 Starting game play for ${gameId}`);
+        
+        // 1. SHUFFLING PHASE (30 seconds countdown)
         await pool.query(
             `UPDATE multiplayer_games 
              SET status = 'shuffling', start_time = $1
@@ -807,72 +858,140 @@ async function startGamePlay(gameId) {
         broadcastToGame(gameId, {
             type: 'game_status',
             status: 'shuffling',
-            message: '🎮 GAME STARTING! Shuffling numbers... Game starts in 5 seconds!'
+            message: '🎮 GAME STARTING! Shuffling numbers...',
+            countdown: GAME_CONFIG.SHUFFLE_TIME
         });
         
-        console.log(`🔢 Game ${gameId} shuffling numbers...`);
+        console.log(`🔢 Game ${gameId}: 30-second shuffle countdown started`);
         
-        // Wait 5 seconds for shuffling
+        // Send countdown updates every second
+        let shuffleCount = GAME_CONFIG.SHUFFLE_TIME;
+        const shuffleInterval = setInterval(() => {
+            shuffleCount--;
+            broadcastToGame(gameId, {
+                type: 'countdown',
+                status: 'shuffling',
+                seconds: shuffleCount,
+                message: `Starting in ${shuffleCount} seconds...`
+            });
+            
+            if (shuffleCount <= 0) {
+                clearInterval(shuffleInterval);
+            }
+        }, 1000);
+        
+        // Wait for shuffle time
         setTimeout(async () => {
-            // 2. Active phase
+            clearInterval(shuffleInterval);
+            
+            // 2. ACTIVE PHASE
+            const gameEndTime = new Date(Date.now() + GAME_CONFIG.GAME_DURATION);
             await pool.query(
                 `UPDATE multiplayer_games 
-                 SET status = 'active', end_time = $1
+                 SET status = 'active', end_time = $1, called_numbers = '[]'
                  WHERE id = $2`,
-                [new Date(Date.now() + GAME_CONFIG.GAME_DURATION).toISOString(),
-                 gameId]
+                [gameEndTime.toISOString(), gameId]
             );
             
             broadcastToGame(gameId, {
                 type: 'game_status',
                 status: 'active',
-                message: '🎮 GAME ACTIVE! Good luck everyone! 🍀'
+                message: '🎮 GAME ACTIVE! Numbers will be called every 5 seconds! 🍀',
+                gameDuration: GAME_CONFIG.GAME_DURATION,
+                endTime: gameEndTime.toISOString()
             });
             
-            console.log(`🎮 Game ${gameId} now active`);
+            console.log(`🎮 Game ${gameId} now ACTIVE for 5 minutes (until ${gameEndTime.toLocaleTimeString()})`);
             
-            // 3. Start calling numbers
+            // 3. Start calling numbers every 5 seconds
             callGameNumbers(gameId);
             
-            // 4. Auto-end timer
+            // 4. Auto-end timer exactly after 5 minutes
             setTimeout(async () => {
                 const gameResult = await pool.query(
-                    `SELECT status FROM multiplayer_games WHERE id = $1`,
+                    `SELECT status, winner_id FROM multiplayer_games WHERE id = $1`,
                     [gameId]
                 );
                 
-                if (gameResult.rows[0]?.status === 'active') {
+                const game = gameResult.rows[0];
+                if (game.status === 'active' && !game.winner_id) {
+                    console.log(`⏰ Game ${gameId} completed 5 minutes with no winner`);
                     await endGameNoWinner(gameId);
                 }
             }, GAME_CONFIG.GAME_DURATION);
             
-        }, GAME_CONFIG.SHUFFLE_TIME * 1000);
+            // 5. Send game timer updates
+            let minutesLeft = 4;
+            let secondsLeft = 59;
+            const gameTimer = setInterval(() => {
+                secondsLeft--;
+                if (secondsLeft < 0) {
+                    minutesLeft--;
+                    secondsLeft = 59;
+                }
+                
+                if (minutesLeft >= 0) {
+                    broadcastToGame(gameId, {
+                        type: 'game_timer',
+                        minutes: minutesLeft,
+                        seconds: secondsLeft,
+                        message: `Time remaining: ${minutesLeft}:${secondsLeft.toString().padStart(2, '0')}`
+                    });
+                }
+                
+                if (minutesLeft <= 0 && secondsLeft <= 0) {
+                    clearInterval(gameTimer);
+                }
+            }, 1000);
+            
+            // Store for cleanup
+            gameIntervals[gameId] = gameTimer;
+            
+        }, GAME_CONFIG.SHUFFLE_TIME * 1000); // 30 seconds
         
     } catch (error) {
-        console.error('Error starting game play:', error);
+        console.error('❌ Error starting game play:', error);
     }
 }
 
 async function callGameNumbers(gameId) {
     try {
         const gameResult = await pool.query(
-            `SELECT called_numbers FROM multiplayer_games WHERE id = $1 AND status = 'active'`,
+            `SELECT called_numbers, status FROM multiplayer_games WHERE id = $1 AND status = 'active'`,
             [gameId]
         );
         
-        if (gameResult.rows.length === 0) return;
+        if (gameResult.rows.length === 0) {
+            console.log(`❌ Game ${gameId} is not active, stopping number calls`);
+            return;
+        }
         
-        let calledNumbers = gameResult.rows[0]?.called_numbers ? 
-            JSON.parse(gameResult.rows[0].called_numbers) : [];
+        const game = gameResult.rows[0];
+        let calledNumbers = game.called_numbers ? JSON.parse(game.called_numbers) : [];
         
+        // Check if we've called all 45 numbers
         if (calledNumbers.length >= GAME_CONFIG.MAX_CALLS) {
-            await endGameNoWinner(gameId);
+            console.log(`🎯 Game ${gameId}: Called all 45 numbers`);
+            
+            // Wait 2 seconds then check if no winner
+            setTimeout(async () => {
+                const statusCheck = await pool.query(
+                    `SELECT status, winner_id FROM multiplayer_games WHERE id = $1`,
+                    [gameId]
+                );
+                
+                const gameStatus = statusCheck.rows[0];
+                if (gameStatus.status === 'active' && !gameStatus.winner_id) {
+                    console.log(`⏰ No winner after 45 numbers, ending game`);
+                    await endGameNoWinner(gameId);
+                }
+            }, 2000);
+            
             return;
         }
         
         // Generate new number
         const newNumber = generateUniqueNumber(calledNumbers);
-        
         calledNumbers.push(newNumber);
         
         // Update database
@@ -887,26 +1006,22 @@ async function callGameNumbers(gameId) {
         broadcastToGame(gameId, {
             type: 'number_called',
             number: newNumber,
-            calledNumbers: calledNumbers
+            calledNumbers: calledNumbers,
+            numberIndex: calledNumbers.length,
+            totalNumbers: GAME_CONFIG.MAX_CALLS,
+            nextCallIn: GAME_CONFIG.CALL_INTERVAL / 1000
         });
         
-        console.log(`🔔 Game ${gameId}: Called ${newNumber}`);
+        console.log(`🔔 Game ${gameId}: Called ${newNumber} (${calledNumbers.length}/45)`);
         
         // Check for winners
         await checkForWinners(gameId);
         
-        // Schedule next call if game still active
-        const statusResult = await pool.query(
-            `SELECT status FROM multiplayer_games WHERE id = $1`,
-            [gameId]
-        );
-        
-        if (statusResult.rows[0]?.status === 'active') {
-            setTimeout(() => callGameNumbers(gameId), GAME_CONFIG.CALL_INTERVAL);
-        }
+        // Schedule next call
+        setTimeout(() => callGameNumbers(gameId), GAME_CONFIG.CALL_INTERVAL);
         
     } catch (error) {
-        console.error('Error calling game numbers:', error);
+        console.error('❌ Error calling game numbers:', error);
     }
 }
 
@@ -967,6 +1082,7 @@ async function checkForWinners(gameId) {
 }
 
 async function endGameNoWinner(gameId) {
+    cleanupGame(gameId);
     try {
         // ADD THIS LINE at the beginning:
         cleanupGameConnections(gameId);
@@ -1025,6 +1141,7 @@ async function endGameNoWinner(gameId) {
 }
 
 async function cancelGame(gameId) {
+    cleanupGame(gameId);
     try {
         // ADD THIS LINE at the beginning:
         cleanupGameConnections(gameId);
@@ -1615,18 +1732,23 @@ async function handleCallbackQuery(callback) {
                 break;
                 
             case 'balance':
-                await sendTelegramMessage(chatId,
-                    `💰 *YOUR BALANCE*\n\n` +
-                    `💵 Available: *${user.balance} ETB*\n\n` +
-                    `🎮 To play: Click PLAY button`,
-                    {
-                        inline_keyboard: [[
-                            { text: "🎮 PLAY", callback_data: "play" },
-                            { text: "💰 DEPOSIT (INSTANT)", callback_data: "deposit" }
-                        ]]
-                    }
-                );
-                break;
+    // First show balance
+    await sendTelegramMessage(chatId,
+        `💰 *YOUR BALANCE*\n\n` +
+        `💵 Available: *${user.balance} ETB*\n\n` +
+        `⏰ *QUICK JOIN AVAILABLE!*\n` +
+        `Click PLAY to instantly join the next game!\n` +
+        `🎮 Game starts in 25 seconds!`,
+        {
+            inline_keyboard: [[
+                { 
+                    text: `🎮 PLAY NOW (${user.balance} ETB)`, 
+                    web_app: { url: `${RENDER_URL}/?user=${userId}&autojoin=true` }
+                }
+            ]]
+        }
+    );
+    break;
                 
             case 'withdraw':
                 await sendTelegramMessage(chatId,
@@ -2396,8 +2518,47 @@ app.post('/api/user/update-balance', async (req, res) => {
     }
 });
 
+// Add this route to test the game flow
+app.get('/api/test-game-flow', async (req, res) => {
+    try {
+        // Create a test game
+        const game = await createMultiplayerGame();
+        
+        // Add a test player
+        const testUserId = 'test_user_123';
+        const testUser = {
+            id: testUserId,
+            username: 'Test Player',
+            balance: 100,
+            registered: true
+        };
+        
+        users[testUserId] = testUser;
+        
+        // Join the game
+        const joinResult = await joinMultiplayerGame(game.gameId, testUserId, 1, []);
+        
+        res.json({
+            success: true,
+            message: 'Test game created',
+            gameId: game.gameId,
+            gameNumber: game.gameNumber,
+            joinResult: joinResult,
+            selectionTimeLeft: GAME_CONFIG.SELECTION_TIME,
+            playersNeeded: GAME_CONFIG.MIN_PLAYERS
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+
 
 // ==================== START SERVER ====================
+// Add this before server starts
+console.log('='.repeat(40));
+console.log('📡 INITIALIZING SERVER...');
+console.log('='.repeat(40));
 const PORT = process.env.PORT || 3000;
 
 const server = app.listen(PORT, '0.0.0.0', async () => {
@@ -2540,5 +2701,3 @@ async function migrateDatabase() {
         console.error('❌ Database migration error:', error.message);
     }
 }
-
-
