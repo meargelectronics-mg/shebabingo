@@ -141,10 +141,51 @@ const GAME_CONFIG = {
 
 
 // ==================== WEBSOCKET FOR REAL-TIME ====================
-const wss = new WebSocket.Server({ noServer: true });
+const wss = new WebSocket.Server({ 
+    noServer: true,
+    clientTracking: true,
+    perMessageDeflate: {
+        zlibDeflateOptions: {
+            chunkSize: 1024,
+            memLevel: 7,
+            level: 3
+        },
+        zlibInflateOptions: {
+            chunkSize: 10 * 1024
+        },
+        clientNoContextTakeover: true,
+        serverNoContextTakeover: true,
+        serverMaxWindowBits: 10,
+        concurrencyLimit: 10,
+        threshold: 1024
+    }
+});
+
+// WebSocket heartbeat to keep connections alive
+const heartbeatInterval = setInterval(() => {
+    wss.clients.forEach((ws) => {
+        if (ws.isAlive === false) {
+            console.log(`💔 Closing dead WebSocket connection`);
+            return ws.terminate();
+        }
+        
+        ws.isAlive = false;
+        try {
+            ws.ping(null, false, true);
+        } catch (error) {
+            console.log('Error sending ping:', error.message);
+        }
+    });
+}, 30000); // 30 seconds
+
 const gameConnections = new Map();
 
 wss.on('connection', (ws, request) => {
+    ws.isAlive = true;
+    
+    ws.on('pong', () => {
+        ws.isAlive = true;
+    });
     const params = new URLSearchParams(request.url.split('?')[1]);
     const gameId = params.get('gameId');
     const userId = params.get('userId');
@@ -2595,17 +2636,23 @@ const server = app.listen(PORT, '0.0.0.0', async () => {
 });
 
 // Add WebSocket support to HTTP server
+// Add WebSocket support to HTTP server
 server.on('upgrade', (request, socket, head) => {
     const pathname = new URL(request.url, `http://${request.headers.host}`).pathname;
+    
+    console.log(`🔗 WebSocket upgrade request for: ${pathname}`);
     
     if (pathname === '/game-ws') {
         wss.handleUpgrade(request, socket, head, (ws) => {
             wss.emit('connection', ws, request);
         });
     } else {
+        console.log(`❌ Rejected WebSocket upgrade for: ${pathname}`);
         socket.destroy();
     }
 });
+
+
 
 // Initialize database tables
 async function initializeDatabase() {
@@ -2701,4 +2748,3 @@ async function migrateDatabase() {
         console.error('❌ Database migration error:', error.message);
     }
 }
-
