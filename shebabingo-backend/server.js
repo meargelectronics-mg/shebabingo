@@ -345,6 +345,28 @@ async function getNextGameNumber() {
 }
 
 async function createMultiplayerGame() {
+    // RATE LIMITING CHECK: Prevent creating too many games at once
+    try {
+        const recentGames = await pool.query(`
+            SELECT COUNT(*) as count FROM multiplayer_games 
+            WHERE created_at > NOW() - INTERVAL '30 seconds'
+            AND status = 'selecting'
+        `);
+        
+        const recentCount = parseInt(recentGames.rows[0].count);
+        
+        if (recentCount >= 2) {
+            console.log('⏳ Too many recent games created, waiting...');
+            return { success: false, error: 'Too many recent games' };
+        }
+        
+        console.log(`📈 Recent games in last 30 seconds: ${recentCount}`);
+    } catch (error) {
+        console.error('Error checking recent games:', error);
+        // Continue anyway, don't block game creation on error
+    }
+    
+    // Generate unique game ID and number
     const gameId = 'GAME_' + Date.now().toString(36);
     const gameNumber = await getNextGameNumber();
     
@@ -358,9 +380,15 @@ async function createMultiplayerGame() {
         
         console.log(`🆕 Multiplayer Game #${gameNumber} created (ID: ${gameId})`);
         
-        // Schedule game start check
+        // Schedule game start check with error handling
         setTimeout(async () => {
-            await checkAndStartGame(gameId);
+            try {
+                await checkAndStartGame(gameId);
+            } catch (error) {
+                console.error(`❌ Error in scheduled game check for ${gameId}:`, error.message);
+                // Cancel game if check fails
+                await cancelGame(gameId);
+            }
         }, GAME_CONFIG.SELECTION_TIME * 1000);
         
         return { success: true, gameId, gameNumber };
@@ -373,6 +401,22 @@ async function createMultiplayerGame() {
 async function checkAndStartGame(gameId) {
     try {
         console.log(`🔍 Checking game ${gameId} for starting...`);
+        
+        // First verify game still exists and is in selecting status
+        const gameCheck = await pool.query(
+            `SELECT status FROM multiplayer_games WHERE id = $1`,
+            [gameId]
+        );
+        
+        if (gameCheck.rows.length === 0) {
+            console.log(`❌ Game ${gameId} not found, skipping`);
+            return;
+        }
+        
+        if (gameCheck.rows[0].status !== 'selecting') {
+            console.log(`⚠️ Game ${gameId} is already ${gameCheck.rows[0].status}, skipping`);
+            return;
+        }
         
         // Get player count
         const playerCount = await getPlayerCount(gameId);
@@ -388,6 +432,12 @@ async function checkAndStartGame(gameId) {
         }
     } catch (error) {
         console.error('❌ Error checking game:', error.message);
+        // Try to cancel the game on error
+        try {
+            await cancelGame(gameId);
+        } catch (cancelError) {
+            console.error('Failed to cancel game:', cancelError.message);
+        }
     }
 }
 
@@ -838,50 +888,100 @@ function checkBoardForBingo(boardData, markedNumbers, calledNumbers) {
 }
 
 // ==================== GAME CYCLE MANAGEMENT ====================
+// ==================== GAME CYCLE MANAGEMENT ====================
 async function startGameCycle() {
-    console.log('🔄 Starting 24/7 game cycle...');
+    console.log('🔄 Starting OPTIMIZED 24/7 game cycle...');
+    
+    // Clear any existing intervals first (prevent duplicates)
+    if (global.gameCycleInterval) {
+        clearInterval(global.gameCycleInterval);
+        console.log('🧹 Cleared previous game cycle interval');
+    }
+    
+    // Clean up any old games first
+    await cleanupOldGames();
     
     // Create first game immediately
     await createMultiplayerGame();
     console.log('🆕 First game created');
     
-    // Check for games needing to start every 10 seconds
-    setInterval(async () => {
+    // Check for games every 30 seconds (NOT 10 seconds!)
+    global.gameCycleInterval = setInterval(async () => {
         try {
-            // 1. Check for games that need to start
-            const result = await pool.query(`
-                SELECT * FROM multiplayer_games 
-                WHERE status = 'selecting' 
-                AND selection_end_time <= $1
-                AND status != 'cancelled'
-                LIMIT 3
-            `, [new Date().toISOString()]);
+            console.log('🔄 Game cycle check running...');
             
-            for (const game of result.rows) {
-                console.log(`⏰ Game ${game.id} selection time ended, checking players...`);
-                await checkAndStartGame(game.id);
-            }
+            // 1. First, clean up completed/cancelled games
+            await cleanupOldGames();
             
-            // 2. Check if we need to create new games
+            // 2. Count how many selection games are active (last 5 minutes only)
             const selectingGames = await pool.query(`
                 SELECT COUNT(*) as count FROM multiplayer_games 
                 WHERE status = 'selecting'
-                AND status != 'cancelled'
+                AND created_at > NOW() - INTERVAL '5 minutes'
+                AND selection_end_time > NOW() + INTERVAL '5 seconds'  -- At least 5 seconds left
             `);
             
             const selectingCount = parseInt(selectingGames.rows[0].count);
+            console.log(`📊 Currently ${selectingCount} game(s) in selection phase`);
             
-            if (selectingCount === 0) {
-                console.log('🆕 No active selection games, creating new one...');
+            // 3. Only create new game if we have FEWER than 2 selection games
+            if (selectingCount < 2) {
+                console.log(`📝 Need more games, creating new one...`);
                 await createMultiplayerGame();
-            } else {
-                console.log(`📊 Currently ${selectingCount} game(s) in selection phase`);
+            }
+            
+            // 4. Check for games that need to start
+            const gamesToStart = await pool.query(`
+                SELECT * FROM multiplayer_games 
+                WHERE status = 'selecting' 
+                AND selection_end_time <= NOW()
+                AND status != 'cancelled'
+                LIMIT 2
+            `);
+            
+            for (const game of gamesToStart.rows) {
+                console.log(`⏰ Game ${game.id} selection time ended, checking players...`);
+                await checkAndStartGame(game.id);
             }
             
         } catch (error) {
             console.error('❌ Error in game cycle:', error.message);
         }
-    }, 10000); // Check every 10 seconds
+    }, 30000); // Check every 30 seconds (NOT 10!)
+}
+
+// Add this cleanup function (place it right after startGameCycle)
+async function cleanupOldGames() {
+    try {
+        // Clean up games older than 10 minutes (except active ones)
+        const result = await pool.query(`
+            DELETE FROM multiplayer_games 
+            WHERE created_at < NOW() - INTERVAL '10 minutes'
+            AND status IN ('cancelled', 'completed')
+            RETURNING id
+        `);
+        
+        if (result.rows.length > 0) {
+            console.log(`🧹 Cleaned up ${result.rows.length} old games`);
+        }
+        
+        // Also clean up any selecting games with 0 players for a while
+        const zeroPlayerGames = await pool.query(`
+            DELETE FROM multiplayer_games 
+            WHERE status = 'selecting'
+            AND created_at < NOW() - INTERVAL '2 minutes'
+            AND id NOT IN (
+                SELECT DISTINCT game_id FROM game_players
+            )
+            RETURNING id
+        `);
+        
+        if (zeroPlayerGames.rows.length > 0) {
+            console.log(`🧹 Cleaned up ${zeroPlayerGames.rows.length} empty games with no players`);
+        }
+    } catch (error) {
+        console.error('Error cleaning up old games:', error.message);
+    }
 }
 
 async function startGamePlay(gameId) {
@@ -2596,7 +2696,37 @@ app.get('/api/test-game-flow', async (req, res) => {
 
 
 // ==================== START SERVER ====================
-// Add this before server starts
+// 🧹 CLEANUP FUNCTION (place this just above server.listen)
+async function cleanupStuckGames() {
+    try {
+        console.log('🧹 Cleaning up stuck games...');
+        
+        // Cancel all selecting games older than 2 minutes
+        const result = await pool.query(`
+            UPDATE multiplayer_games 
+            SET status = 'cancelled', end_time = NOW()
+            WHERE status = 'selecting'
+            AND created_at < NOW() - INTERVAL '2 minutes'
+            RETURNING id
+        `);
+        
+        console.log(`🧹 Cancelled ${result.rows.length} stuck games`);
+        
+        // Delete very old games
+        const deleteResult = await pool.query(`
+            DELETE FROM multiplayer_games 
+            WHERE created_at < NOW() - INTERVAL '1 hour'
+            RETURNING id
+        `);
+        
+        console.log(`🧹 Deleted ${deleteResult.rows.length} old games`);
+        
+    } catch (error) {
+        console.error('Error cleaning up stuck games:', error);
+    }
+}
+
+// ==================== START SERVER ====================
 console.log('='.repeat(40));
 console.log('📡 INITIALIZING SERVER...');
 console.log('='.repeat(40));
@@ -2606,33 +2736,56 @@ const server = app.listen(PORT, '0.0.0.0', async () => {
     console.log('='.repeat(60));
     console.log('📡 SHEBA BINGO - 24/7 MULTIPLAYER SERVER');
     console.log('='.repeat(60));
-    console.log(`🌐 Server URL: http://0.0.0.0:${PORT}`);
-    console.log(`🤖 Telegram Bot: @shebabingobot`);
-    console.log(`🎮 Game URL: ${RENDER_URL}/?user=USER_ID`);
-    console.log(`🔧 Admin Panel: ${RENDER_URL}/admin.html`);
-    console.log(`📊 Health Check: ${RENDER_URL}/api/health`);
-    console.log(`🔗 WebSocket: ${RENDER_URL}/game-ws`);
-    console.log('='.repeat(60));
     
-    // Initialize database tables
+    // Initialize database
     await initializeDatabase();
-
-    // Run database migrations
-    await migrateDatabase();  // ⬅️ ADD THIS LINE
+    await migrateDatabase();
     
-    // Setup Telegram webhook
+    // 🧹 CLEANUP STUCK GAMES FIRST!
+    await cleanupStuckGames();
+    
+    // Setup Telegram
     await setupTelegramWebhook();
     
-    console.log('\n🎯 *MULTIPLAYER SYSTEM STARTED*');
-    console.log('✅ Real-time WebSocket server active');
-    console.log('✅ PostgreSQL database connected');
-    console.log('✅ 24/7 game cycle starting...');
-    console.log('✅ Minimum 2 players to start game');
-    console.log('✅ Board price: 10 ETB, Prize pool: 80%');
+    console.log('\n🎯 *OPTIMIZED MULTIPLAYER SYSTEM STARTED*');
+    console.log('✅ Game cleanup completed');
+    console.log('✅ Ready for players to join');
     console.log('='.repeat(60));
     
-    // Start 24/7 game cycle
+    // Start game cycle
     startGameCycle();
+});
+
+// WebSocket support
+server.on('upgrade', (request, socket, head) => {
+    const pathname = new URL(request.url, `http://${request.headers.host}`).pathname;
+    
+    if (pathname === '/game-ws') {
+        wss.handleUpgrade(request, socket, head, (ws) => {
+            wss.emit('connection', ws, request);
+        });
+    } else {
+        socket.destroy();
+    }
+});
+
+// Graceful shutdown
+process.on('SIGTERM', async () => {
+    console.log('SIGTERM received, shutting down gracefully...');
+    
+    // Close WebSocket connections
+    wss.close();
+    
+    // Close database connection
+    await pool.end();
+    
+    // Save data to files
+    saveUsers();
+    saveDeposits();
+    saveGames();
+    
+    console.log('Data saved, server shutting down...');
+    process.exit(0);
 });
 
 // Add WebSocket support to HTTP server
