@@ -612,6 +612,7 @@ let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 5;
 
 // 1. MAIN CONNECTION FUNCTION
+// 1. FIXED CONNECTION FUNCTION
 function connectToMultiplayerServer(gameId) {
     if (!gameId) {
         console.error('❌ Cannot connect: No game ID provided');
@@ -620,11 +621,15 @@ function connectToMultiplayerServer(gameId) {
     
     currentGameId = gameId;
     
-    // Get WebSocket protocol (wss for HTTPS, ws for HTTP)
+    // Get current host (Render or local)
+    const host = window.location.host;
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-   const wsUrl = `${protocol}//${window.location.host}/game-ws?gameId=${gameId}&userId=${gameState.currentPlayer.id}`;
     
-    console.log('🔗 Connecting to multiplayer server:', wsUrl);
+    // IMPORTANT: Your WebSocket server is on the SAME host/port
+    // But we need to use the /game-ws endpoint properly
+    const wsUrl = `${protocol}//${host}/game-ws?gameId=${gameId}&userId=${userId}`;
+    
+    console.log('🔗 Connecting to WebSocket:', wsUrl);
     
     // Close existing connection if any
     if (gameSocket) {
@@ -634,10 +639,10 @@ function connectToMultiplayerServer(gameId) {
     gameSocket = new WebSocket(wsUrl);
     
     gameSocket.onopen = () => {
-        console.log('✅ Connected to multiplayer server');
+        console.log('✅ WebSocket connected successfully');
         reconnectAttempts = 0;
         
-        // Send initial ping to confirm connection
+        // Send ping to verify connection
         setTimeout(() => {
             if (gameSocket && gameSocket.readyState === WebSocket.OPEN) {
                 gameSocket.send(JSON.stringify({ type: 'ping' }));
@@ -660,13 +665,13 @@ function connectToMultiplayerServer(gameId) {
     };
     
     gameSocket.onclose = (event) => {
-        console.log('🔌 Disconnected from server:', event.code, event.reason);
+        console.log('🔌 WebSocket closed:', event.code, event.reason);
         gameSocket = null;
         
-        // Try to reconnect if not normal closure
+        // Try to reconnect
         if (event.code !== 1000 && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
             reconnectAttempts++;
-            console.log(`🔄 Reconnecting attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}...`);
+            console.log(`🔄 Reconnecting (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})...`);
             
             setTimeout(() => {
                 if (currentGameId) {
@@ -1097,7 +1102,7 @@ function showChatMessage(senderId, senderName, message) {
 
 
 
-// ==================== INTEGRATE WITH SERVER API ====================
+// ==================== INTEGRATE WITH SERVER  ====================
 
 // Get user ID from URL
 const urlParams = new URLSearchParams(window.location.search);
@@ -1201,6 +1206,101 @@ async function addWinningsToServer(amount) {
     }
     return false;
 }
+
+
+// ==================== MISSING API FUNCTIONS ====================
+
+// Get active games from server
+async function getActiveGames() {
+    try {
+        console.log('🔍 Fetching active games...');
+        const response = await fetch('/api/games/active');
+        const data = await response.json();
+        
+        if (data.success) {
+            console.log(`🎮 Found ${data.games.length} active game(s)`);
+            return data.games;
+        }
+        return [];
+    } catch (error) {
+        console.error('Error fetching active games:', error);
+        return [];
+    }
+}
+
+// Get next game start time
+async function getNextGameStart() {
+    try {
+        const response = await fetch('/api/game/next-start');
+        const data = await response.json();
+        
+        if (data.success) {
+            return data;
+        }
+        return null;
+    } catch (error) {
+        console.error('Error getting next game:', error);
+        return null;
+    }
+}
+
+// Load user data
+async function loadUserData() {
+    try {
+        const response = await fetch(`/api/user/${userId}/balance`);
+        const data = await response.json();
+        
+        if (data.success) {
+            // Update your UI elements
+            const balanceElement = document.getElementById('balanceValue');
+            if (balanceElement) {
+                balanceElement.textContent = data.balance + ' ETB';
+            }
+            
+            gameState.currentPlayer.balance = data.balance;
+            gameState.currentPlayer.username = data.username || 'Player';
+            
+            console.log(`👤 User ${gameState.currentPlayer.username} loaded, balance: ${data.balance} ETB`);
+            return true;
+        }
+        return false;
+    } catch (error) {
+        console.error('Error loading user data:', error);
+        return false;
+    }
+}
+
+// Join game via API
+async function joinGameApi(boardCount, boardNumbers) {
+    try {
+        const response = await fetch('/api/game/join', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                userId: userId,
+                boardCount: boardCount,
+                boardNumbers: boardNumbers
+            })
+        });
+        
+        return await response.json();
+    } catch (error) {
+        console.error('Error joining game:', error);
+        return { success: false, error: 'Network error' };
+    }
+}
+
+// Get game state
+async function getGameStateApi(gameId) {
+    try {
+        const response = await fetch(`/api/game/${gameId}/state/${userId}`);
+        return await response.json();
+    } catch (error) {
+        console.error('Error getting game state:', error);
+        return { success: false, error: 'Network error' };
+    }
+}
+
 
 // MODIFY YOUR confirmSelection() FUNCTION:
 
@@ -1369,25 +1469,90 @@ async function checkForActiveGames() {
             );
             
             if (selectingGame) {
-                console.log(`🎯 Joining existing game: ${selectingGame.id}`);
+                console.log(`🎯 Found game #${selectingGame.game_number}: ${selectingGame.id}`);
+                console.log(`👥 Players: ${selectingGame.player_count}, Status: ${selectingGame.status}`);
+                
+                // Calculate time left
+                if (selectingGame.selection_end_time) {
+                    const endTime = new Date(selectingGame.selection_end_time);
+                    const now = new Date();
+                    const timeLeft = Math.max(0, Math.floor((endTime - now) / 1000));
+                    
+                    console.log(`⏰ Selection ends in: ${timeLeft} seconds`);
+                    
+                    // If less than 5 seconds left, skip and wait for next game
+                    if (timeLeft < 5) {
+                        console.log('⚠️ Too little time left, waiting for next game');
+                        showWaitForNextGame(`Next game starting soon...`);
+                        setTimeout(() => checkForActiveGames(), 5000);
+                        return;
+                    }
+                    
+                    // Set the timer from server
+                    gameState.selectionTimer = timeLeft;
+                    console.log(`⏰ Server timer set: ${timeLeft} seconds`);
+                }
+                
                 // Show registration popup to join this game
                 openRegistrationPopup();
                 return;
             }
+            
+            // Check for active/shuffling games to watch
+            const activeGame = data.games.find(game => 
+                game.status === 'shuffling' || game.status === 'active'
+            );
+            
+            if (activeGame) {
+                console.log(`👀 Active game found (${activeGame.status}), showing spectator mode`);
+                showSpectatorMessage(`Watching Game #${activeGame.game_number}`);
+                return;
+            }
         }
         
-        // No suitable game found, start selection
-        console.log('🆕 No suitable game found, starting selection');
-        setTimeout(() => {
-            startBoardSelection();
-        }, 2000);
+        // No suitable game found, check when next game starts
+        console.log('🆕 No suitable game found, checking next game...');
+        
+        try {
+            const nextGameResponse = await fetch('/api/game/next-start');
+            const nextGameData = await nextGameResponse.json();
+            
+            if (nextGameData.success) {
+                console.log(`⏳ Next game in ${nextGameData.secondsLeft} seconds`);
+                
+                if (nextGameData.secondsLeft <= 30) {
+                    // Game starting soon, show countdown
+                    showWaitForNextGame(`Next game starts in ${nextGameData.secondsLeft}s`);
+                    setTimeout(() => checkForActiveGames(), nextGameData.secondsLeft * 1000);
+                } else {
+                    // Start local selection as fallback
+                    console.log('🆕 Starting local selection (no server games soon)');
+                    setTimeout(() => {
+                        startBoardSelection();
+                    }, 2000);
+                }
+            } else {
+                // Fallback to local selection
+                console.log('🆕 Starting local selection (fallback)');
+                setTimeout(() => {
+                    startBoardSelection();
+                }, 2000);
+            }
+        } catch (apiError) {
+            console.log('⚠️ /api/game/next-start not available, using fallback');
+            // Fallback to local selection
+            setTimeout(() => {
+                startBoardSelection();
+            }, 2000);
+        }
         
     } catch (error) {
         console.error('Error checking active games:', error);
         // Fallback to local mode
+        showWaitForNextGame('Server connection issue. Trying local mode...');
         setTimeout(() => {
             startBoardSelection();
-        }, 2000);
+        }, 3000);
     }
 }
 
@@ -1441,20 +1606,29 @@ function markNumberOnBoard(number) {
             startSelectionTimer();
         }
 
-        function startSelectionTimer() {
-            gameState.selectionTimer = CONFIG.SELECTION_TIME;
-            updateTimerDisplay();
-            
-            gameState.timerInterval = setInterval(() => {
-                gameState.selectionTimer--;
-                updateTimerDisplay();
-                
-                if (gameState.selectionTimer <= 0) {
-                    clearInterval(gameState.timerInterval);
-                    autoConfirmSelection();
-                }
-            }, 1000);
+       function startSelectionTimer() {
+    // If timer already set from server, use that
+    if (gameState.selectionTimer <= 0) {
+        gameState.selectionTimer = CONFIG.SELECTION_TIME;
+    }
+    
+    updateTimerDisplay();
+    
+    // Clear any existing interval
+    if (gameState.timerInterval) {
+        clearInterval(gameState.timerInterval);
+    }
+    
+    gameState.timerInterval = setInterval(() => {
+        gameState.selectionTimer--;
+        updateTimerDisplay();
+        
+        if (gameState.selectionTimer <= 0) {
+            clearInterval(gameState.timerInterval);
+            autoConfirmSelection();
         }
+    }, 1000);
+}
 
         function startShufflingPhase() {
     gameState.gamePhase = 'shuffling';
@@ -2215,11 +2389,48 @@ function checkForFraud(board) {
         
         // Registration Popup Functions
         function openRegistrationPopup() {
-            elements.registrationPopup.style.display = 'flex';
-            generateBoardOptions();
-            updateSelectionInfo();
-        }
-
+    elements.registrationPopup.style.display = 'flex';
+    generateBoardOptions();
+    updateSelectionInfo();
+    
+    // Clear any existing interval
+    if (gameState.timerInterval) {
+        clearInterval(gameState.timerInterval);
+        gameState.timerInterval = null;
+    }
+    
+    // If we have a server timer, use it
+    if (gameState.selectionTimer && gameState.selectionTimer > 0) {
+        console.log(`⏰ Using server timer: ${gameState.selectionTimer} seconds`);
+        updateTimerDisplay();
+        
+        // Start countdown with server time
+        gameState.timerInterval = setInterval(() => {
+            gameState.selectionTimer--;
+            updateTimerDisplay();
+            
+            if (gameState.selectionTimer <= 0) {
+                clearInterval(gameState.timerInterval);
+                autoConfirmSelection();
+            }
+        }, 1000);
+    } else {
+        // Use default timer (25 seconds)
+        console.log('⏰ Using default timer: 25 seconds');
+        gameState.selectionTimer = CONFIG.SELECTION_TIME;
+        updateTimerDisplay();
+        
+        gameState.timerInterval = setInterval(() => {
+            gameState.selectionTimer--;
+            updateTimerDisplay();
+            
+            if (gameState.selectionTimer <= 0) {
+                clearInterval(gameState.timerInterval);
+                autoConfirmSelection();
+            }
+        }, 1000);
+    }
+}
         function closeRegistrationPopup() {
             elements.registrationPopup.style.display = 'none';
             clearInterval(gameState.timerInterval);
@@ -2361,25 +2572,30 @@ function checkForFraud(board) {
         }
 
         function autoConfirmSelection() {
-            // Player didn't select any boards - show wait message
-            closeRegistrationPopup();
-            showWaitForNextGameMessage();
-            
-            // Continue with other players who might have selected boards
-            setTimeout(() => {
-                if (gameState.activePlayers.length > 0) {
-                    // Other players selected boards, continue the game
-                    startShufflingPhase();
-                } else {
-                    // No players at all selected boards, end this round
-                    console.log('⏳ No players selected boards, ending round');
-                    endGame();
-                }
-            }, 1000);
+    // Player didn't select any boards - show wait message
+    closeRegistrationPopup();
+    
+    if (gameState.selectedBoards.size === 0) {
+        showWaitForNextGame('No boards selected. Waiting for next game...');
+    } else {
+        // Player selected boards, confirm selection
+        confirmSelection();
+    }
+    
+    // Continue with other players who might have selected boards
+    setTimeout(() => {
+        if (gameState.activePlayers.length > 0) {
+            // Other players selected boards, continue the game
+            startShufflingPhase();
+        } else {
+            // No players at all selected boards
+            console.log('⏳ No players selected boards');
         }
+    }, 1000);
+}
 
         // Show wait message
-        function showWaitForNextGameMessage() {
+        function showWaitForNextGame(message = 'Waiting for Next Game') {
     elements.gamePlaySection.style.display = 'block';
     elements.boardsCarousel.innerHTML = '';
     elements.currentBoard.innerHTML = '';
@@ -2403,12 +2619,26 @@ function checkForFraud(board) {
     waitMessage.innerHTML = `
         <div style="margin-bottom: 15px; font-size: 1.4rem;">⏳</div>
         <div style="color: var(--deep-purple); margin-bottom: 10px;">
-            ${t.waiting}
+            ${message}
         </div>
         
-        <div style="font-size: 0.8rem; color: #aaa; margin-top: 15px;">
-            Next game starts automatically
+        <div style="font-size: 0.9rem; color: #666; margin-top: 15px;">
+            ${t.waiting || 'Please wait...'}
         </div>
+        
+        <button onclick="checkForActiveGames()" style="
+            margin-top: 15px;
+            padding: 8px 16px;
+            background: var(--safari-gold);
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-weight: bold;
+            cursor: pointer;
+            font-size: 0.9rem;
+        ">
+            Refresh
+        </button>
     `;
     
     elements.currentBoard.appendChild(waitMessage);
@@ -2417,11 +2647,11 @@ function checkForFraud(board) {
     gameState.currentPlayer.isActive = false;
     updateGameStatus();
     
-    console.log('⏳ Player skipped board selection - waiting for next game');
+    console.log(`⏳ ${message}`);
 }
 
         // Show spectator message
-       function showSpectatorMessage() {
+function showSpectatorMessage(message = 'Watching Game') {
     elements.gamePlaySection.style.display = 'block';
     elements.boardsCarousel.innerHTML = '';
     elements.currentBoard.innerHTML = '';
@@ -2437,30 +2667,46 @@ function checkForFraud(board) {
         background: white;
         border-radius: 10px;
         margin: 15px 0;
-        border: 2px solid var(--deep-purple);
-        box-shadow: 0 4px 12px rgba(139, 61, 232, 0.2);
+        border: 2px solid #3498db;
+        box-shadow: 0 4px 12px rgba(52, 152, 219, 0.2);
     `;
     
     const t = TRANSLATIONS[gameState.currentLanguage];
-    const timeLeft = gameState.calledNumbers.length < 75 ? 
-        `(~${Math.max(1, Math.floor((75 - gameState.calledNumbers.length) * 3 / 60))} min)` : 
-        '';
-    
     waitMessage.innerHTML = `
-        <div style="margin-bottom: 15px; font-size: 1.4rem;">⏳</div>
-        <div style="color: var(--deep-purple); margin-bottom: 10px;">
-            ${t.waiting}
+        <div style="margin-bottom: 15px; font-size: 1.4rem;">👀</div>
+        <div style="color: #3498db; margin-bottom: 10px; font-weight: bold;">
+            ${message}
         </div>
        
-        <div style="font-size: 0.8rem; color: #aaa; margin-top: 15px;">
-            Next game starts automatically
+        <div style="font-size: 0.9rem; color: #666; margin-top: 15px;">
+            Game is in progress. Join the next one!
         </div>
+        
+        <button onclick="checkForActiveGames()" style="
+            margin-top: 15px;
+            padding: 8px 16px;
+            background: #3498db;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-weight: bold;
+            cursor: pointer;
+            font-size: 0.9rem;
+        ">
+            Check for New Game
+        </button>
     `;
     
     elements.currentBoard.appendChild(waitMessage);
     
-    console.log(`⏳ Player waiting for next game.`);
+    // Update game status
+    gameState.currentPlayer.isActive = false;
+    gameState.gamePhase = 'waiting';
+    updateGameStatus();
+    
+    console.log(`👀 ${message}`);
 }
+
 
         // Balance deduction when buying boards
        function confirmSelection() {
