@@ -128,7 +128,7 @@ const GAME_CONFIG = {
     MAX_CALLS: 45,
     CALL_INTERVAL: 5000,           // 5 seconds between numbers
     SELECTION_TIME: 25,            // 25 seconds board selection (NOT 2 minutes!)
-    SHUFFLE_TIME: 30,              // 30 seconds shuffling countdown
+    SHUFFLE_TIME: 5,              // 5 seconds shuffling countdown
     GAME_DURATION: 300000,         // 5 minutes active game
     RESULTS_TIME: 30,              // 30 seconds results
     NEXT_GAME_DELAY: 5000,         // 5 seconds between games
@@ -2701,3 +2701,4 @@ async function migrateDatabase() {
         console.error('❌ Database migration error:', error.message);
     }
 }
+
