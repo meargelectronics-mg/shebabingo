@@ -1,13 +1,22 @@
 // ==================== IMPORTS ====================
 const express = require('express');
+const http = require('http');
+const WebSocket = require('ws');
 const axios = require('axios');
 const path = require('path');
 const fs = require('fs');
 const { Pool } = require('pg');
-const WebSocket = require('ws');
 const cors = require('cors');
-const http = require('http');
+
+// Create Express app
 const app = express();
+
+// Create HTTP server
+const server = http.createServer(app);
+
+
+
+
 
 // ==================== MIDDLEWARE ====================
 app.use(cors());
@@ -140,7 +149,8 @@ const GAME_CONFIG = {
 
 // ==================== WEBSOCKET FOR REAL-TIME ====================
 const wss = new WebSocket.Server({
-    server,                 // ✅ REQUIRED (DO NOT use noServer)
+    server,    
+    path: '/game-ws',             // ✅ REQUIRED (DO NOT use noServer)
     clientTracking: true,
     perMessageDeflate: {
         zlibDeflateOptions: {
@@ -2735,39 +2745,24 @@ async function cleanupStuckGames() {
 }
 
 // ==================== START SERVER ====================
+// STEP 6: START SERVER (ONLY ONCE)
 const PORT = process.env.PORT || 3000;
 
-const server = http.createServer(app);
-
+// Start server
 server.listen(PORT, '0.0.0.0', async () => {
-    console.log('🚀 Sheba Bingo Multiplayer Server Running on port', PORT);
+    console.log(`🚀 Server running on port ${PORT}`);
     
-    // Initialize and setup everything
+    // Initialize everything after server starts
     await initializeDatabase();
     await migrateDatabase();
     await cleanupStuckGames();
     await setupTelegramWebhook();
     startGameCycle();
     
-    console.log('✅ All systems initialized and ready');
+    console.log('✅ All systems initialized');
 });
 
 
-// Add WebSocket support to HTTP server
-server.on('upgrade', (request, socket, head) => {
-    const pathname = new URL(request.url, `http://${request.headers.host}`).pathname;
-    
-    console.log(`🔗 WebSocket upgrade request for: ${pathname}`);
-    
-    if (pathname === '/game-ws') {
-        wss.handleUpgrade(request, socket, head, (ws) => {
-            wss.emit('connection', ws, request);
-        });
-    } else {
-        console.log(`❌ Rejected WebSocket upgrade for: ${pathname}`);
-        socket.destroy();
-    }
-});
 
 // Graceful shutdown
 process.on('SIGTERM', async () => {
@@ -2868,4 +2863,3 @@ async function migrateDatabase() {
         console.error('❌ Database migration error:', error.message);
     }
 }
-
