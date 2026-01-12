@@ -7,16 +7,10 @@ const path = require('path');
 const fs = require('fs');
 const { Pool } = require('pg');
 const cors = require('cors');
-
 // Create Express app
 const app = express();
-
 // Create HTTP server
 const server = http.createServer(app);
-
-
-
-
 
 // ==================== MIDDLEWARE ====================
 app.use(cors());
@@ -2863,3 +2857,4 @@ async function migrateDatabase() {
         console.error('❌ Database migration error:', error.message);
     }
 }
+
