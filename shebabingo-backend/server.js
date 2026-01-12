@@ -1,3 +1,4 @@
+// ==================== IMPORTS ====================
 const express = require('express');
 const axios = require('axios');
 const path = require('path');
@@ -5,8 +6,10 @@ const fs = require('fs');
 const { Pool } = require('pg');
 const WebSocket = require('ws');
 const cors = require('cors');
-
+const http = require('http');
 const app = express();
+const http = require('http');
+
 
 // ==================== MIDDLEWARE ====================
 app.use(cors());
@@ -30,7 +33,6 @@ console.log('🗄️ DATABASE_URL exists:', !!process.env.DATABASE_URL);
 console.log('🌐 RENDER_URL:', process.env.RENDER_URL || 'Not set');
 console.log('='.repeat(60));
 
-// ==================== DATABASE CONNECTION ====================
 // ==================== DATABASE CONNECTION ====================
 const pool = new Pool({
     connectionString: DATABASE_URL,
@@ -138,11 +140,9 @@ const GAME_CONFIG = {
     TOTAL_BOARDS: 400
 };
 
-
-
 // ==================== WEBSOCKET FOR REAL-TIME ====================
-const wss = new WebSocket.Server({ 
-    noServer: true,
+const wss = new WebSocket.Server({
+    server,                 // ✅ REQUIRED (DO NOT use noServer)
     clientTracking: true,
     perMessageDeflate: {
         zlibDeflateOptions: {
@@ -161,136 +161,171 @@ const wss = new WebSocket.Server({
     }
 });
 
-// WebSocket heartbeat to keep connections alive
+// ==================== WEBSOCKET HEARTBEAT ====================
 const heartbeatInterval = setInterval(() => {
     wss.clients.forEach((ws) => {
         if (ws.isAlive === false) {
-            console.log(`💔 Closing dead WebSocket connection`);
+            console.log(`💔 Closing dead WebSocket for user ${ws.userId}`);
             return ws.terminate();
         }
-        
+
         ws.isAlive = false;
         try {
-            ws.ping(null, false, true);
-        } catch (error) {
-            console.log('Error sending ping:', error.message);
+            ws.ping();
+        } catch (err) {
+            console.error('Ping error:', err.message);
         }
     });
-}, 30000); // 30 seconds
+}, 30000);
 
+// ==================== GAME CONNECTIONS ====================
 const gameConnections = new Map();
 
+// ==================== CONNECTION HANDLER ====================
 wss.on('connection', (ws, request) => {
     ws.isAlive = true;
-    
+
     ws.on('pong', () => {
         ws.isAlive = true;
     });
-    const params = new URLSearchParams(request.url.split('?')[1]);
+
+    // Parse query parameters
+    const query = request.url.split('?')[1] || '';
+    const params = new URLSearchParams(query);
+
     const gameId = params.get('gameId');
     const userId = params.get('userId');
 
-    // ADD THIS VALIDATION:
+    // Validate connection
     if (!gameId || !userId) {
-        console.error('❌ WebSocket connection rejected: Missing gameId or userId');
+        console.error('❌ WebSocket rejected: Missing gameId or userId');
         ws.close(1008, 'Missing parameters');
         return;
     }
-     // Store user ID with the connection
-    ws.userId = userId;
+
+    // Attach metadata
     ws.gameId = gameId;
-    
-    if (!gameId || !userId) {
-        ws.close();
-        return;
-    }
-    
-    // Store connection
+    ws.userId = userId;
+
+    // Store connection by game
     if (!gameConnections.has(gameId)) {
         gameConnections.set(gameId, new Set());
     }
     gameConnections.get(gameId).add(ws);
-    
+
     console.log(`🔗 User ${userId} connected to game ${gameId}`);
-    
-    // Send current game state
-    getGameState(gameId, userId).then(gameState => {
-        if (gameState) {
-            ws.send(JSON.stringify({
-                type: 'game_state',
-                data: gameState
-            }));
-        }
-    });
-    
-    // Handle messages from client
+
+    // Send initial game state
+    getGameState(gameId, userId)
+        .then(gameState => {
+            if (gameState && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: 'game_state',
+                    data: gameState
+                }));
+            }
+        })
+        .catch(err => {
+            console.error('Game state error:', err.message);
+        });
+
+    // ==================== MESSAGE HANDLER ====================
     ws.on('message', async (message) => {
         try {
-            const data = JSON.parse(message);
-            
-            switch(data.type) {
-                case 'mark_number':
-                    await markPlayerNumber(gameId, userId, data.number);
-                    broadcastToGame(gameId, {
-                        type: 'number_marked',
-                        userId: userId,
-                        username: users[userId]?.username || 'Player',
-                        number: data.number
-                    });
-                    break;
-                    
-                case 'claim_bingo':
-                    const isValid = await checkBingo(gameId, userId);
-                    if (isValid) {
-                        const result = await declareWinner(gameId, userId);
-                        if (result.success) {
-                            broadcastToGame(gameId, {
-                                type: 'winner',
-                                userId: userId,
-                                username: users[userId]?.username || 'Player',
-                                prize: result.prize
-                            });
-                        }
-                    }
-                    break;
-                    
-                case 'chat_message':
-                    broadcastToGame(gameId, {
-                        type: 'chat',
-                        userId: userId,
-                        username: users[userId]?.username || 'Player',
-                        message: data.message,
-                        timestamp: new Date().toISOString()
-                    });
-                    break;
-                    
-                case 'ping':
-                    ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
-                    break;
-            }
-        } catch (error) {
-            console.error('WebSocket message error:', error);
+            await handleGameMessage(ws, message);
+        } catch (err) {
+            console.error('Message handling error:', err.message);
         }
     });
-    
+
+    // ==================== DISCONNECT CLEANUP ====================
     ws.on('close', () => {
-        gameConnections.get(gameId)?.delete(ws);
-        console.log(`🔗 User ${userId} disconnected from game ${gameId}`);
+        const connections = gameConnections.get(gameId);
+        if (connections) {
+            connections.delete(ws);
+            if (connections.size === 0) {
+                gameConnections.delete(gameId);
+            }
+        }
+
+        console.log(`🔌 User ${userId} disconnected from game ${gameId}`);
+
+        broadcastToGame(gameId, {
+            type: 'players_update',
+            count: connections ? connections.size : 0
+        });
     });
-    
-    ws.on('error', (error) => {
-        console.error(`WebSocket error for user ${userId}:`, error);
+
+    ws.on('error', (err) => {
+        console.error(`WebSocket error (${userId}):`, err.message);
     });
 });
 
-// Broadcast to all players in a game
-function broadcastToGame(gameId, message) {
+// ==================== GAME MESSAGE HANDLER ====================
+async function handleGameMessage(ws, message) {
+    const data = JSON.parse(message);
+    const { gameId, userId } = ws;
+
+    switch (data.type) {
+
+        case 'mark_number':
+            await markPlayerNumber(gameId, userId, data.number);
+            broadcastToGame(gameId, {
+                type: 'number_marked',
+                userId,
+                number: data.number
+            });
+            break;
+
+        case 'claim_bingo':
+            const valid = await checkBingo(gameId, userId);
+            if (valid) {
+                const result = await declareWinner(gameId, userId);
+                if (result.success) {
+                    broadcastToGame(gameId, {
+                        type: 'winner',
+                        userId,
+                        prize: result.prize
+                    });
+                }
+            }
+            break;
+
+        case 'chat_message':
+            broadcastToGame(gameId, {
+                type: 'chat',
+                userId,
+                message: data.message,
+                timestamp: new Date().toISOString()
+            });
+            break;
+
+        case 'get_state':
+            const state = await getGameState(gameId, userId);
+            if (state && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: 'game_state',
+                    data: state
+                }));
+            }
+            break;
+
+        case 'ping':
+            ws.send(JSON.stringify({ type: 'pong', ts: Date.now() }));
+            break;
+    }
+}
+
+// ==================== BROADCAST HELPER ====================
+function broadcastToGame(gameId, payload) {
     const connections = gameConnections.get(gameId);
     if (!connections) return;
-    
+
+    const message = JSON.stringify(payload);
+
     connections.forEach(ws => {
         if (ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify(message));
+            ws.send(message);
         }
     });
 }
@@ -2586,31 +2621,6 @@ app.post('/api/admin/deposit/:id/approve', async (req, res) => {
     }
 });
 
-// Health check
-app.get('/api/health', (req, res) => {
-    res.json({
-        status: 'healthy',
-        timestamp: new Date().toISOString(),
-        uptime: process.uptime(),
-        memory: process.memoryUsage(),
-        connections: gameConnections.size
-    });
-});
-
-// ADD this simple /health endpoint for Render monitoring
-app.get('/health', (req, res) => {
-    res.status(200).json({
-        status: 'ok',
-        service: 'shebabingo-bot',
-        timestamp: new Date().toISOString(),
-        uptime: process.uptime()
-    });
-});
-
-// You should already have this root endpoint
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
 
 // WebSocket endpoint
 app.get('/game-ws', (req, res) => {
@@ -2727,44 +2737,36 @@ async function cleanupStuckGames() {
 }
 
 // ==================== START SERVER ====================
-console.log('='.repeat(40));
-console.log('📡 INITIALIZING SERVER...');
-console.log('='.repeat(40));
 const PORT = process.env.PORT || 3000;
 
-const server = app.listen(PORT, '0.0.0.0', async () => {
-    console.log('='.repeat(60));
-    console.log('📡 SHEBA BINGO - 24/7 MULTIPLAYER SERVER');
-    console.log('='.repeat(60));
+const server = http.createServer(app);
+
+server.listen(PORT, '0.0.0.0', async () => {
+    console.log('🚀 Sheba Bingo Multiplayer Server Running on port', PORT);
     
-    // Initialize database
+    // Initialize and setup everything
     await initializeDatabase();
     await migrateDatabase();
-    
-    // 🧹 CLEANUP STUCK GAMES FIRST!
     await cleanupStuckGames();
-    
-    // Setup Telegram
     await setupTelegramWebhook();
-    
-    console.log('\n🎯 *OPTIMIZED MULTIPLAYER SYSTEM STARTED*');
-    console.log('✅ Game cleanup completed');
-    console.log('✅ Ready for players to join');
-    console.log('='.repeat(60));
-    
-    // Start game cycle
     startGameCycle();
+    
+    console.log('✅ All systems initialized and ready');
 });
 
-// WebSocket support
+
+// Add WebSocket support to HTTP server
 server.on('upgrade', (request, socket, head) => {
     const pathname = new URL(request.url, `http://${request.headers.host}`).pathname;
+    
+    console.log(`🔗 WebSocket upgrade request for: ${pathname}`);
     
     if (pathname === '/game-ws') {
         wss.handleUpgrade(request, socket, head, (ws) => {
             wss.emit('connection', ws, request);
         });
     } else {
+        console.log(`❌ Rejected WebSocket upgrade for: ${pathname}`);
         socket.destroy();
     }
 });
@@ -2788,22 +2790,7 @@ process.on('SIGTERM', async () => {
     process.exit(0);
 });
 
-// Add WebSocket support to HTTP server
-// Add WebSocket support to HTTP server
-server.on('upgrade', (request, socket, head) => {
-    const pathname = new URL(request.url, `http://${request.headers.host}`).pathname;
-    
-    console.log(`🔗 WebSocket upgrade request for: ${pathname}`);
-    
-    if (pathname === '/game-ws') {
-        wss.handleUpgrade(request, socket, head, (ws) => {
-            wss.emit('connection', ws, request);
-        });
-    } else {
-        console.log(`❌ Rejected WebSocket upgrade for: ${pathname}`);
-        socket.destroy();
-    }
-});
+
 
 
 
@@ -2855,24 +2842,6 @@ async function initializeDatabase() {
         console.error('Error initializing database:', error);
     }
 }
-// Graceful shutdown
-process.on('SIGTERM', async () => {
-    console.log('SIGTERM received, shutting down gracefully...');
-    
-    // Close WebSocket connections
-    wss.close();
-    
-    // Close database connection
-    await pool.end();
-    
-    // Save data to files
-    saveUsers();
-    saveDeposits();
-    saveGames();
-    
-    console.log('Data saved, server shutting down...');
-    process.exit(0);
-});
 
 // ==================== DATABASE MIGRATION ====================
 async function migrateDatabase() {
