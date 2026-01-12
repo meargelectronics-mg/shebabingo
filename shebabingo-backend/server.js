@@ -8,8 +8,6 @@ const WebSocket = require('ws');
 const cors = require('cors');
 const http = require('http');
 const app = express();
-const http = require('http');
-
 
 // ==================== MIDDLEWARE ====================
 app.use(cors());
@@ -2870,3 +2868,4 @@ async function migrateDatabase() {
         console.error('❌ Database migration error:', error.message);
     }
 }
+
