@@ -602,201 +602,164 @@ function updateGameForTelegram() {
     }
 }
 
-
-// ==================== MULTIPLAYER WEBSOCKET CONNECTION ====================
-// Add this ENTIRE section after initializeApp() function
-
-let gameSocket = null;
-let currentGameId = null;
+// ==================== WEBSOCKET CONNECTION ====================
+let socket;
 let reconnectAttempts = 0;
-const MAX_RECONNECT_ATTEMPTS = 5;
 
-// 1. MAIN CONNECTION FUNCTION
-// 1. FIXED CONNECTION FUNCTION
-function connectToMultiplayerServer(gameId) {
-    if (!gameId) {
-        console.error('❌ Cannot connect: No game ID provided');
+function connectWebSocket(gameId, userId) {
+    if (!gameId || !userId) {
+        console.error('❌ Missing gameId or userId for WebSocket');
         return;
     }
-    
-    currentGameId = gameId;
-    
-    // IMPORTANT: Use Render's URL correctly
-    const isLocalhost = window.location.hostname === 'localhost' || 
-                        window.location.hostname === '127.0.0.1';
-    
-    let wsUrl;
-    
-    if (isLocalhost) {
-        // Local development
-        wsUrl = `ws://localhost:${window.location.port || 3000}/game-ws?gameId=${gameId}&userId=${userId}`;
-    } else {
-        // Production on Render
-        // Use wss:// (secure WebSocket) and your Render URL
-        const renderHost = window.location.host; // e.g., shebabingo-bot.onrender.com
-        wsUrl = `wss://${renderHost}/game-ws?gameId=${gameId}&userId=${userId}`;
-    }
-    
-    console.log('🔗 Connecting to WebSocket:', wsUrl);
-    
+
     // Close existing connection if any
-    if (gameSocket) {
-        gameSocket.close();
+    if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.close();
     }
-    
-    gameSocket = new WebSocket(wsUrl);
-    
-    // Set heartbeat
-    gameSocket.isAlive = true;
-    let heartbeatInterval;
-    
-    gameSocket.onopen = () => {
-        console.log('✅ WebSocket CONNECTED to game:', gameId);
+
+    const isLocalhost =
+        window.location.hostname === 'localhost' ||
+        window.location.hostname === '127.0.0.1';
+
+    let wsUrl;
+
+    if (isLocalhost) {
+        wsUrl = `ws://localhost:${window.location.port || 3000}/game-ws?gameId=${encodeURIComponent(gameId)}&userId=${encodeURIComponent(userId)}`;
+    } else {
+        wsUrl = `wss://${window.location.host}/game-ws?gameId=${encodeURIComponent(gameId)}&userId=${encodeURIComponent(userId)}`;
+    }
+
+    console.log('🔗 Connecting WebSocket:', wsUrl);
+
+    socket = new WebSocket(wsUrl);
+
+    // ================= CONNECTED =================
+    socket.onopen = () => {
+        console.log('✅ WebSocket connected to game:', gameId);
         reconnectAttempts = 0;
-        
-        // Start heartbeat
-        heartbeatInterval = setInterval(() => {
-            if (gameSocket && gameSocket.readyState === WebSocket.OPEN) {
-                try {
-                    gameSocket.send(JSON.stringify({ type: 'ping' }));
-                } catch (error) {
-                    console.log('Heartbeat send error:', error);
-                }
-            }
-        }, 25000); // Send ping every 25 seconds
-        
-        // Request initial game state
-        setTimeout(() => {
-            if (gameSocket && gameSocket.readyState === WebSocket.OPEN) {
-                console.log('📡 Requesting game state...');
-                // You can add a specific message type if needed
-                gameSocket.send(JSON.stringify({ 
-                    type: 'get_state',
-                    gameId: gameId,
-                    userId: userId,
-                    timestamp: Date.now()
-                }));
-            }
-        }, 1000);
+
+        // Request game state immediately
+        socket.send(JSON.stringify({
+            type: 'get_state'
+        }));
     };
-    
-    gameSocket.onmessage = (event) => {
+
+    // ================= MESSAGE =================
+    socket.onmessage = (event) => {
         try {
             const data = JSON.parse(event.data);
-            console.log('📨 WebSocket MESSAGE:', data.type);
             
-            // Handle heartbeat response
+            // Handle heartbeat
             if (data.type === 'pong') {
-                gameSocket.isAlive = true;
                 return;
             }
             
-            handleGameMessage(data);
+            console.log('📨 WebSocket message:', data.type);
+            handleWebSocketMessage(data);
             
-        } catch (error) {
-            console.error('❌ Error parsing WebSocket message:', error);
+        } catch (err) {
+            console.error('❌ Invalid WS message:', err);
         }
     };
-    
-    gameSocket.onerror = (error) => {
-        console.error('❌ WebSocket ERROR:', error);
-        clearInterval(heartbeatInterval);
+
+    // ================= ERROR =================
+    socket.onerror = (err) => {
+        console.error('❌ WebSocket error:', err);
     };
-    
-    gameSocket.onclose = (event) => {
-        console.log('🔌 WebSocket CLOSED:', event.code, event.reason);
-        clearInterval(heartbeatInterval);
-        gameSocket = null;
-        
-        // Try to reconnect
-        if (event.code !== 1000 && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+
+    // ================= CLOSE / RECONNECT =================
+    socket.onclose = (event) => {
+        console.warn(`⚠️ WebSocket closed (${event.code})`);
+
+        if (reconnectAttempts < 5) {
             reconnectAttempts++;
-            console.log(`🔄 Reconnecting (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})...`);
-            
             setTimeout(() => {
-                if (currentGameId) {
-                    connectToMultiplayerServer(currentGameId);
-                }
-            }, 5000);
+                console.log(`🔄 Reconnecting... (${reconnectAttempts})`);
+                connectWebSocket(gameId, userId);
+            }, 2000 * reconnectAttempts);
+        } else {
+            console.error('❌ WebSocket reconnect failed');
         }
     };
 }
+
+
+
+// Add heartbeat function (optional but good to have)
+function startWebSocketHeartbeat() {
+    setInterval(() => {
+        if (socket && socket.readyState === WebSocket.OPEN) {
+            try {
+                socket.send(JSON.stringify({ type: 'ping' }));
+            } catch (error) {
+                console.log('Heartbeat send error:', error);
+            }
+        }
+    }, 30000); // Every 30 seconds
+}
+
+// Call this after connection
+socket.onopen = () => {
+    // ... existing code ...
+    startWebSocketHeartbeat();
+};
+
 
 // 2. HANDLE SERVER MESSAGES
 function handleGameMessage(message) {
     console.log('🎮 Processing message type:', message.type);
-    
-    switch(message.type) {
+
+    switch (message.type) {
+
         case 'game_state':
-            console.log('📊 Game state update received');
             updateGameFromServer(message.data);
             break;
-            
+
         case 'player_joined':
-            console.log(`👥 Player joined: ${message.username}`);
             updatePlayersCount(message.playerCount);
             break;
-            
-        case 'player_left':
-            console.log(`👋 Player left: ${message.userId}`);
-            updatePlayersCount(message.playerCount);
+
+        case 'players_update':
+            updatePlayersCount(message.count);
             break;
-            
+
         case 'number_called':
-            console.log(`🔔 Number called: ${message.number}`);
             handleNumberCalled(message.number, message.calledNumbers);
             break;
-            
+
         case 'number_marked':
-            console.log(`✅ Number marked by ${message.username}: ${message.number}`);
-            // You could show a notification if you want
             break;
-            
+
         case 'winner':
-    console.log(`🏆 Winner: ${message.username} won ${message.prize} ETB`);
-    
-    // Update local balance if this player won
-    if (message.userId == userId) {
-        const oldBalance = gameState.currentPlayer.balance;
-        gameState.currentPlayer.balance += message.prize;
-        console.log(`💰 Balance updated: ${oldBalance} → ${gameState.currentPlayer.balance}`);
-        
-        // Update display
-        updateGameStats();
-        
-        // Show winners list with server data
-        showWinnersList(message.prize, 0, [{
-            player: gameState.currentPlayer,
-            board: { boardNumber: '?', boardData: [], markedNumbers: new Set() } // You'll need real board data
-        }]);
-    } else {
-        showWinnerMessage(message.userId, message.username, message.prize);
-    }
-    break;
-            
+            if (message.userId == userId) {
+                gameState.currentPlayer.balance += message.prize;
+                updateGameStats();
+                showWinnerMessage('YOU', 'You', message.prize);
+            } else {
+                showWinnerMessage(message.userId, `Player ${message.userId}`, message.prize);
+            }
+            break;
+
         case 'game_status':
-            console.log(`🔄 Game status: ${message.status} - ${message.message}`);
             updateGameStatus(message.status, message.message);
             break;
-            
+
         case 'game_ended':
-            console.log('⏰ Game ended:', message.message);
             showGameEndedMessage(message.message);
             break;
-            
-        case 'pong':
-            console.log('🏓 Server is alive');
-            break;
-            
+
         case 'chat':
-            console.log(`💬 ${message.username}: ${message.message}`);
-            showChatMessage(message.userId, message.username, message.message);
+            showChatMessage(message.userId, message.username || 'Player', message.message);
             break;
-            
+
+        case 'pong':
+            break;
+
         default:
-            console.log('Unknown message type:', message.type);
+            console.warn('⚠️ Unknown message type:', message.type);
     }
 }
+
 
 // 3. UPDATE GAME FROM SERVER DATA
 function updateGameFromServer(serverState) {
