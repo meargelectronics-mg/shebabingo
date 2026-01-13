@@ -605,6 +605,7 @@ function updateGameForTelegram() {
 // ==================== WEBSOCKET CONNECTION ====================
 let socket;
 let reconnectAttempts = 0;
+let ws = null;
 
 function connectWebSocket(gameId, userId) {
     if (!gameId || !userId) {
@@ -612,62 +613,41 @@ function connectWebSocket(gameId, userId) {
         return;
     }
 
-    // Close existing connection if any
     if (socket && socket.readyState === WebSocket.OPEN) {
         socket.close();
     }
 
-    const isLocalhost =
-        window.location.hostname === 'localhost' ||
-        window.location.hostname === '127.0.0.1';
-
-    let wsUrl;
-
-    if (isLocalhost) {
-        wsUrl = `ws://localhost:${window.location.port || 3000}/game-ws?gameId=${encodeURIComponent(gameId)}&userId=${encodeURIComponent(userId)}`;
-    } else {
-        wsUrl = `wss://${window.location.host}/game-ws?gameId=${encodeURIComponent(gameId)}&userId=${encodeURIComponent(userId)}`;
-    }
+    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    const wsUrl = `${protocol}://${window.location.host}/game-ws?gameId=${encodeURIComponent(gameId)}&userId=${encodeURIComponent(userId)}`;
 
     console.log('🔗 Connecting WebSocket:', wsUrl);
 
     socket = new WebSocket(wsUrl);
 
-    // ================= CONNECTED =================
     socket.onopen = () => {
         console.log('✅ WebSocket connected to game:', gameId);
         reconnectAttempts = 0;
 
-        // Request game state immediately
-        socket.send(JSON.stringify({
-            type: 'get_state'
-        }));
+        socket.send(JSON.stringify({ type: 'get_state' }));
     };
 
-    // ================= MESSAGE =================
     socket.onmessage = (event) => {
         try {
             const data = JSON.parse(event.data);
-            
-            // Handle heartbeat
-            if (data.type === 'pong') {
-                return;
-            }
-            
+
+            if (data.type === 'pong') return;
+
             console.log('📨 WebSocket message:', data.type);
             handleWebSocketMessage(data);
-            
         } catch (err) {
             console.error('❌ Invalid WS message:', err);
         }
     };
 
-    // ================= ERROR =================
     socket.onerror = (err) => {
         console.error('❌ WebSocket error:', err);
     };
 
-    // ================= CLOSE / RECONNECT =================
     socket.onclose = (event) => {
         console.warn(`⚠️ WebSocket closed (${event.code})`);
 
@@ -682,6 +662,86 @@ function connectWebSocket(gameId, userId) {
         }
     };
 }
+// ==================== MESSAGE HANDLER ====================
+function handleWebSocketMessage(data) {
+    switch(data.type) {
+        case 'game_state':
+            // Update UI with game state
+            updateGameState(data.data);
+            break;
+            
+        case 'number_called':
+            // Handle new number called
+            handleNumberCalled(data.number, data.calledNumbers);
+            break;
+            
+        case 'player_joined':
+            // Update player count
+            updatePlayerCount(data.playerCount);
+            break;
+            
+        case 'player_left':
+            // Update player count
+            updatePlayerCount(data.playerCount);
+            break;
+            
+        case 'game_status':
+            // Update game status (selecting, shuffling, active, etc.)
+            updateGameStatus(data.status, data.message);
+            break;
+            
+        case 'winner':
+            // Show winner announcement
+            showWinner(data.userId, data.prize);
+            break;
+            
+        case 'chat':
+            // Add chat message
+            addChatMessage(data.userId, data.message, data.timestamp);
+            break;
+            
+        case 'countdown':
+            // Update countdown timer
+            updateCountdown(data.seconds, data.message);
+            break;
+            
+        case 'game_ended':
+            // Handle game end
+            handleGameEnd(data.message);
+            break;
+    }
+}
+// ==================== SEND FUNCTIONS ====================
+function sendMarkNumber(number) {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({
+            type: 'mark_number',
+            number: number
+        }));
+    }
+}
+
+function sendClaimBingo() {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({
+            type: 'claim_bingo'
+        }));
+    }
+}
+
+function sendChatMessage(message) {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({
+            type: 'chat_message',
+            message: message
+        }));
+    }
+}
+
+
+
+
+
 
 
 
@@ -1274,22 +1334,32 @@ async function loadUserData() {
 }
 
 // Join game via API
-async function joinGameApi(boardCount, boardNumbers) {
+// When user successfully joins a game via API
+async function joinGame(gameId, boardCount) {
     try {
         const response = await fetch('/api/game/join', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                userId: userId,
-                boardCount: boardCount,
-                boardNumbers: boardNumbers
+                userId: window.userId, // Make sure userId is available
+                gameId: gameId,
+                boardCount: boardCount
             })
         });
         
-        return await response.json();
+        const result = await response.json();
+        
+        if (result.success) {
+            // Connect WebSocket after successful join
+            connectWebSocket(result.gameId, window.userId);
+            
+            // Show game UI
+            showGameInterface(result);
+        } else {
+            alert('Error: ' + result.error);
+        }
     } catch (error) {
-        console.error('Error joining game:', error);
-        return { success: false, error: 'Network error' };
+        console.error('Join game error:', error);
     }
 }
 
