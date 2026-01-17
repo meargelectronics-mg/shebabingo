@@ -1,5 +1,4 @@
         // Game Configuration
-        // Game Configuration
         const CONFIG = {
             BET_AMOUNT: 10,
             TOTAL_BOARDS: 400,
@@ -50,6 +49,7 @@
                 enableServiceWorker: false
             }
         };
+
 
         // Internationalization Support - Amharic & English Only
         const TRANSLATIONS = {
@@ -359,6 +359,10 @@
         
 
 
+// ==================== API CONFIGURATION ====================
+// ✅ Add this RIGHT AFTER your CONFIG object (around line 200)
+const API_BASE = 'https://shebabingo-bot.onrender.com'; // Your Render backend URL
+console.log('🌐 API Base URL set to:', API_BASE);
 
 
         // ==================== MULTIPLAYER INITIALIZATION ====================
@@ -371,29 +375,24 @@ function initializeMultiplayer() {
 }
 // ==================== APP INITIALIZATION ====================
 function initializeApp() {
-    // Initialize Telegram integration (but don't block if not in Telegram)
     const isTelegram = initializeTelegram();
     
-    // ✅ CORRECT: Load balance from server FIRST
     loadBalanceFromServer().then(() => {
         console.log('💰 Balance loaded from server:', gameState.currentPlayer.balance);
     });
 
-    // ✅ CORRECT: Initialize UI components    
+    // ✅ ADD HERE: Create grid immediately for visual feedback
+    console.log("🎯 Creating static BINGO grid...");
+    createMainBingoBoard();
+    
     setupEventListeners();
     updateGameStats();
-    
-    // ✅ CORRECT: Initialize multiplayer system
-    initializeMultiplayer();  // THIS IS IN THE RIGHT PLACE!
-
-    // ✅ CORRECT: Initialize support buttons
+    initializeMultiplayer();
     supportManager.init();
     
     console.log('🎮 ShebaBingo initialized successfully');
     
-    // ✅ CORRECT: Game start logic
     if (isTelegram && Telegram.WebApp) {
-        // Telegram Web App flow
         Telegram.WebApp.MainButton.setText("🎮 PLAY BINGO");
         Telegram.WebApp.MainButton.onClick(() => {
             Telegram.WebApp.MainButton.hide();
@@ -402,7 +401,6 @@ function initializeApp() {
         Telegram.WebApp.MainButton.show();
         console.log('🤖 Telegram mode: Waiting for PLAY button click');
     } else {
-        // Browser flow
         startGameCycle();
         console.log('🌐 Browser mode: Starting game immediately');
     }
@@ -528,23 +526,24 @@ function initializeTelegram() {
 // 2. Add this NEW function to load user balance
 async function loadUserBalance(userId) {
     try {
-        const API_BASE = window.location.origin || 'http://localhost:3000';
+        const API_BASE = 'https://shebabingo-bot.onrender.com';
         const response = await fetch(`${API_BASE}/api/user/${userId}/balance`);
         const data = await response.json();
         
         if (data.success) {
+            // ✅ Case 1: Server returns balance successfully
             gameState.currentPlayer.balance = data.balance;
             console.log('💰 Balance loaded:', data.balance);
-            
-            // Update balance display in your game
             updateBalanceDisplay(data.balance);
         } else {
+            // ✅ Case 2: Server responds but with error
             console.warn('Failed to load balance, using default');
-            gameState.currentPlayer.balance = 0;
+            gameState.currentPlayer.balance = 0; // KEEP THIS!
         }
     } catch (error) {
+        // ✅ Case 3: Network/server error
         console.error('Error loading balance:', error);
-        gameState.currentPlayer.balance = 0;
+        gameState.currentPlayer.balance = 0; // KEEP THIS TOO!
     }
 }
 
@@ -625,7 +624,7 @@ async function joinGame(gameId, boardCount) {
             window.userId = generateUserId(); // simple unique ID if not logged in
         }
 
-        const response = await fetch('/api/game/join', {
+        const response = await fetch(`${API_BASE}/api/game/join`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -772,40 +771,40 @@ function updateGameForTelegram() {
 let socket;
 let reconnectAttempts = 0;
 
-
 function connectWebSocket(gameId, userId) {
+    console.log("🔌 connectWebSocket called with:", gameId, userId);
+    
     if (!gameId || !userId) {
         console.error('❌ Missing gameId or userId for WebSocket');
         return;
     }
 
+    // Close existing connection
     if (socket && socket.readyState === WebSocket.OPEN) {
         socket.close();
     }
 
     const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    const wsUrl = `${protocol}://${window.location.host}/game-ws?gameId=${encodeURIComponent(gameId)}&userId=${encodeURIComponent(userId)}`;
-
-    console.log('🔗 Connecting WebSocket:', wsUrl);
-
-    socket = new WebSocket(wsUrl);
-
-   // REPLACE with:
-socket.onopen = () => {
-    console.log('✅ WebSocket connected to game:', gameId);
-    reconnectAttempts = 0;
+    const wsUrl = `wss://shebabingo-bot.onrender.com/game-ws?gameId=${encodeURIComponent(gameId)}&userId=${encodeURIComponent(userId)}`;
+    console.log('🔗 Connecting WebSocket to Render:', wsUrl);
     
-    // 🎯 CRITICAL: Create the bingo grid HERE
-    if (typeof createMainBingoBoard === 'function') {
-        console.log("🔄 Creating bingo board after WebSocket connection...");
-        createMainBingoBoard();
-    } else {
-        console.error("❌ createMainBingoBoard function not found!");
+    try {
+        socket = new WebSocket(wsUrl);
+        console.log("✅ WebSocket object created");
+    } catch (error) {
+        console.error('❌ WebSocket creation failed:', error);
+        return;
     }
-    
-    // Request game state
-    socket.send(JSON.stringify({ type: 'get_state' }));
-};
+
+    socket.onopen = () => {
+        console.log('✅ WebSocket connected to game:', gameId);
+        reconnectAttempts = 0;
+        // Request game state
+        socket.send(JSON.stringify({ type: 'get_state' }));
+        
+        // Start heartbeat
+        startWebSocketHeartbeat();
+    };
 
     socket.onmessage = (event) => {
         try {
@@ -842,14 +841,16 @@ socket.onopen = () => {
 // ==================== MESSAGE HANDLER ====================
 function handleWebSocketMessage(data) {
     switch(data.type) {
-        case 'game_state':
-            // Update UI with game state
+         case 'game_state':
             updateGameState(data.data);
             break;
             
         case 'number_called':
-            // Handle new number called
+            // 1. Handle game logic
             handleNumberCalled(data.number, data.calledNumbers);
+            
+            // 2. ✅ ADD THIS: Highlight on main grid
+            highlightNumberOnGrid(data.number);
             break;
             
         case 'player_joined':
@@ -887,6 +888,21 @@ function handleWebSocketMessage(data) {
             handleGameEnd(data.message);
             break;
     }
+}
+
+function highlightNumberOnGrid(number) {
+    console.log(`🟢 Simple highlight for number ${number}`);
+    
+    // Simple: just add a class to mark it as called
+    const cells = document.querySelectorAll('.bingo-cell');
+    cells.forEach(cell => {
+        if (parseInt(cell.textContent) === number) {
+            cell.style.background = '#2ecc71';
+            cell.style.color = 'white';
+            cell.style.fontWeight = 'bold';
+            cell.style.border = '2px solid #e74c3c';
+        }
+    });
 }
 // ==================== SEND FUNCTIONS ====================
 function sendMarkNumber(number) {
@@ -931,14 +947,6 @@ function startWebSocketHeartbeat() {
     }, 30000); // Every 30 seconds
 }
 
-// Call this after connection
-socket.onopen = () => {
-      console.log('✅ WebSocket connected to game:', gameId);
-        reconnectAttempts = 0;
-
-        socket.send(JSON.stringify({ type: 'get_state' }));
-    startWebSocketHeartbeat();
-};
 
 
 // 2. HANDLE SERVER MESSAGES
@@ -1090,7 +1098,7 @@ async function joinMultiplayerGameViaAPI(totalCost) {
     try {
         console.log('🚀 Joining multiplayer game via API...');
         
-        const response = await fetch('/api/game/join', {
+         const response = await fetch(`${API_BASE}/api/game/join`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -1152,7 +1160,6 @@ async function joinMultiplayerGameViaAPI(totalCost) {
 function updatePlayersCount(count) {
     elements.playersValue.textContent = count;
 }
-
 function handleNumberCalled(number, calledNumbers) {
     const letter = number.charAt(0);
     const num = parseInt(number.substring(1));
@@ -1171,6 +1178,9 @@ function handleNumberCalled(number, calledNumbers) {
     // Update display
     updateGameDisplay();
     updateCalledNumbersList();
+    
+    // ✅ ADD THIS: Highlight the number on the main BINGO grid
+    highlightNumberOnGrid(num);
     
     // Auto-mark on player's boards
     if (gameState.currentPlayer.isActive && gameState.currentPlayer.boards) {
@@ -1356,7 +1366,7 @@ const userId = urlParams.get('user') || 'demo';
 // Load user balance from server API
 async function loadBalanceFromServer() {
     try {
-        const response = await fetch(`/api/user/${userId}/balance`);
+        const response = await fetch(`${API_BASE}/api/user/${userId}/balance`);
         const data = await response.json();
         
         if (data.success) {
@@ -1393,7 +1403,7 @@ async function loadBalanceFromServer() {
 // Deduct game fee from server
 async function deductGameFeeFromServer(amount) {
     try {
-        const response = await fetch('/api/game/play', {
+        const response = await fetch(`${API_BASE}/api/game/play`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({ userId: userId, amount: amount })
@@ -1426,7 +1436,7 @@ async function deductGameFeeFromServer(amount) {
 // Add winnings to server
 async function addWinningsToServer(amount) {
     try {
-        const response = await fetch('/api/game/win', {
+       const response = await fetch(`${API_BASE}/api/game/win`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({ userId: userId, amount: amount })
@@ -1459,7 +1469,7 @@ async function addWinningsToServer(amount) {
 async function getActiveGames() {
     try {
         console.log('🔍 Fetching active games...');
-        const response = await fetch('/api/games/active');
+        const response = await fetch(`${API_BASE}/api/games/active`);
         const data = await response.json();
         
         if (data.success) {
@@ -1476,7 +1486,7 @@ async function getActiveGames() {
 // Get next game start time
 async function getNextGameStart() {
     try {
-        const response = await fetch('/api/game/next-start');
+        const response = await fetch(`${API_BASE}/api/game/next-start`);
         const data = await response.json();
         
         if (data.success) {
@@ -1519,7 +1529,7 @@ async function loadUserData() {
 // Get game state
 async function getGameStateApi(gameId) {
     try {
-        const response = await fetch(`/api/game/${gameId}/state/${userId}`);
+        const response = await fetch(`${API_BASE}/api/game/${gameId}/state/${userId}`);
         return await response.json();
     } catch (error) {
         console.error('Error getting game state:', error);
@@ -1693,7 +1703,7 @@ function startGameCycle() {
 async function checkForActiveGames() {
     try {
         console.log('🔍 Checking for active games...');
-        const response = await fetch('/api/games/active');
+        const response = await fetch('https://shebabingo-bot.onrender.com/api/games/active');
         const data = await response.json();
         
         if (data.success && data.games && data.games.length > 0) {
@@ -1751,7 +1761,7 @@ async function checkForActiveGames() {
         console.log('🆕 No suitable game found, checking next game...');
         
         try {
-            const nextGameResponse = await fetch('/api/game/next-start');
+            const nextGameResponse = await fetch('https://shebabingo-bot.onrender.com/api/game/next-start');
             const nextGameData = await nextGameResponse.json();
             
             if (nextGameData.success) {
@@ -2344,7 +2354,7 @@ function markNumberOnBoard(number) {
 // ADD THIS NEW FUNCTION:
 async function updateBalanceOnServer(newBalance) {
     try {
-        const response = await fetch('/api/user/update-balance', {
+        const response = await fetch(`${API_BASE}/api/user/update-balance`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -2390,37 +2400,41 @@ function goToDeposit() {
 }
 
         // Create main bingo board display
-        function createMainBingoBoard() {
-             console.log("=== DEBUG: createMainBingoBoard() called! ===");
-    console.log("elements.bingoGrid exists?", document.getElementById('bingoGrid'));
-    console.log("CONFIG exists?", typeof CONFIG !== 'undefined');
-    console.log("BINGO_NUMBERS:", CONFIG?.BINGO_NUMBERS);
+       function createMainBingoBoard() {
+    console.log("=== Creating STATIC BINGO Grid (75 numbers) ===");
     
-    if (!elements.bingoGrid) {
-        console.error("❌ ERROR: bingoGrid element not found!");
+    const grid = document.getElementById('bingoGrid');
+    if (!grid) {
+        console.error("❌ #bingoGrid element not found!");
         return;
     }
-            elements.bingoGrid.innerHTML = '';
-            const letters = ['B', 'I', 'N', 'G', 'O'];
-            
-            for (let row = 0; row < 15; row++) {
-                for (let col = 0; col < 5; col++) {
-                    const cell = document.createElement('div');
-                    cell.className = 'bingo-cell';
-                    
-                    const letter = letters[col];
-                    const range = CONFIG.BINGO_NUMBERS[letter];
-                    const number = range[row];
-                    
-                    cell.textContent = number;
-                    cell.setAttribute('data-letter', letter);
-                    cell.setAttribute('data-number', number);
-                    
-                    elements.bingoGrid.appendChild(cell);
-                }
+    
+    // Clear only if needed
+    if (grid.children.length === 0) {
+        const letters = ['B', 'I', 'N', 'G', 'O'];
+        
+        for (let row = 0; row < 15; row++) {
+            for (let col = 0; col < 5; col++) {
+                const cell = document.createElement('div');
+                cell.className = 'bingo-cell';
+                
+                const letter = letters[col];
+                const range = CONFIG.BINGO_NUMBERS[letter];
+                const number = range[row];
+                
+                cell.textContent = number;
+                cell.setAttribute('data-letter', letter);
+                cell.setAttribute('data-number', number);
+                
+                grid.appendChild(cell);
             }
         }
-
+        
+        console.log(`✅ Created static grid: 75 cells (15×5)`);
+    } else {
+        console.log(`✅ Grid already exists: ${grid.children.length} cells`);
+    }
+}
         // Setup event listeners
         function setupEventListeners() {
             elements.confirmSelection.addEventListener('click', confirmSelection);
