@@ -380,8 +380,9 @@ function initializeApp() {
     });
 
     // ✅ CORRECT: Initialize UI components
-    createMainBingoBoard();
+    
     setupEventListeners();
+    createMainBingoBoard();
     updateGameStats();
     
     // ✅ CORRECT: Initialize multiplayer system
@@ -619,18 +620,12 @@ function updatePrizePool(pool) {
     gameState.totalPrizePool = pool;
 }
 
-
-
 // ==================== GAME JOIN FUNCTION ====================
-async function joinGame(gameId, boardCount = 1) {
+async function joinGame(gameId, boardCount) {
     try {
         if (!window.userId) {
-            console.error('❌ No user ID available');
-            alert('Please refresh the page or open from Telegram');
-            return;
+            window.userId = generateUserId(); // simple unique ID if not logged in
         }
-
-        console.log('🎮 Joining game:', gameId, 'User:', window.userId, 'Boards:', boardCount);
 
         const response = await fetch('/api/game/join', {
             method: 'POST',
@@ -641,30 +636,46 @@ async function joinGame(gameId, boardCount = 1) {
                 boardCount: boardCount
             })
         });
-        
+
         const result = await response.json();
-        
+
         if (result.success) {
-            console.log('✅ Joined game successfully:', result);
-            
+            console.log('✅ Joined game:', result.gameId);
+
             // Connect WebSocket after successful join
             connectWebSocket(result.gameId, window.userId);
-            
+
             // Show game UI
             showGameInterface(result);
-            
-            // Store current game ID
-            window.currentGameId = result.gameId;
-            
+
+            // ✅ Set player boards and display the grid
+            if (result.boards && result.boards.length > 0) {
+                gameState.currentPlayer.boards = result.boards.map(board => ({
+                    boardNumber: board.boardNumber,
+                    boardData: board.boardData,
+                    markedNumbers: new Set(board.markedNumbers || []),
+                    isWinner: false,
+                    isEliminated: false
+                }));
+
+                gameState.currentPlayer.isActive = true;
+
+                // Display the boards in bingoGrid
+                displayCurrentPlayerBoards(0);
+
+                console.log(`📋 Displaying ${result.boards.length} boards`);
+            } else {
+                console.warn('⚠️ No boards received from server');
+            }
+
         } else {
-            console.error('❌ Join failed:', result.error);
-            alert('Error: ' + result.error);
+            alert('Error joining game: ' + result.error);
         }
-    } catch (error) {
-        console.error('❌ Join game error:', error);
-        alert('Network error. Please try again.');
+    } catch (err) {
+        console.error('Join game error:', err);
     }
 }
+
 // ✅ Handle WebSocket game state updates (REAL MULTIPLAYER)
 function updateGameState(data) {
     if (!data || !gameState) return;
@@ -1096,15 +1107,21 @@ async function joinMultiplayerGameViaAPI(totalCost) {
             // Connect WebSocket to this game
             connectToMultiplayerServer(data.gameId);
             
-            // Update local state
-            gameState.currentPlayer.isActive = true;
-            gameState.currentPlayer.boards = data.boards.map(board => ({
-                boardNumber: board.boardNumber,
-                boardData: board.boardData,
-                markedNumbers: new Set(board.markedNumbers || []),
-                isWinner: false,
-                isEliminated: false
-            }));
+            if (data.player && Array.isArray(data.player.boards)) {
+    gameState.currentPlayer.isActive = true;
+
+    gameState.currentPlayer.boards = data.player.boards.map(board => ({
+        boardNumber: board.boardNumber,
+        boardData: board.boardData,
+        markedNumbers: new Set(board.markedNumbers || []),
+        isWinner: false,
+        isEliminated: false
+    }));
+
+    // Show boards immediately
+    displayCurrentPlayerBoards(0);
+}
+
             
             // Update UI
             closeRegistrationPopup();
@@ -1490,35 +1507,6 @@ async function loadUserData() {
     }
 }
 
-// Join game via API
-// When user successfully joins a game via API
-async function joinGame(gameId, boardCount) {
-    try {
-        const response = await fetch('/api/game/join', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                userId: window.userId, // Make sure userId is available
-                gameId: gameId,
-                boardCount: boardCount
-            })
-        });
-        
-        const result = await response.json();
-        
-        if (result.success) {
-            // Connect WebSocket after successful join
-            connectWebSocket(result.gameId, window.userId);
-            
-            // Show game UI
-            showGameInterface(result);
-        } else {
-            alert('Error: ' + result.error);
-        }
-    } catch (error) {
-        console.error('Join game error:', error);
-    }
-}
 
 // Get game state
 async function getGameStateApi(gameId) {
@@ -2623,7 +2611,7 @@ function updateGameStatus() {
 
         
         // Registration Popup Functions
-        function openRegistrationPopup() {
+       function openRegistrationPopup() {
     elements.registrationPopup.style.display = 'flex';
     generateBoardOptions();
     updateSelectionInfo();
@@ -2666,6 +2654,7 @@ function updateGameStatus() {
         }, 1000);
     }
 }
+
         function closeRegistrationPopup() {
             elements.registrationPopup.style.display = 'none';
             clearInterval(gameState.timerInterval);
@@ -3082,53 +3071,6 @@ function updateBoardDisplay() {
             return board;
         }
 
-
-function updateBoardDisplay() {
-    const boardElements = document.querySelectorAll('.board-option');
-    
-    boardElements.forEach(element => {
-        const boardNumber = parseInt(element.querySelector('.board-number').textContent);
-        const isTaken = isBoardTaken(boardNumber);
-        const isSelected = gameState.selectedBoards.has(boardNumber);
-        
-        // Reset styles
-        element.classList.remove('taken', 'selected');
-        element.style.background = '';
-        element.style.color = '';
-        element.style.cursor = '';
-        element.style.opacity = '';
-        element.style.border = '';
-        
-        // Remove existing taken indicator
-        const existingIndicator = element.querySelector('.taken-indicator');
-        if (existingIndicator) {
-            existingIndicator.remove();
-        }
-        
-        if (isTaken && !isSelected) {
-            // Board taken by other player
-            element.classList.add('taken');
-            element.style.background = 'linear-gradient(135deg, #e74c3c, #c0392b)';
-            element.style.color = 'white';
-            element.style.cursor = 'not-allowed';
-            element.style.opacity = '0.7';
-            element.style.border = '2px solid #e74c3c';
-            
-            const takenIndicator = document.createElement('div');
-            takenIndicator.className = 'taken-indicator';
-            takenIndicator.innerHTML = '✗';
-            element.style.position = 'relative';
-            element.appendChild(takenIndicator);
-            
-        } else if (isSelected) {
-            // Board selected by current player
-            element.classList.add('selected');
-            element.style.background = 'linear-gradient(135deg, #2ecc71, #27ae60)';
-            element.style.color = 'white';
-            element.style.border = '2px solid #27ae60';
-        }
-    });
-}
 
         function shuffleArray(array) {
             return array.sort(() => Math.random() - 0.5);
