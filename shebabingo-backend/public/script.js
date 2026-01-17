@@ -382,7 +382,6 @@ function initializeApp() {
     // ✅ CORRECT: Initialize UI components
     
     setupEventListeners();
-    createMainBingoBoard();
     updateGameStats();
     
     // ✅ CORRECT: Initialize multiplayer system
@@ -925,7 +924,10 @@ function startWebSocketHeartbeat() {
 
 // Call this after connection
 socket.onopen = () => {
-    // ... existing code ...
+      console.log('✅ WebSocket connected to game:', gameId);
+        reconnectAttempts = 0;
+
+        socket.send(JSON.stringify({ type: 'get_state' }));
     startWebSocketHeartbeat();
 };
 
@@ -3872,3 +3874,4 @@ document.addEventListener('DOMContentLoaded', () => {
         document.addEventListener('DOMContentLoaded', initializeApp);
         window.closeRegistrationPopup = closeRegistrationPopup;
    
+
