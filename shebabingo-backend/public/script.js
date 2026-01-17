@@ -773,14 +773,16 @@ function updateGameForTelegram() {
 // ==================== WEBSOCKET CONNECTION ====================
 let socket;
 let reconnectAttempts = 0;
-let ws = null;
 
 function connectWebSocket(gameId, userId) {
     if (!gameId || !userId) {
         console.error('❌ Missing gameId or userId for WebSocket');
+        // Create board anyway as fallback
+        setTimeout(createMainBingoBoard, 100);
         return;
     }
 
+    // Close existing connection if any
     if (socket && socket.readyState === WebSocket.OPEN) {
         socket.close();
     }
@@ -790,46 +792,45 @@ function connectWebSocket(gameId, userId) {
 
     console.log('🔗 Connecting WebSocket:', wsUrl);
 
-    socket = new WebSocket(wsUrl);
+    try {
+        socket = new WebSocket(wsUrl);
 
-    socket.onopen = () => {
-        console.log('✅ WebSocket connected to game:', gameId);
-        reconnectAttempts = 0;
+        socket.onopen = () => {
+            console.log('✅ WebSocket connected to game:', gameId);
+            reconnectAttempts = 0;
 
-        socket.send(JSON.stringify({ type: 'get_state' }));
-    };
+            // 🎯 CREATE BINGO BOARD HERE
+            if (typeof createMainBingoBoard === 'function') {
+                console.log("🔄 Creating bingo board...");
+                createMainBingoBoard();
+            }
 
-    socket.onmessage = (event) => {
-        try {
-            const data = JSON.parse(event.data);
+            // Request game state
+            socket.send(JSON.stringify({ type: 'get_state' }));
+            
+            // Start heartbeat
+            startWebSocketHeartbeat();
+        };
 
-            if (data.type === 'pong') return;
+        socket.onmessage = (event) => {
+            // ... keep your existing onmessage code ...
+        };
 
-            console.log('📨 WebSocket message:', data.type);
-            handleWebSocketMessage(data);
-        } catch (err) {
-            console.error('❌ Invalid WS message:', err);
-        }
-    };
+        socket.onerror = (err) => {
+            console.error('❌ WebSocket error:', err);
+        };
 
-    socket.onerror = (err) => {
-        console.error('❌ WebSocket error:', err);
-    };
+        socket.onclose = (event) => {
+            // ... keep your existing onclose code ...
+        };
 
-    socket.onclose = (event) => {
-        console.warn(`⚠️ WebSocket closed (${event.code})`);
-
-        if (reconnectAttempts < 5) {
-            reconnectAttempts++;
-            setTimeout(() => {
-                console.log(`🔄 Reconnecting... (${reconnectAttempts})`);
-                connectWebSocket(gameId, userId);
-            }, 2000 * reconnectAttempts);
-        } else {
-            console.error('❌ WebSocket reconnect failed');
-        }
-    };
+    } catch (error) {
+        console.error('❌ WebSocket creation failed:', error);
+        // Fallback: create board without WebSocket
+        createMainBingoBoard();
+    }
 }
+
 // ==================== MESSAGE HANDLER ====================
 function handleWebSocketMessage(data) {
     switch(data.type) {
@@ -905,10 +906,6 @@ function sendChatMessage(message) {
         }));
     }
 }
-
-
-
-
 
 
 
@@ -2371,7 +2368,7 @@ function goToDeposit() {
 }
 
         // Create main bingo board display
-       function createMainBingoBoard() {
+        function createMainBingoBoard() {
             elements.bingoGrid.innerHTML = '';
             const letters = ['B', 'I', 'N', 'G', 'O'];
             
@@ -2392,7 +2389,6 @@ function goToDeposit() {
                 }
             }
         }
-
 
         // Setup event listeners
         function setupEventListeners() {
@@ -3525,6 +3521,36 @@ function markNumberOnPlayerBoards(number, callElement) {
     return patterns.length > 0;
 }
 
+
+
+// ==================== FALLBACK: LOAD BOARD ANYWAY ====================
+// If board doesn't load within 3 seconds, load it anyway
+setTimeout(() => {
+    const grid = document.getElementById('bingoGrid');
+    if (grid && grid.children.length === 0) {
+        console.log("⚠️ Grid still empty after 3s, forcing creation...");
+        if (typeof createMainBingoBoard === 'function') {
+            createMainBingoBoard();
+        }
+    }
+}, 3000);
+
+// Also try on page load
+document.addEventListener('DOMContentLoaded', () => {
+    console.log("📄 DOM ready, checking for board...");
+    // Small delay to let WebSocket try first
+    setTimeout(() => {
+        const hasBoard = document.querySelector('.bingo-cell');
+        if (!hasBoard) {
+            console.log("🔄 No board found, attempting to create...");
+            if (typeof createMainBingoBoard === 'function') {
+                createMainBingoBoard();
+            }
+        }
+    }, 1000);
+});
+
+
         // Support Manager
         const supportManager = {
             init: function() {
@@ -3846,4 +3872,3 @@ function markNumberOnPlayerBoards(number, callElement) {
         document.addEventListener('DOMContentLoaded', initializeApp);
         window.closeRegistrationPopup = closeRegistrationPopup;
    
-
