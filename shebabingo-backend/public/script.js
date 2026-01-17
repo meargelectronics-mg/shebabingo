@@ -2371,28 +2371,86 @@ function goToDeposit() {
 }
 
         // Create main bingo board display
-        function createMainBingoBoard() {
-            elements.bingoGrid.innerHTML = '';
-            const letters = ['B', 'I', 'N', 'G', 'O'];
-            
-            for (let row = 0; row < 15; row++) {
-                for (let col = 0; col < 5; col++) {
-                    const cell = document.createElement('div');
-                    cell.className = 'bingo-cell';
-                    
-                    const letter = letters[col];
-                    const range = CONFIG.BINGO_NUMBERS[letter];
-                    const number = range[row];
-                    
-                    cell.textContent = number;
-                    cell.setAttribute('data-letter', letter);
-                    cell.setAttribute('data-number', number);
-                    
-                    elements.bingoGrid.appendChild(cell);
-                }
-            }
+       function createMainBingoBoard() {
+    console.log("🔄 Creating main bingo board...");
+    
+    // 1. Verify elements exist
+    if (!elements.bingoGrid) {
+        console.error("❌ #bingoGrid element not found");
+        return;
+    }
+    
+    // 2. Verify CONFIG data
+    if (!CONFIG || !CONFIG.BINGO_NUMBERS) {
+        console.error("❌ CONFIG.BINGO_NUMBERS is not defined");
+        elements.bingoGrid.innerHTML = '<div class="error">Game configuration missing!</div>';
+        return;
+    }
+    
+    // 3. Clear grid
+    elements.bingoGrid.innerHTML = '';
+    
+    // 4. Verify letter ranges
+    const letters = ['B', 'I', 'N', 'G', 'O'];
+    let hasErrors = false;
+    
+    letters.forEach(letter => {
+        const range = CONFIG.BINGO_NUMBERS[letter];
+        if (!range || !Array.isArray(range) || range.length < 15) {
+            console.error(`❌ Invalid range for letter "${letter}":`, range);
+            hasErrors = true;
         }
-
+    });
+    
+    if (hasErrors) {
+        elements.bingoGrid.innerHTML = '<div class="error">Invalid game data!</div>';
+        return;
+    }
+    
+    // 5. Create cells
+    let cellCount = 0;
+    for (let row = 0; row < 15; row++) {
+        for (let col = 0; col < 5; col++) {
+            const cell = document.createElement('div');
+            cell.className = 'bingo-cell';
+            
+            const letter = letters[col];
+            const range = CONFIG.BINGO_NUMBERS[letter];
+            const number = range[row];
+            
+            // Double-check number exists
+            if (typeof number === 'undefined' || number === null) {
+                console.warn(`⚠️ Missing number at [${letter}][${row}]`);
+                cell.textContent = '?';
+            } else {
+                cell.textContent = number;
+            }
+            
+            cell.setAttribute('data-letter', letter);
+            cell.setAttribute('data-number', number);
+            cell.setAttribute('data-row', row);
+            cell.setAttribute('data-col', col);
+            
+            elements.bingoGrid.appendChild(cell);
+            cellCount++;
+        }
+    }
+    
+    console.log(`✅ Created ${cellCount} bingo cells`);
+    
+    // 6. Verify DOM actually has cells
+    const createdCells = document.querySelectorAll('.bingo-cell');
+    console.log(`DOM contains ${createdCells.length} .bingo-cell elements`);
+    
+    // 7. Force a visual test - add temporary colored border
+    setTimeout(() => {
+        const testCells = document.querySelectorAll('.bingo-cell');
+        testCells.forEach(cell => {
+            cell.style.border = '2px solid #00ff00'; // Green border
+        });
+        console.log("🟢 Applied test border to all cells");
+    }, 100);
+}
         // Setup event listeners
         function setupEventListeners() {
             elements.confirmSelection.addEventListener('click', confirmSelection);
@@ -3845,3 +3903,4 @@ function markNumberOnPlayerBoards(number, callElement) {
         document.addEventListener('DOMContentLoaded', initializeApp);
         window.closeRegistrationPopup = closeRegistrationPopup;
    
+
