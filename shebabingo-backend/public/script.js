@@ -384,6 +384,16 @@ function initializeApp() {
     // ✅ ADD HERE: Create grid immediately for visual feedback
     console.log("🎯 Creating static BINGO grid...");
     createMainBingoBoard();
+     // ✅ ANDROID FIX: Ensure elements object exists
+    if (!window.elements) {
+        window.elements = {};
+    }
+    
+    // ✅ ANDROID FIX: Populate elements if missing
+    if (!elements.registrationPopup) {
+        elements.registrationPopup = document.getElementById('registrationPopup');
+        console.log("📱 Android: Manually set registrationPopup element");
+    }
     
     setupEventListeners();
     updateGameStats();
@@ -2652,36 +2662,67 @@ function updateGameStatus() {
         }
 
         
-        // Registration Popup Functions
-       function openRegistrationPopup() {
-    elements.registrationPopup.style.display = 'flex';
-    generateBoardOptions();
+        function openRegistrationPopup() {
+    console.log("🎮 MULTIPLAYER: Opening registration popup...");
+    
+    // 1. SAFETY CHECK: Get popup directly (Android fix)
+    const popup = document.getElementById('registrationPopup');
+    if (!popup) {
+        console.error("❌ MULTIPLAYER ERROR: registrationPopup element not found!");
+        return;
+    }
+    
+    // 2. SHOW POPUP (Multiple methods for cross-device)
+    popup.style.display = 'flex';
+    elements.registrationPopup.style.display = 'flex'; // Keep both for compatibility
+    
+    console.log("✅ Popup displayed");
+    
+    // 3. MULTIPLAYER: Generate boards from server data, not locally
+    if (typeof generateBoardOptions === 'function') {
+        generateBoardOptions(); // This should use gameState.availableBoards from server
+    } else {
+        console.warn("⚠️ generateBoardOptions function not found");
+    }
+    
+    // 4. MULTIPLAYER: Update UI with current selection
     updateSelectionInfo();
     
-    // Clear any existing interval
+    // 5. MULTIPLAYER: Clear any existing timer
     if (gameState.timerInterval) {
         clearInterval(gameState.timerInterval);
         gameState.timerInterval = null;
+        console.log("🧹 Cleared previous timer");
     }
     
-    // If we have a server timer, use it
-    if (gameState.selectionTimer && gameState.selectionTimer > 0) {
-        console.log(`⏰ Using server timer: ${gameState.selectionTimer} seconds`);
+    // 6. MULTIPLAYER TIMER LOGIC (Server-driven)
+    const hasServerTimer = gameState.selectionTimer && gameState.selectionTimer > 0;
+    
+    if (hasServerTimer) {
+        // MULTIPLAYER MODE: Use server timer
+        console.log(`⏰ MULTIPLAYER: Server timer = ${gameState.selectionTimer} seconds`);
+        console.log(`👥 Game ID: ${currentGameId || 'not set'}`);
+        
         updateTimerDisplay();
         
-        // Start countdown with server time
+        // Start server-synchronized countdown
         gameState.timerInterval = setInterval(() => {
             gameState.selectionTimer--;
             updateTimerDisplay();
             
+            // MULTIPLAYER: When timer hits 0, server will auto-start game
             if (gameState.selectionTimer <= 0) {
                 clearInterval(gameState.timerInterval);
-                autoConfirmSelection();
+                console.log("⏰ MULTIPLAYER: Selection time ended (server will handle)");
+                
+                // Don't auto-confirm - server handles this in multiplayer
+                // autoConfirmSelection(); // ❌ REMOVE in multiplayer
             }
         }, 1000);
+        
     } else {
-        // Use default timer (25 seconds)
-        console.log('⏰ Using default timer: 25 seconds');
+        // SINGLE PLAYER/FALLBACK MODE: Use local timer
+        console.log('⏰ SINGLE PLAYER: Default timer = 25 seconds');
         gameState.selectionTimer = CONFIG.SELECTION_TIME;
         updateTimerDisplay();
         
@@ -2691,12 +2732,19 @@ function updateGameStatus() {
             
             if (gameState.selectionTimer <= 0) {
                 clearInterval(gameState.timerInterval);
-                autoConfirmSelection();
+                autoConfirmSelection(); // Single player fallback
             }
         }, 1000);
     }
+    
+    // 7. MULTIPLAYER: Log current state
+    console.log("📊 MULTIPLAYER STATE:", {
+        selectedBoards: gameState.selectedBoards.size,
+        availableBoards: gameState.availableBoards.length,
+        hasServerTimer: hasServerTimer,
+        gamePhase: gameState.gamePhase
+    });
 }
-
         function closeRegistrationPopup() {
             elements.registrationPopup.style.display = 'none';
             clearInterval(gameState.timerInterval);
