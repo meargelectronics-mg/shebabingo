@@ -1777,21 +1777,40 @@ async function handleCallbackQuery(callback) {
         console.log(`🔘 Callback received: ${data} from ${user.username}`);
         
         switch(data) {
-            case 'register':
-                if (!user.registered) {
-                    user.registered = true;
-                    user.balance += 10; // Welcome bonus
-                    saveUsers();
-                    
-                    await sendTelegramMessage(chatId,
-                        `✅ *REGISTRATION SUCCESSFUL!*\n\n` +
-                        `🎁 Welcome Bonus: *10 ETB*\n` +
-                        `💰 Current Balance: *${user.balance} ETB*\n\n` +
-                        `🎮 Click PLAY to start!`,
-                        getMainMenuKeyboard(user.id)
-                    );
-                }
-                break;
+           case 'register':
+    if (!user.registered) {
+        user.registered = true;
+        user.balance += 10; // Welcome bonus
+        saveUsers();
+        
+        await sendTelegramMessage(chatId,
+            `✅ *REGISTRATION SUCCESSFUL!*\n\n` +
+            `🎁 Welcome Bonus: *10 ETB*\n` +
+            `💰 Current Balance: *${user.balance} ETB*\n\n` +
+            `🎮 Click PLAY to start!`,
+            getMainMenuKeyboard(user.id)
+        );
+    } else {
+        // User already registered - show current balance and PLAY button
+        await sendTelegramMessage(chatId,
+            `ℹ️ *You're already registered!*\n\n` +
+            `💰 Your current balance: *${user.balance} ETB*\n\n` +
+            `🎮 Click PLAY to start playing!`,
+            {
+                inline_keyboard: [
+                    [{ 
+                        text: `🎮 PLAY NOW (${user.balance} ETB)`, 
+                        web_app: { url: `${RENDER_URL}/?user=${user.id}` }
+                    }],
+                    [
+                        { text: "💰 DEPOSIT (INSTANT)", callback_data: "deposit" },
+                        { text: "📊 BALANCE", callback_data: "balance" }
+                    ]
+                ]
+            }
+        );
+    }
+    break;
                 
             case 'play':
                 if (user.balance < GAME_CONFIG.BOARD_PRICE) {
