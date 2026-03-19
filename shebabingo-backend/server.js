@@ -1631,9 +1631,8 @@ app.post('/telegram-webhook', async (req, res) => {
                                     inline_keyboard: [
                                         [{ text: "📱 TeleBirr (INSTANT)", callback_data: "telebirr_instant" }],
                                         [{ text: "🏦 CBE Birr (INSTANT)", callback_data: "cbe_instant" }],
-                                        [{ text: "🏛️ Bank of Abyssinia", callback_data: "boa_instant" }],
-                                        [{ text: "📸 Manual Screenshot (Slower)", callback_data: "manual_deposit" }]
-                                    ]
+                                        [{ text: "🏛️ Bank of Abyssinia", callback_data: "boa_instant" }]
+                                                                        ]
                                 }
                             );
                             break;
