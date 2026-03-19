@@ -2824,7 +2824,7 @@ function updateGameStatus() {
     return false;
 }
 
-        function toggleBoardSelection(boardNumber, element) {
+       function toggleBoardSelection(boardNumber, element) {
     // Check if board is taken by OTHER players
     if (isBoardTaken(boardNumber) && !gameState.selectedBoards.has(boardNumber)) {
         // Show alert AND visual feedback
@@ -2838,7 +2838,35 @@ function updateGameStatus() {
     }
     
     if (element.classList.contains('taken')) {
-        // Already handled above, but just in case
+        return;
+    }
+    
+    // 🚨 NEW: Check balance BEFORE allowing selection
+    const currentSelectedCount = gameState.selectedBoards.size;
+    const wouldBeNewCount = gameState.selectedBoards.has(boardNumber) ? 
+                           currentSelectedCount : currentSelectedCount + 1;
+    const totalCostIfSelected = wouldBeNewCount * CONFIG.BET_AMOUNT;
+    
+    // If trying to SELECT (not deselect) and insufficient balance
+    if (!gameState.selectedBoards.has(boardNumber) && totalCostIfSelected > gameState.currentPlayer.balance) {
+        // Visual feedback - red flash
+        element.style.animation = 'shake 0.5s ease';
+        element.style.background = 'rgba(239, 68, 68, 0.3)';
+        element.style.border = '2px solid #ef4444';
+        
+        setTimeout(() => {
+            element.style.animation = '';
+            if (!element.classList.contains('selected') && !element.classList.contains('taken')) {
+                element.style.background = '';
+                element.style.border = '';
+            }
+        }, 1000);
+        
+        // Show alert with balance info
+        alert(`❌ Insufficient Balance!\n\n` +
+              `Required: ${totalCostIfSelected} ETB\n` +
+              `Your Balance: ${gameState.currentPlayer.balance} ETB\n\n` +
+              `💰 Please deposit to continue.`);
         return;
     }
     
@@ -2871,20 +2899,68 @@ function updateGameStatus() {
     validateForm();
 }
 
-        function updateSelectionInfo() {
-            const selectedCount = gameState.selectedBoards.size;
-            const totalCost = selectedCount * CONFIG.BET_AMOUNT;
-            
-            elements.selectedCount.textContent = selectedCount;
-            elements.totalCost.textContent = totalCost;
-        }
+function updateSelectionInfo() {
+    const selectedCount = gameState.selectedBoards.size;
+    const totalCost = selectedCount * CONFIG.BET_AMOUNT;
+    
+    elements.selectedCount.textContent = selectedCount;
+    elements.totalCost.textContent = totalCost;
+    
+    // 🚨 NEW: Show balance warning in the selection info
+    let warningElement = document.getElementById('balanceWarning');
+    if (!warningElement) {
+        warningElement = document.createElement('div');
+        warningElement.id = 'balanceWarning';
+        warningElement.style.cssText = `
+            color: #ef4444;
+            font-size: 0.8rem;
+            margin-top: 8px;
+            text-align: center;
+            font-weight: 600;
+            padding: 5px;
+            border-radius: 5px;
+            background: rgba(239, 68, 68, 0.1);
+            display: none;
+        `;
+        
+        // Insert after total cost
+        const summaryDiv = elements.totalCost.closest('.selection-summary') || 
+                          elements.totalCost.parentNode;
+        summaryDiv.appendChild(warningElement);
+    }
+    
+    if (selectedCount > 0 && totalCost > gameState.currentPlayer.balance) {
+        warningElement.textContent = `❌ Insufficient Balance! Need ${totalCost} ETB, you have ${gameState.currentPlayer.balance} ETB`;
+        warningElement.style.display = 'block';
+        
+        // Also highlight the total cost in red
+        elements.totalCost.style.color = '#ef4444';
+        elements.totalCost.style.fontWeight = 'bold';
+    } else {
+        warningElement.style.display = 'none';
+        elements.totalCost.style.color = ''; // Reset to default
+    }
+}
 
-        function validateForm() {
-            const boardsValid = gameState.selectedBoards.size > 0;
-            const hasEnoughBalance = (gameState.selectedBoards.size * CONFIG.BET_AMOUNT) <= gameState.currentPlayer.balance;
-            elements.confirmSelection.disabled = !(boardsValid && hasEnoughBalance);
-        }
-
+function validateForm() {
+    const boardsValid = gameState.selectedBoards.size > 0;
+    const totalCost = gameState.selectedBoards.size * CONFIG.BET_AMOUNT;
+    const hasEnoughBalance = totalCost <= gameState.currentPlayer.balance;
+    
+    // Disable confirm button if no boards OR insufficient balance
+    elements.confirmSelection.disabled = !(boardsValid && hasEnoughBalance);
+    
+    // Update button appearance based on balance
+    if (boardsValid && !hasEnoughBalance) {
+        elements.confirmSelection.style.opacity = '0.5';
+        elements.confirmSelection.style.cursor = 'not-allowed';
+        elements.confirmSelection.title = `Insufficient balance. Need ${totalCost} ETB`;
+    } else {
+        elements.confirmSelection.style.opacity = '';
+        elements.confirmSelection.style.cursor = '';
+        elements.confirmSelection.title = '';
+    }
+}
         function autoConfirmSelection() {
     // Player didn't select any boards - show wait message
     closeRegistrationPopup();
