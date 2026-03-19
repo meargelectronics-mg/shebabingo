@@ -1618,24 +1618,26 @@ app.post('/telegram-webhook', async (req, res) => {
                 if (text.startsWith('/')) {
                     switch(text) {
                         case '/deposit':
-                            await sendTelegramMessage(chatId,
-                                `💰 *CHOOSE PAYMENT METHOD - INSTANT DEPOSIT* 💰\n\n` +
-                                `*FOR INSTANT CREDIT (UNDER 1 MINUTE):*\n` +
-                                `1. Select your payment method below.\n` +
-                                `2. Complete the transfer.\n` +
-                                `3. **COPY the ENTIRE confirmation SMS** you receive.\n` +
-                                `4. **PASTE that SMS text directly here** in this chat.\n\n` +
-                                `✅ *Automatic processing!*\n` +
-                                `❌ Do NOT send screenshots for instant processing.`,
-                                {
-                                    inline_keyboard: [
-                                        [{ text: "📱 TeleBirr (INSTANT)", callback_data: "telebirr_instant" }],
-                                        [{ text: "🏦 CBE Birr (INSTANT)", callback_data: "cbe_instant" }],
-                                        [{ text: "🏛️ Bank of Abyssinia", callback_data: "boa_instant" }]
-                                                                        ]
-                                }
-                            );
-                            break;
+    await sendTelegramMessage(chatId,
+        `💰 *CHOOSE PAYMENT METHOD - INSTANT DEPOSIT* 💰\n\n` +
+        `*FOR INSTANT CREDIT (UNDER 1 MINUTE):*\n` +
+        `1. Select your payment method below.\n` +
+        `2. Complete the transfer.\n` +
+        `3. **You will receive an SMS from 127 (Telebirr)**.\n` +
+        `4. **COPY the ENTIRE SMS text** you receive.\n` +
+        `5. **PASTE that SMS text directly here** in this chat.\n\n` +
+        `✅ *Automatic processing!*\n` +
+        `❌ Do NOT send screenshots for instant processing.`,
+        {
+            inline_keyboard: [
+                [{ text: "📱 TeleBirr (INSTANT)", callback_data: "telebirr_instant" }],
+                [{ text: "🏦 CBE Birr (INSTANT)", callback_data: "cbe_instant" }],
+                [{ text: "🏛️ Bank of Abyssinia", callback_data: "boa_instant" }]
+                
+            ]
+        }
+    );
+    break;
                             
                         case '/balance':
                             await sendTelegramMessage(chatId,
@@ -1776,25 +1778,17 @@ async function handleCallbackQuery(callback) {
         console.log(`🔘 Callback received: ${data} from ${user.username}`);
         
         switch(data) {
-           case 'register':
+          case 'register':
     if (!user.registered) {
         user.registered = true;
         user.balance += 10; // Welcome bonus
         saveUsers();
         
         await sendTelegramMessage(chatId,
-            `✅ *REGISTRATION SUCCESSFUL!*\n\n` +
+            `✅ *REGISTRATION SUCCESSFUL!* 🎉\n\n` +
             `🎁 Welcome Bonus: *10 ETB*\n` +
             `💰 Current Balance: *${user.balance} ETB*\n\n` +
             `🎮 Click PLAY to start!`,
-            getMainMenuKeyboard(user.id)
-        );
-    } else {
-        // User already registered - show current balance and PLAY button
-        await sendTelegramMessage(chatId,
-            `ℹ️ *You're already registered!*\n\n` +
-            `💰 Your current balance: *${user.balance} ETB*\n\n` +
-            `🎮 Click PLAY to start playing!`,
             {
                 inline_keyboard: [
                     [{ 
@@ -1802,7 +1796,26 @@ async function handleCallbackQuery(callback) {
                         web_app: { url: `${RENDER_URL}/?user=${user.id}` }
                     }],
                     [
-                        { text: "💰 DEPOSIT (INSTANT)", callback_data: "deposit" },
+                        { text: "💰 DEPOSIT", callback_data: "deposit" },
+                        { text: "📊 BALANCE", callback_data: "balance" }
+                    ]
+                ]
+            }
+        );
+    } else {
+        await sendTelegramMessage(chatId,
+            `ℹ️ *አስቀድመው ተመዝግበዋል / Already Registered*\n\n` +
+            `የአሁን ባላንስዎ / Your current balance: *${user.balance} ETB*\n\n` +
+            `🎮 ጨዋታ ለመጀመር ከታች ያለውን ቁልፍ ይጫኑ።\n` +
+            `🎮 Click PLAY below to start playing!`,
+            {
+                inline_keyboard: [
+                    [{ 
+                        text: "🎮 PLAY NOW", 
+                        web_app: { url: `${RENDER_URL}/?user=${user.id}` }
+                    }],
+                    [
+                        { text: "💰 DEPOSIT", callback_data: "deposit" },
                         { text: "📊 BALANCE", callback_data: "balance" }
                     ]
                 ]
@@ -1867,21 +1880,25 @@ async function handleCallbackQuery(callback) {
                 
             case 'telebirr_instant':
     await sendTelegramMessage(chatId,
-        `📱 *Telebirr INSTANT Deposit*\n\n` +
-        `📍 *Send money to this account:*\n` +
-        `➤ **Account:** 0914834341\n` +
-        `➤ **Name:** Mearg Alemayoh\n\n` +
-        `*⚠️ IMPORTANT: Your Telebirr SMS goes to 127*\n` +
-        `*DO NOT send SMS to this bot!*\n\n` +
-        `*CRITICAL INSTRUCTIONS FOR INSTANT CREDIT:*\n` +
-        `1️⃣ Transfer any amount (Min: 10 ETB) to the number above.\n` +
-        `2️⃣ After transfer, **Telebirr will send you an SMS from 127**.\n` +
-        `3️⃣ **COPY the ENTIRE SMS text** you receive from 127.\n` +
-        `4️⃣ **PASTE that SMS text directly here** in this chat.\n\n` +
-        `⏱️ *Balance update:* **Less than 1 minute**\n` +
-        `🔒 *Secure & Automatic*\n\n` +
-        `*Example SMS format:*\n` +
-        `"Dear mearg You have transferred ETB 40.00 to Ephrem (2519****6445) on 13/02/2026. Your transaction number is DBD4QNQ00A."`
+        `📱 *Telebirr አማራጭ / Telebirr Option*\n\n` +
+        `*መመሪያ / Instructions:*\n\n` +
+        `1️⃣ ገንዘብ ወደዚህ ቁጥር ይላኩ፡\n` +
+        `   📞 *0914834341* - Mearg Alemayoh\n\n` +
+        `2️⃣ ገንዘብ ከላኩ በኋላ ከ *127* አጭር የጽሁፍ መልእክት (SMS) ይደርሳችኋል።\n\n` +
+        `3️⃣ ያንን ሙሉ የSMS መልእክት *COPY* ያድርጉ (ረጅም ተጭነው Copy ይምረጡ)።\n\n` +
+        `4️⃣ ከዚህ በታች ባለው የቴሌግራም መልእክት ማስገቢያ ላይ *PASTE* ያድርጉና ይላኩ።\n\n` +
+        `5️⃣ ባላንስዎ በራስ-ሰር ይጨመራል (ከ1 ደቂቃ በታች)።\n\n` +
+        `*ምሳሌ የሚላክ መልእክት (Example SMS):*\n` +
+        `"Dear Mearg You have transferred ETB 40.00 to ... Your transaction number is DCJ90J52HV."\n\n` +
+        `❌ *ማስታወሻ፡* ስክሪን ሾት አይላኩ። የSMS ጽሑፍ ብቻ ይላኩ።\n\n` +
+        `✅ *ከተቸገሩ* @ShebaBingoSupport ይጠይቁ።`,
+        {
+            reply_markup: {
+                inline_keyboard: [[
+                    { text: "🔙 ተመለስ / Back", callback_data: "deposit" }
+                ]]
+            }
+        }
     );
     break;
                 
@@ -2132,14 +2149,30 @@ async function processInstantDeposit(userId, chatId, smsText) {
 
         console.log(`🔍 Processing SMS from ${user.username}: ${smsText.substring(0, 80)}...`);
 
-        // Extract Transaction ID
+        // Extract Transaction ID - Enhanced for Telebirr
         let transactionId = null;
         const txIdPatterns = [
+            // Primary Telebirr format - "Your transaction number is DCJ90J52HV"
+            /transaction number is ([A-Z0-9]{10,})/i,
+            
+            // From the receipt link - "receipt/DCJ90J52HV"
+            /receipt\/([A-Z0-9]{10,})/i,
+            
+            // Standard patterns
             /transaction (?:number|id) is (\w+)/i,
             /transaction #(\w+)/i,
             /reference (?:number|id) (\w+)/i,
             /reference (\w+)/i,
-            /DA17G5W\w{3}/i
+            
+            // Common Ethiopian banking patterns
+            /DA17G5W\w{3}/i,
+            /DCJ[0-9A-Z]{7,}/i,
+            
+            // Match at end of line or after period
+            /([A-Z0-9]{10,})\.?\s*$/m,
+            
+            // Generic transaction ID
+            /(?:TXN|TRN|ID)[:\s]*([A-Z0-9]{10,})/i
         ];
 
         for (const pattern of txIdPatterns) {
@@ -2151,13 +2184,23 @@ async function processInstantDeposit(userId, chatId, smsText) {
             }
         }
 
-        // Extract Amount
+        // Extract Amount - Enhanced for Telebirr
         let amount = null;
         const amountPatterns = [
+            // Primary Telebirr format - "transferred ETB 40.00"
+            /transferred ETB ([\d.]+)/i,
+            
+            // Standard formats
             /ETB\s*(\d+(?:\.\d{2})?)/i,
             /transferred\s*(\d+(?:\.\d{2})?)/i,
             /(\d+(?:\.\d{2})?)\s*ETB/i,
-            /ETB (\d+(?:\.\d{2})?)/i
+            /ETB (\d+(?:\.\d{2})?)/i,
+            
+            // Amount with description
+            /(?:amount|AMT|birr)[:\s]*([\d.]+)/i,
+            
+            // Fallback - find any number with decimal
+            /\b(\d+\.\d{2})\b/
         ];
 
         for (const pattern of amountPatterns) {
@@ -2169,26 +2212,26 @@ async function processInstantDeposit(userId, chatId, smsText) {
             }
         }
 
-        // Validation
+        // Validation with better error messages
         if (!transactionId) {
             await sendTelegramMessage(chatId,
-                `❌ *Transaction ID not found.*\n\n` +
-                `Please paste the *full SMS* from TeleBirr/CBE that includes:\n` +
-                `• Transaction number (like DA17G5WALD)\n` +
-                `• Amount transferred\n` +
-                `• Confirmation message\n\n` +
-                `Example SMS to copy:\n` +
-                `"Dear User, You have transferred ETB 100.00 to account (2519****6445) on 01/01/2026. Your transaction number is DA17G5WALD."`
+                `❌ *Unable to parse message / መልእክቱ ሊታወቅ አልቻለም*\n\n` +
+                `Please copy the *complete SMS* you received from Telebirr.\n` +
+                `እባክዎ ከቴሌብር የደረሳችሁን *ሙሉ የSMS መልእክት* ይላኩ።\n\n` +
+                `Example / ምሳሌ:\n` +
+                `"Dear Mearg You have transferred ETB 40.00 ... Your transaction number is DCJ90J52HV."\n\n` +
+                `If problem persists, contact @ShebaBingoSupport.`
             );
             return;
         }
         
         if (!amount || amount < 10) {
             await sendTelegramMessage(chatId,
-                `❌ *Valid amount not found.*\n\n` +
+                `❌ *Valid amount not found / ትክክለኛ ያልሆነ መጠን*\n\n` +
                 `Minimum deposit is *10 ETB*.\n` +
-                `Found: ${amount || 'nothing'}\n\n` +
-                `Please paste the complete SMS including the amount.`
+                `Found / የተገኘ: ${amount || 'nothing / ምንም'}\n\n` +
+                `Please paste the complete SMS including the amount.\n` +
+                `እባክዎ መጠኑን የያዘ ሙሉ መልእክት ይላኩ።`
             );
             return;
         }
@@ -2200,7 +2243,7 @@ async function processInstantDeposit(userId, chatId, smsText) {
         
         if (isDuplicate) {
             await sendTelegramMessage(chatId,
-                `⚠️ *Deposit Already Processed*\n\n` +
+                `⚠️ *Deposit Already Processed / ክፍያው አስቀድሞ ተመዝግቧል*\n\n` +
                 `Transaction ID *${transactionId}* was already credited.\n` +
                 `If this is a mistake, contact @ShebaBingoSupport.`
             );
@@ -2234,43 +2277,36 @@ async function processInstantDeposit(userId, chatId, smsText) {
 
         console.log(`✅ INSTANT DEPOSIT: ${user.username} +${amount} ETB via ${transactionId}`);
 
-        // Notify user
+        // Notify user with confirmation
         await sendTelegramMessage(chatId,
-            `🎉 *DEPOSIT SUCCESSFUL!* 🎉\n\n` +
-            `✅ *${amount.toFixed(2)} ETB* has been added to your balance!\n` +
-            `🆔 Transaction: *${transactionId}*\n` +
-            `💰 *New Balance: ${user.balance.toFixed(2)} ETB*\n\n` +
-            `⏱️ Processed in: *~3 seconds*\n` +
-            `🎮 Click PLAY to start winning!`,
+            `✅ *Deposit successful! / ክፍያው ተሳክቷል!*\n\n` +
+            `Amount added / ተጨማሪ ገንዘብ: *${amount.toFixed(1)} ETB*\n` +
+            `Transaction / የክፍያ መለያ: *${transactionId}*\n` +
+            `New balance / አሁን ያለዎት ባላንስ: *${user.balance.toFixed(1)} ETB*\n\n` +
+            `🎮 Click PLAY to start!`,
             {
-                inline_keyboard: [[
-                    { 
-                        text: `🎮 PLAY NOW (${user.balance.toFixed(0)} ETB)`, 
-                        web_app: { url: `${RENDER_URL}/?user=${userId}&from=instant_deposit` }
-                    }
-                ]]
+                reply_markup: {
+                    inline_keyboard: [[
+                        { text: "🎮 PLAY NOW", web_app: { url: `${RENDER_URL}/?user=${userId}` } }
+                    ]]
+                }
             }
         );
 
         // Alert admin
         await sendTelegramMessage(ADMIN_CHAT_ID,
-            `⚡ *INSTANT DEPOSIT - AUTO APPROVED* ⚡\n\n` +
-            `👤 User: ${user.username} (${userId})\n` +
-            `💰 Amount: ${amount.toFixed(2)} ETB\n` +
-            `🆔 TXN ID: ${transactionId}\n` +
-            `💵 New Balance: ${user.balance.toFixed(2)} ETB\n` +
-            `⏰ Time: ${new Date().toLocaleTimeString()}\n\n` +
-            `_System auto-verified and credited._`
+            `⚡ *INSTANT DEPOSIT*\n` +
+            `👤 ${user.username}\n` +
+            `💰 ${amount} ETB\n` +
+            `🆔 ${transactionId}\n` +
+            `💵 New: ${user.balance} ETB`
         );
         
     } catch (error) {
         console.error('Error processing instant deposit:', error);
         await sendTelegramMessage(chatId,
             `❌ *Error Processing Deposit*\n\n` +
-            `Please contact support or try the manual method:\n` +
-            `1. Send screenshot\n` +
-            `2. Wait for admin review\n\n` +
-            `Support: @ShebaBingoSupport`
+            `Please contact @ShebaBingoSupport`
         );
     }
 }
@@ -2880,4 +2916,3 @@ async function migrateDatabase() {
         console.error('❌ Database migration error:', error.message);
     }
 }
-
