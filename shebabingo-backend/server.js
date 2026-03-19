@@ -1866,22 +1866,24 @@ async function handleCallbackQuery(callback) {
                 break;
                 
             case 'telebirr_instant':
-                await sendTelegramMessage(chatId,
-                    `📱 *TeleBirr INSTANT Deposit*\n\n` +
-                    `📍 *Send money to this account:*\n` +
-                    `➤ **Account:**0914834341\n` +
-                    `➤ **Name:** Mearg Alemayoh\n\n` +
-                    `*CRITICAL INSTRUCTIONS FOR INSTANT CREDIT:*\n` +
-                    `1️⃣ Transfer any amount (Min: 10 ETB).\n` +
-                    `2️⃣ Wait for the SMS from TeleBirr.\n` +
-                    `3️⃣ **LONG PRESS** the SMS, **COPY ALL TEXT**.\n` +
-                    `4️⃣ Come back here and **PASTE it** in this chat.\n\n` +
-                    `⏱️ *Balance update:* **Less than 1 minute**\n` +
-                    `🔒 *Secure & Automatic*\n\n` +
-                    `Example SMS format:\n` +
-                    `"Dear User, You have transferred ETB 100.00 to account (2519****6445). Transaction number is DA17G5WALD."`
-                );
-                break;
+    await sendTelegramMessage(chatId,
+        `📱 *Telebirr INSTANT Deposit*\n\n` +
+        `📍 *Send money to this account:*\n` +
+        `➤ **Account:** 0914834341\n` +
+        `➤ **Name:** Mearg Alemayoh\n\n` +
+        `*⚠️ IMPORTANT: Your Telebirr SMS goes to 127*\n` +
+        `*DO NOT send SMS to this bot!*\n\n` +
+        `*CRITICAL INSTRUCTIONS FOR INSTANT CREDIT:*\n` +
+        `1️⃣ Transfer any amount (Min: 10 ETB) to the number above.\n` +
+        `2️⃣ After transfer, **Telebirr will send you an SMS from 127**.\n` +
+        `3️⃣ **COPY the ENTIRE SMS text** you receive from 127.\n` +
+        `4️⃣ **PASTE that SMS text directly here** in this chat.\n\n` +
+        `⏱️ *Balance update:* **Less than 1 minute**\n` +
+        `🔒 *Secure & Automatic*\n\n` +
+        `*Example SMS format:*\n` +
+        `"Dear mearg You have transferred ETB 40.00 to Ephrem (2519****6445) on 13/02/2026. Your transaction number is DBD4QNQ00A."`
+    );
+    break;
                 
             case 'cbe_instant':
                 await sendTelegramMessage(chatId,
