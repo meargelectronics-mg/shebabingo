@@ -37,8 +37,6 @@ console.log('🌐 RENDER_URL:', process.env.RENDER_URL || 'Not set');
 console.log('='.repeat(60));
 
 // ==================== POSTGRESQL DATABASE CONNECTION ====================
-const { Pool } = require('pg');
-
 // Get database URL from environment
 const DATABASE_URL = process.env.DATABASE_URL;
 
