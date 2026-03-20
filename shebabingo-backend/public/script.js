@@ -1103,12 +1103,14 @@ function updateGameFromServer(serverState) {
     }
 }
 
+// ==================== MULTIPLAYER GAME FUNCTIONS ====================
+
 // 4. JOIN MULTIPLAYER GAME VIA API
 async function joinMultiplayerGameViaAPI(totalCost) {
     try {
         console.log('🚀 Joining multiplayer game via API...');
         
-         const response = await fetch(`${API_BASE}/api/game/join`, {
+        const response = await fetch(`${API_BASE}/api/game/join`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -1124,48 +1126,444 @@ async function joinMultiplayerGameViaAPI(totalCost) {
         if (data.success) {
             console.log('✅ Successfully joined game:', data.gameId);
             console.log('🎲 Game number:', data.gameNumber);
-            console.log('👥 Player count:', data.playerCount);
+            console.log('👥 Player count:', data.playerCount || data.players);
             console.log('💰 Prize pool:', data.prizePool);
             
             // Store game ID
             currentGameId = data.gameId;
             
-            // Connect WebSocket to this game
-            connectToMultiplayerServer(data.gameId);
+            // Connect WebSocket to this game (if using WebSockets)
+            if (typeof connectToMultiplayerServer === 'function') {
+                connectToMultiplayerServer(data.gameId);
+            }
             
-            if (data.player && Array.isArray(data.player.boards)) {
-    gameState.currentPlayer.isActive = true;
-
-    gameState.currentPlayer.boards = data.player.boards.map(board => ({
-        boardNumber: board.boardNumber,
-        boardData: board.boardData,
-        markedNumbers: new Set(board.markedNumbers || []),
-        isWinner: false,
-        isEliminated: false
-    }));
-
-    // Show boards immediately
-    displayCurrentPlayerBoards(0);
-}
-
+            // Handle different response formats
+            if (data.boards && Array.isArray(data.boards)) {
+                // Direct boards array
+                gameState.currentPlayer.isActive = true;
+                gameState.currentPlayer.boards = data.boards.map(board => ({
+                    boardNumber: board.boardNumber,
+                    boardData: board.boardData,
+                    markedNumbers: new Set(board.markedNumbers || []),
+                    isWinner: false,
+                    isEliminated: false
+                }));
+                console.log(`📊 Received ${data.boards.length} boards directly`);
+                
+            } else if (data.player && Array.isArray(data.player.boards)) {
+                // Player object with boards
+                gameState.currentPlayer.isActive = true;
+                gameState.currentPlayer.boards = data.player.boards.map(board => ({
+                    boardNumber: board.boardNumber,
+                    boardData: board.boardData,
+                    markedNumbers: new Set(board.markedNumbers || []),
+                    isWinner: false,
+                    isEliminated: false
+                }));
+                console.log(`📊 Received ${data.player.boards.length} boards from player object`);
+                
+            } else if (data.board && data.boards) {
+                // Mixed format
+                gameState.currentPlayer.isActive = true;
+                gameState.currentPlayer.boards = data.boards.map(board => ({
+                    boardNumber: board.boardNumber,
+                    boardData: board.boardData,
+                    markedNumbers: new Set(board.markedNumbers || []),
+                    isWinner: false,
+                    isEliminated: false
+                }));
+                console.log(`📊 Received ${data.boards.length} boards from mixed format`);
+                
+            } else {
+                console.warn('⚠️ No boards found in response, using default');
+                // Create default boards if needed
+                gameState.currentPlayer.isActive = true;
+                gameState.currentPlayer.boards = createDefaultBoards(gameState.selectedBoards.size);
+            }
+            
+            // Show boards immediately
+            displayCurrentPlayerBoards(0);
             
             // Update UI
             closeRegistrationPopup();
             updateGameStats();
             
-            // Show success message
-            showGameMessage(`✅ Joined Game #${data.gameNumber}! Waiting for other players...`, 'success');
+            // Show waiting message with player count
+            const playerCount = data.playerCount || data.players || 1;
+            const requiredPlayers = data.requiredPlayers || 2;
+            
+            showGameMessage(
+                `✅ Joined Game #${data.gameNumber || 'New'}!\n` +
+                `👥 Players: ${playerCount}/${requiredPlayers}\n` +
+                `⏳ Waiting for game to start...`,
+                'success'
+            );
+            
+            // Show waiting screen with boards minimized
+            showWaitingForGameScreen(playerCount, requiredPlayers);
+            
+            // Start polling for game state
+            startGamePolling(data.gameId);
+            
+            return true;
             
         } else {
             console.error('❌ Failed to join game:', data.error);
-            alert('Failed to join game: ' + data.error);
+            
+            // Show specific error message
+            let errorMessage = 'Failed to join game';
+            if (data.error.includes('balance')) {
+                errorMessage = '❌ Insufficient balance! Please deposit.';
+            } else if (data.error.includes('already')) {
+                errorMessage = '❌ You are already in a game!';
+            } else {
+                errorMessage = '❌ ' + data.error;
+            }
+            
+            alert(errorMessage);
+            return false;
         }
     } catch (error) {
         console.error('❌ Error joining multiplayer game:', error);
         alert('Network error. Please check your connection and try again.');
+        return false;
     }
 }
 
+// Create default boards if none returned
+function createDefaultBoards(count) {
+    const boards = [];
+    for (let i = 0; i < count; i++) {
+        boards.push({
+            boardNumber: Math.floor(Math.random() * 400) + 1,
+            boardData: generateBingoBoard(),
+            markedNumbers: new Set(),
+            isWinner: false,
+            isEliminated: false,
+            boardId: `B${i + 1}`
+        });
+    }
+    return boards;
+}
+
+// Show waiting screen during selection/shuffling
+function showWaitingForGameScreen(currentPlayers, requiredPlayers) {
+    // Clear current board area
+    elements.currentBoard.innerHTML = '';
+    
+    const waitingDiv = document.createElement('div');
+    waitingDiv.className = 'waiting-screen';
+    waitingDiv.innerHTML = `
+        <div class="waiting-content">
+            <div class="waiting-spinner"></div>
+            <h2>⏳ WAITING FOR GAME</h2>
+            <div class="player-count">
+                <span class="count">${currentPlayers}</span>/<span class="total">${requiredPlayers}</span>
+                <span class="label">Players Joined</span>
+            </div>
+            <div class="progress-bar">
+                <div class="progress-fill" style="width: ${(currentPlayers/requiredPlayers)*100}%"></div>
+            </div>
+            <p class="waiting-message">Game starts automatically when enough players join...</p>
+            <div class="mini-boards">
+                ${generateMiniBoardsHTML()}
+            </div>
+        </div>
+    `;
+    
+    elements.currentBoard.appendChild(waitingDiv);
+    
+    // Add CSS if not exists
+    if (!document.getElementById('waiting-screen-styles')) {
+        const style = document.createElement('style');
+        style.id = 'waiting-screen-styles';
+        style.textContent = `
+            .waiting-screen {
+                position: relative;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                border-radius: 15px;
+                padding: 30px 20px;
+                color: white;
+                text-align: center;
+                margin: 10px 0;
+                box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            }
+            .waiting-spinner {
+                width: 60px;
+                height: 60px;
+                border: 5px solid rgba(255,255,255,0.3);
+                border-top-color: white;
+                border-radius: 50%;
+                animation: spin 1s linear infinite;
+                margin: 0 auto 20px;
+            }
+            .player-count {
+                font-size: 2.5rem;
+                font-weight: bold;
+                margin: 15px 0 5px;
+            }
+            .player-count .label {
+                display: block;
+                font-size: 0.9rem;
+                opacity: 0.9;
+                font-weight: normal;
+            }
+            .progress-bar {
+                width: 80%;
+                height: 10px;
+                background: rgba(255,255,255,0.2);
+                border-radius: 10px;
+                margin: 20px auto;
+                overflow: hidden;
+            }
+            .progress-fill {
+                height: 100%;
+                background: #2ecc71;
+                border-radius: 10px;
+                transition: width 0.3s ease;
+            }
+            .waiting-message {
+                font-size: 0.9rem;
+                opacity: 0.9;
+                margin: 15px 0;
+            }
+            .mini-boards {
+                display: flex;
+                justify-content: center;
+                gap: 10px;
+                margin-top: 20px;
+                flex-wrap: wrap;
+            }
+            .mini-board {
+                width: 40px;
+                height: 40px;
+                background: rgba(255,255,255,0.1);
+                border: 2px solid rgba(255,255,255,0.3);
+                border-radius: 8px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-weight: bold;
+                font-size: 0.9rem;
+            }
+            @keyframes spin {
+                to { transform: rotate(360deg); }
+            }
+        `;
+        document.head.appendChild(style);
+    }
+}
+
+// Generate mini boards HTML
+function generateMiniBoardsHTML() {
+    if (!gameState.currentPlayer.boards) return '';
+    
+    let html = '';
+    gameState.currentPlayer.boards.forEach((board, index) => {
+        html += `<div class="mini-board">#${board.boardNumber}</div>`;
+    });
+    return html;
+}
+
+// Start polling for game state
+function startGamePolling(gameId) {
+    // Clear any existing polling
+    if (window.gamePollingInterval) {
+        clearInterval(window.gamePollingInterval);
+    }
+    
+    console.log(`🔄 Started polling for game ${gameId}`);
+    
+    window.gamePollingInterval = setInterval(async () => {
+        try {
+            const response = await fetch(`${API_BASE}/api/game/${gameId}/state/${userId}`);
+            const data = await response.json();
+            
+            if (data.success) {
+                handleGameStateUpdate(data);
+            } else {
+                // If game not found or error, stop polling after a while
+                if (data.error === 'Game not found' || data.error === 'Not in this game') {
+                    console.log('⏹️ Game no longer available, stopping polling');
+                    stopGamePolling();
+                    
+                    // Show rejoin option
+                    setTimeout(() => {
+                        showRejoinOption();
+                    }, 2000);
+                }
+            }
+        } catch (error) {
+            console.error('Polling error:', error);
+        }
+    }, 2000); // Poll every 2 seconds
+}
+
+// Stop polling
+function stopGamePolling() {
+    if (window.gamePollingInterval) {
+        clearInterval(window.gamePollingInterval);
+        window.gamePollingInterval = null;
+        console.log('⏹️ Game polling stopped');
+    }
+}
+
+// Handle game state updates from server
+function handleGameStateUpdate(data) {
+    const game = data.game;
+    const player = data.player;
+    
+    // Update player boards if provided
+    if (player && player.boards) {
+        gameState.currentPlayer.boards = player.boards.map(board => ({
+            boardNumber: board.boardNumber,
+            boardData: board.boardData,
+            markedNumbers: new Set(board.markedNumbers || []),
+            isWinner: board.isWinner || false,
+            isEliminated: board.isEliminated || false
+        }));
+    }
+    
+    // Update player marked numbers
+    if (player && player.markedNumbers) {
+        // Sync marked numbers with server
+        gameState.currentPlayer.boards.forEach(board => {
+            board.markedNumbers = new Set(player.markedNumbers || []);
+        });
+    }
+    
+    // Check for game phase changes
+    if (game.status !== gameState.gamePhase) {
+        console.log(`🔄 Game phase changed: ${gameState.gamePhase} → ${game.status}`);
+        gameState.gamePhase = game.status;
+        updateGameStatus();
+        
+        // Handle phase-specific UI
+        switch(game.status) {
+            case 'shuffling':
+                // Update waiting screen to shuffling
+                updateWaitingToShuffling();
+                break;
+                
+            case 'active':
+                // Game is active - remove waiting screen and show game
+                gameState.calledNumbers = game.calledNumbers || [];
+                gameState.currentCall = game.currentCall;
+                
+                // Remove waiting screen
+                const waitingScreen = document.querySelector('.waiting-screen');
+                if (waitingScreen) waitingScreen.remove();
+                
+                // Display boards
+                displayCurrentPlayerBoards(gameState.currentBoardIndex || 0);
+                
+                // Update called numbers
+                updateCalledNumbersList();
+                
+                // Update main board
+                updateMainBoardColors();
+                
+                console.log('🎮 Game is now ACTIVE!');
+                break;
+                
+            case 'completed':
+            case 'finished':
+                // Game ended
+                stopGamePolling();
+                showGameResults(game.winners);
+                break;
+        }
+    }
+    
+    // Update called numbers if game is active
+    if (game.status === 'active' && game.calledNumbers) {
+        // Check if new numbers were added
+        if (game.calledNumbers.length > gameState.calledNumbers.length) {
+            const newNumbers = game.calledNumbers.slice(gameState.calledNumbers.length);
+            console.log(`🔔 New numbers called: ${newNumbers.join(', ')}`);
+            
+            gameState.calledNumbers = game.calledNumbers;
+            gameState.currentCall = game.currentCall;
+            
+            updateCalledNumbersList();
+            updateMainBoardColors();
+            
+            // Optional: Auto-mark numbers
+            // autoMarkNumbers(newNumbers);
+        }
+    }
+    
+    // Update prize pool
+    if (game.prizePool !== gameState.totalPrizePool) {
+        gameState.totalPrizePool = game.prizePool;
+        updateGameStats();
+    }
+    
+    // Update player count in waiting screen
+    if (game.status === 'waiting' || game.status === 'selecting' || game.status === 'shuffling') {
+        const playerCountEl = document.querySelector('.player-count .count');
+        if (playerCountEl) {
+            playerCountEl.textContent = game.playerCount || 1;
+        }
+        
+        const progressFill = document.querySelector('.progress-fill');
+        if (progressFill) {
+            const required = 2; // MIN_PLAYERS
+            const percent = Math.min(100, ((game.playerCount || 1) / required) * 100);
+            progressFill.style.width = percent + '%';
+        }
+    }
+}
+
+// Update waiting screen to shuffling
+function updateWaitingToShuffling() {
+    const waitingScreen = document.querySelector('.waiting-screen');
+    if (!waitingScreen) return;
+    
+    const content = waitingScreen.querySelector('.waiting-content');
+    if (content) {
+        content.innerHTML = `
+            <div class="waiting-spinner" style="border-top-color: #f39c12;"></div>
+            <h2>🔄 SHUFFLING NUMBERS</h2>
+            <p class="waiting-message">Game starting in 5 seconds...</p>
+            <div class="mini-boards">
+                ${generateMiniBoardsHTML()}
+            </div>
+        `;
+    }
+}
+
+// Show game message
+function showGameMessage(message, type = 'info') {
+    // Remove existing message
+    const existingMsg = document.querySelector('.game-message');
+    if (existingMsg) existingMsg.remove();
+    
+    const msgDiv = document.createElement('div');
+    msgDiv.className = `game-message ${type}`;
+    msgDiv.textContent = message;
+    msgDiv.style.cssText = `
+        position: fixed;
+        top: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: ${type === 'success' ? '#2ecc71' : type === 'error' ? '#e74c3c' : '#3498db'};
+        color: white;
+        padding: 10px 20px;
+        border-radius: 50px;
+        box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        z-index: 9999;
+        font-weight: bold;
+        animation: slideDown 0.3s ease;
+    `;
+    
+    document.body.appendChild(msgDiv);
+    
+    setTimeout(() => {
+        msgDiv.style.animation = 'slideUp 0.3s ease';
+        setTimeout(() => msgDiv.remove(), 300);
+    }, 3000);
+}
 // 5. HELPER FUNCTIONS
 function updatePlayersCount(count) {
     elements.playersValue.textContent = count;
