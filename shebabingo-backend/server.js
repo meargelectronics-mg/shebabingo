@@ -1987,19 +1987,39 @@ async function handleCallbackQuery(callback) {
                     `/transfer 100*****`
                 );
                 break;
-                
-            case 'instructions':
-                await sendTelegramMessage(chatId,
-                    `📖 *HOW TO PLAY & INSTANT DEPOSIT*\n\n` +
-                    `1. Register → Get 10 ETB bonus\n` +
-                    `2. Deposit → Use /deposit for INSTANT credit\n` +
-                    `3. Play → Click PLAY button\n` +
-                    `4. Win → Match numbers\n\n` +
-                    `💡 *INSTANT DEPOSIT TIP:*\n` +
-                    `Copy & paste SMS confirmation for <1 min credit\n\n` +
-                    `📞 Support: @ShebaBingoSupport`
-                );
-                break;
+case 'instructions':
+    await sendTelegramMessage(chatId,
+        `📖 *HOW TO PLAY SHEBA BINGO / እንዴት እንደሚጫወቱ*\n\n` +
+        
+        `*🇬🇧 ENGLISH:*\n` +
+        `1️⃣ /register - Get 10 ETB free bonus 🎁\n` +
+        `2️⃣ /deposit - Add money (min 10 ETB) 💰\n` +
+        `3️⃣ /play - Open the game and select 1-3 boards 🎮\n` +
+        `4️⃣ Mark numbers as they are called ✅\n` +
+        `5️⃣ Complete a row, column, or diagonal to win! 🏆\n` +
+        `6️⃣ Click "CLAIM BINGO" when you win 🎯\n\n` +
+        
+        `*🇪🇹 አማርኛ:*\n` +
+        `1️⃣ /register - 10 ብር ነፃ ቦነስ ያግኙ 🎁\n` +
+        `2️⃣ /deposit - ገንዘብ ይሙሉ (ከ10 ብር በላይ) 💰\n` +
+        `3️⃣ /play - ጨዋታውን ይክፈቱ እና 1-3 ቦርዶች ይምረጡ 🎮\n` +
+        `4️⃣ ቁጥሮች ሲጠሩ ምልክት ያድርጉ ✅\n` +
+        `5️⃣ ረድፍ፣ አምድ ወይም ሰያፍ ሲሞላ ያሸንፋሉ! 🏆\n` +
+        `6️⃣ ሲያሸንፉ "CLAIM BINGO" የሚለውን ይጫኑ 🎯\n\n` +
+        
+        `💰 *Prize / ሽልማት:* 80% of all bets go to winners!\n` +
+        `⏱️ *Games run / ጨዋታዎች:* 24/7 every 2 minutes\n` +
+        `📞 *Support / ድጋፍ:* @ShebaBingoETBotSupport`,
+        {
+            reply_markup: {
+                inline_keyboard: [
+                    [{ text: "🎮 PLAY NOW", web_app: { url: `${RENDER_URL}/?user=${userId}` } }],
+                    [{ text: "💰 DEPOSIT", callback_data: "deposit" }]
+                ]
+            }
+        }
+    );
+    break;
                 
             case 'support':
                 await sendTelegramMessage(chatId,
@@ -2014,14 +2034,30 @@ async function handleCallbackQuery(callback) {
                 );
                 break;
                 
-            case 'invite':
-                await sendTelegramMessage(chatId,
-                    `👥 *INVITE FRIENDS*\n\n` +
-                    `Your referral link:\n` +
-                    `https://t.me/ShebaBingoBot?start=${userId}\n\n` +
-                    `🎁 Get 5 ETB per friend who registers and deposits!`
-                );
-                break;
+           case 'invite':
+    const referralLink = `https://t.me/ShebaBingoETBot?start=${userId}`;
+    await sendTelegramMessage(chatId,
+        `👥 *INVITE FRIENDS / ጓደኛ ጋብዝ*\n\n` +
+        
+        `*🇬🇧 ENGLISH:*\n` +
+        `Share this link with your friends:\n` +
+        `${referralLink}\n\n` +
+        `🎁 Get *5 ETB bonus* when they register and deposit!\n\n` +
+        
+        `*🇪🇹 አማርኛ:*\n` +
+        `ይህን ሊንክ ለጓደኞችዎ ያጋሩ:\n` +
+        `${referralLink}\n\n` +
+        `🎁 ጓደኛዎ ሲመዘገብ እና ገንዘብ ሲያስገባ *5 ብር ቦነስ* ያግኙ!`,
+        {
+            reply_markup: {
+                inline_keyboard: [
+                    [{ text: "📋 COPY LINK", callback_data: "copy_link" }],
+                    [{ text: "🔙 BACK", callback_data: "menu" }]
+                ]
+            }
+        }
+    );
+    break;
                 
             case 'agent':
                 if (!user.isAgent) {
