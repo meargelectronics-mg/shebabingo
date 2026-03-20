@@ -36,34 +36,70 @@ console.log('🗄️ DATABASE_URL exists:', !!process.env.DATABASE_URL);
 console.log('🌐 RENDER_URL:', process.env.RENDER_URL || 'Not set');
 console.log('='.repeat(60));
 
-// ==================== DATABASE CONNECTION ====================
+// ==================== POSTGRESQL DATABASE CONNECTION ====================
+const { Pool } = require('pg');
+
+// Get database URL from environment
+const DATABASE_URL = process.env.DATABASE_URL;
+
+if (!DATABASE_URL) {
+    console.error('❌ DATABASE_URL environment variable is NOT set!');
+    console.error('📌 Please add it in Render dashboard: https://dashboard.render.com');
+    console.log('⚠️ Running without PostgreSQL database (using file storage only)');
+}
+
+// Create connection pool with better settings
 const pool = new Pool({
     connectionString: DATABASE_URL,
-    ssl: {
-        rejectUnauthorized: false
-    }
+    ssl: DATABASE_URL ? {
+        rejectUnauthorized: false  // CRITICAL for Render PostgreSQL
+    } : undefined,
+    connectionTimeoutMillis: 10000,  // 10 seconds timeout
+    idleTimeoutMillis: 30000,
+    max: 20
 });
 
-// Add connection error handling
+// Add connection error handler
 pool.on('error', (err) => {
     console.error('❌ Unexpected database error:', err.message);
 });
 
-// Test database connection
-pool.connect((err, client, release) => {
-    if (err) {
-        console.error('❌ Database connection FAILED:', err.message);
-        console.error('💡 DATABASE_URL:', DATABASE_URL ? 'Set' : 'NOT SET!');
-        
-        // If no DATABASE_URL, use file-based fallback
-        if (!DATABASE_URL) {
-            console.log('⚠️ Using file-based storage (no database)');
-        }
-    } else {
-        console.log('✅ PostgreSQL connected successfully');
-        release();
+// Test database connection with async/await
+async function testDatabaseConnection() {
+    if (!DATABASE_URL) {
+        console.log('⚠️ No DATABASE_URL, skipping PostgreSQL connection test');
+        return false;
     }
-});
+    
+    try {
+        const client = await pool.connect();
+        const result = await client.query('SELECT NOW()');
+        console.log('✅ PostgreSQL connected successfully at:', result.rows[0].now);
+        client.release();
+        return true;
+    } catch (error) {
+        console.error('❌ Database connection FAILED:', error.message);
+        console.error('🔍 DATABASE_URL format should be: postgresql://user:password@host:port/database');
+        console.error('📌 Make sure your DATABASE_URL is set correctly in Render dashboard');
+        console.log('⚠️ Continuing with file-based storage only...');
+        return false;
+    }
+}
+
+// Run the test
+testDatabaseConnection();
+
+// Keep database alive (prevents free tier from sleeping)
+if (DATABASE_URL) {
+    setInterval(async () => {
+        try {
+            await pool.query('SELECT 1');
+            console.log('💤 Database keep-alive ping');
+        } catch (err) {
+            console.error('Keep-alive failed:', err.message);
+        }
+    }, 60000); // Ping every 60 seconds
+}
 // ==================== FILE-BASED STORAGE (BACKUP) ====================
 const USERS_FILE = path.join(__dirname, 'users.json');
 const DEPOSITS_FILE = path.join(__dirname, 'deposits.json');
