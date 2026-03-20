@@ -38,8 +38,6 @@ console.log('='.repeat(60));
 
 // ==================== POSTGRESQL DATABASE CONNECTION ====================
 // Get database URL from environment
-const DATABASE_URL = process.env.DATABASE_URL;
-
 if (!DATABASE_URL) {
     console.error('❌ DATABASE_URL environment variable is NOT set!');
     console.error('📌 Please add it in Render dashboard: https://dashboard.render.com');
