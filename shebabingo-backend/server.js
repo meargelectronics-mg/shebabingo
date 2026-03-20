@@ -1641,41 +1641,48 @@ app.post('/telegram-webhook', async (req, res) => {
             const user = users[userId];
             
             // Handle /start command  
-            if (text === '/start') {
-                if (!user.registered) {
-                    await sendTelegramMessage(chatId, 
-                        `🎮 *Welcome to SHEBA BINGO!* 🎰\n\n` +
-                        `🔥 *GET 10 ETB FREE BONUS INSTANTLY!*\n\n` +
-                        `✅ Register with 1 click\n` +
-                        `✅ Play instantly\n` +
-                        `✅ Win real money\n\n` +
-                        `Click REGISTER to start:`,
-                        {
-                            inline_keyboard: [[
-                                { text: "📝 REGISTER NOW", callback_data: "register" }
-                            ]]
-                        }
-                    );
-                } else {
-                    await sendTelegramMessage(chatId,
-                        `🎮 *Welcome back to SHEBA BINGO!* 🎰\n\n` +
-                        `💰 Balance: *${user.balance} ETB*\n\n` +
-                        `Choose your action:`,
-                        {
-                            inline_keyboard: [
-                                [{ 
-                                    text: `🎮 PLAY SHEBA BINGO (${user.balance} ETB)`, 
-                                    web_app: { url: `${RENDER_URL}/?user=${userId}` }
-                                }],
-                                [
-                                    { text: "💰 DEPOSIT (INSTANT)", callback_data: "deposit" },
-                                    { text: "📊 MENU", callback_data: "menu" }
-                                ]
-                            ]
-                        }
-                    );
-                }
+            // Handle /start command  
+if (text === '/start') {
+    if (!user.registered) {
+        // NEW USER - Show register button
+        await sendTelegramMessage(chatId, 
+            `🎮 *Welcome to SHEBA BINGO!* 🎰\n\n` +
+            `🔥 *GET 10 ETB FREE BONUS INSTANTLY!*\n\n` +
+            `✅ Register with 1 click\n` +
+            `✅ Play instantly\n` +
+            `✅ Win real money\n\n` +
+            `Click REGISTER to start:`,
+            {
+                inline_keyboard: [[
+                    { text: "📝 REGISTER NOW", callback_data: "register" }
+                ]]
             }
+        );
+    } else {
+        // ALREADY REGISTERED - Show main menu with PLAY button
+        await sendTelegramMessage(chatId,
+            `🎮 *Welcome back to SHEBA BINGO!* 🎰\n\n` +
+            `💰 *Your Balance: ${user.balance} ETB*\n\n` +
+            `⚡ Quick Actions:`,
+            {
+                inline_keyboard: [
+                    [{ 
+                        text: `🎮 PLAY NOW (${user.balance} ETB)`, 
+                        web_app: { url: `${RENDER_URL}/?user=${userId}` }
+                    }],
+                    [
+                        { text: "💰 DEPOSIT", callback_data: "deposit" },
+                        { text: "📊 BALANCE", callback_data: "balance" }
+                    ],
+                    [
+                        { text: "📖 INSTRUCTION", callback_data: "instruction" },
+                        { text: "👥 INVITE", callback_data: "invite" }
+                    ]
+                ]
+            }
+        );
+    }
+}
             // Handle photo messages (screenshots for manual deposit)
             else if (update.message.photo) {
                 const photo = update.message.photo[update.message.photo.length - 1];
