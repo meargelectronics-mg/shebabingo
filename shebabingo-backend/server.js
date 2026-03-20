@@ -547,7 +547,40 @@ async function joinMultiplayerGame(gameId, userId, boardCount, boardNumbers) {
             [prizeContribution, gameId]
         );
         
-        // 6. Record in file-based games
+        // 6. Get current player count
+        const playerCountResult = await client.query(
+            `SELECT COUNT(*) FROM game_players WHERE game_id = $1`,
+            [gameId]
+        );
+        const playerCount = parseInt(playerCountResult.rows[0].count);
+        
+        // 7. Update game status based on player count
+        if (playerCount >= GAME_CONFIG.MIN_PLAYERS) {
+            // Check if game is still in waiting/selecting phase
+            const gameResult = await client.query(
+                `SELECT status FROM multiplayer_games WHERE id = $1`,
+                [gameId]
+            );
+            
+            if (gameResult.rows[0].status === 'waiting' || gameResult.rows[0].status === 'selecting') {
+                // Start the game countdown
+                await client.query(
+                    `UPDATE multiplayer_games 
+                     SET status = 'shuffling', 
+                         start_time = NOW(),
+                         end_time = NOW() + INTERVAL '1.5 minutes'
+                     WHERE id = $1`,
+                    [gameId]
+                );
+                
+                // Trigger game start (you'll need a function for this)
+                setTimeout(() => {
+                    startGamePlay(gameId);
+                }, 5000); // 5 seconds shuffling
+            }
+        }
+        
+        // 8. Record in file-based games
         const gameRecordId = 'game_' + Date.now();
         games.push({
             id: gameRecordId,
@@ -562,12 +595,12 @@ async function joinMultiplayerGame(gameId, userId, boardCount, boardNumbers) {
         
         await client.query('COMMIT');
         
-        // 7. Broadcast player joined
+        // 9. Broadcast player joined
         broadcastToGame(gameId, {
             type: 'player_joined',
             userId: userId,
             username: user.username,
-            playerCount: await getPlayerCount(gameId)
+            playerCount: playerCount
         });
         
         console.log(`🎮 User ${user.username} joined game ${gameId} with ${boardCount} boards`);
@@ -577,7 +610,7 @@ async function joinMultiplayerGame(gameId, userId, boardCount, boardNumbers) {
             gameId: gameId,
             boards: playerBoards,
             prizePool: await getGamePrizePool(gameId),
-            playerCount: await getPlayerCount(gameId)
+            playerCount: playerCount
         };
         
     } catch (error) {
@@ -589,6 +622,93 @@ async function joinMultiplayerGame(gameId, userId, boardCount, boardNumbers) {
     }
 }
 
+// Add this function to start gameplay
+async function startGamePlay(gameId) {
+    try {
+        // Update game status to active
+        await pool.query(
+            `UPDATE multiplayer_games 
+             SET status = 'active' 
+             WHERE id = $1`,
+            [gameId]
+        );
+        
+        // Start calling numbers
+        callNextNumber(gameId);
+        
+        console.log(`🎮 Game ${gameId} is now ACTIVE!`);
+    } catch (error) {
+        console.error('Error starting gameplay:', error);
+    }
+}
+
+// Add this function to call numbers
+async function callNextNumber(gameId) {
+    try {
+        const gameResult = await pool.query(
+            `SELECT * FROM multiplayer_games WHERE id = $1`,
+            [gameId]
+        );
+        
+        const game = gameResult.rows[0];
+        if (!game || game.status !== 'active') return;
+        
+        // Check if max calls reached
+        const calledNumbers = game.called_numbers || [];
+        if (calledNumbers.length >= GAME_CONFIG.MAX_CALLS) {
+            // End game
+            await endGame(gameId);
+            return;
+        }
+        
+        // Generate new number
+        let newNumber;
+        const letters = ['B', 'I', 'N', 'G', 'O'];
+        const letter = letters[Math.floor(Math.random() * 5)];
+        
+        let min, max;
+        switch(letter) {
+            case 'B': min = 1; max = 15; break;
+            case 'I': min = 16; max = 30; break;
+            case 'N': min = 31; max = 45; break;
+            case 'G': min = 46; max = 60; break;
+            case 'O': min = 61; max = 75; break;
+        }
+        
+        do {
+            newNumber = letter + (Math.floor(Math.random() * (max - min + 1)) + min);
+        } while (calledNumbers.includes(newNumber));
+        
+        // Add to called numbers
+        calledNumbers.push(newNumber);
+        await pool.query(
+            `UPDATE multiplayer_games 
+             SET called_numbers = $1,
+                 current_call = $2,
+                 last_call_time = NOW()
+             WHERE id = $3`,
+            [JSON.stringify(calledNumbers), newNumber, gameId]
+        );
+        
+        // Broadcast to all players
+        broadcastToGame(gameId, {
+            type: 'number_called',
+            number: newNumber,
+            calledNumbers: calledNumbers,
+            currentCall: newNumber
+        });
+        
+        console.log(`🔔 Game ${gameId} called: ${newNumber}`);
+        
+        // Schedule next call
+        setTimeout(() => {
+            callNextNumber(gameId);
+        }, GAME_CONFIG.CALL_INTERVAL || 3000);
+        
+    } catch (error) {
+        console.error('Error calling next number:', error);
+    }
+}
 async function getAvailableBoardNumbers(gameId) {
     try {
         const result = await pool.query(
@@ -2799,7 +2919,69 @@ app.get('/api/test-game-flow', async (req, res) => {
         res.status(500).json({ success: false, error: error.message });
     }
 });
-
+// Get game state for a player
+app.get('/api/game/:gameId/state/:userId', async (req, res) => {
+    try {
+        const { gameId, userId } = req.params;
+        
+        // Get game info
+        const gameResult = await pool.query(
+            `SELECT * FROM multiplayer_games WHERE id = $1`,
+            [gameId]
+        );
+        
+        if (gameResult.rows.length === 0) {
+            return res.json({ success: false, error: 'Game not found' });
+        }
+        
+        const game = gameResult.rows[0];
+        
+        // Get player info
+        const playerResult = await pool.query(
+            `SELECT * FROM game_players WHERE game_id = $1 AND user_id = $2`,
+            [gameId, userId]
+        );
+        
+        if (playerResult.rows.length === 0) {
+            return res.json({ success: false, error: 'Not in this game' });
+        }
+        
+        const player = playerResult.rows[0];
+        
+        // Get all players
+        const playersResult = await pool.query(
+            `SELECT u.username FROM game_players gp
+             JOIN users u ON gp.user_id = u.id
+             WHERE gp.game_id = $1`,
+            [gameId]
+        );
+        
+        const playerList = playersResult.rows.map(p => p.username);
+        
+        res.json({
+            success: true,
+            game: {
+                id: game.id,
+                status: game.status,
+                calledNumbers: game.called_numbers || [],
+                currentCall: game.current_call,
+                prizePool: game.prize_pool,
+                playerCount: playerList.length,
+                playerList: playerList,
+                timeLeft: game.end_time ? Math.max(0, new Date(game.end_time) - new Date()) : 0
+            },
+            player: {
+                boards: JSON.parse(player.boards),
+                markedNumbers: JSON.parse(player.marked_numbers || '[]'),
+                hasBingo: player.has_bingo
+            }
+        });
+        
+    } catch (error) {
+        console.error('Game state error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
 
 
 // ==================== START SERVER ====================
