@@ -3072,69 +3072,306 @@ app.get('/api/test-game-flow', async (req, res) => {
         res.status(500).json({ success: false, error: error.message });
     }
 });
-// Get game state for a player
-app.get('/api/game/:gameId/state/:userId', async (req, res) => {
+
+// ==================== MULTIPLAYER API ENDPOINTS (ADD THESE) ====================
+
+// 1. Get active multiplayer games (matches frontend call)
+app.get('/api/multiplayer/games', async (req, res) => {
+    try {
+        // Get games from file-based activeMultiplayerGames
+        const games = [];
+        for (const gameId in activeMultiplayerGames) {
+            const game = activeMultiplayerGames[gameId];
+            if (game.status === 'waiting' || game.status === 'selecting') {
+                games.push({
+                    id: game.id,
+                    gameNumber: game.gameNumber,
+                    players: Object.keys(game.players).length,
+                    prizePool: game.prizePool,
+                    status: game.status,
+                    timeLeft: Math.max(0, Math.floor((new Date(game.selectionEndTime) - new Date()) / 1000))
+                });
+            }
+        }
+        
+        // Also check database for any active games
+        const dbGames = await pool.query(`
+            SELECT id, game_number, status, prize_pool, selection_end_time
+            FROM multiplayer_games 
+            WHERE status IN ('waiting', 'selecting')
+            ORDER BY created_at DESC
+            LIMIT 10
+        `);
+        
+        for (const dbGame of dbGames.rows) {
+            const playerCount = await getPlayerCount(dbGame.id);
+            games.push({
+                id: dbGame.id,
+                gameNumber: dbGame.game_number,
+                players: playerCount,
+                prizePool: dbGame.prize_pool,
+                status: dbGame.status,
+                timeLeft: Math.max(0, Math.floor((new Date(dbGame.selection_end_time) - new Date()) / 1000))
+            });
+        }
+        
+        // Remove duplicates by ID
+        const uniqueGames = [];
+        const seenIds = new Set();
+        for (const game of games) {
+            if (!seenIds.has(game.id)) {
+                seenIds.add(game.id);
+                uniqueGames.push(game);
+            }
+        }
+        
+        res.json({ success: true, games: uniqueGames });
+    } catch (error) {
+        console.error('Error getting multiplayer games:', error);
+        res.json({ success: false, games: [] });
+    }
+});
+
+// 2. Join multiplayer game (matches frontend call)
+app.post('/api/multiplayer/join', async (req, res) => {
+    try {
+        const { userId, boardCount = 1, boardNumbers = [] } = req.body;
+        
+        console.log(`📥 Multiplayer join: userId=${userId}, boardCount=${boardCount}`);
+        
+        const user = users[userId];
+        if (!user) {
+            return res.json({ success: false, error: 'User not found. Please register first.' });
+        }
+        
+        const totalCost = boardCount * GAME_CONFIG.BOARD_PRICE;
+        if (user.balance < totalCost) {
+            return res.json({ 
+                success: false, 
+                error: `Insufficient balance. Need ${totalCost} ETB, have ${user.balance} ETB` 
+            });
+        }
+        
+        // Find existing waiting game
+        let gameId = null;
+        let gameNumber = null;
+        
+        // Check file-based games first
+        for (const gid in activeMultiplayerGames) {
+            const game = activeMultiplayerGames[gid];
+            if (game.status === 'waiting') {
+                gameId = gid;
+                gameNumber = game.gameNumber;
+                break;
+            }
+        }
+        
+        // Check database if no file-based game
+        if (!gameId) {
+            const dbGame = await pool.query(`
+                SELECT id, game_number FROM multiplayer_games 
+                WHERE status = 'waiting' 
+                ORDER BY created_at ASC 
+                LIMIT 1
+            `);
+            
+            if (dbGame.rows.length > 0) {
+                gameId = dbGame.rows[0].id;
+                gameNumber = dbGame.rows[0].game_number;
+            }
+        }
+        
+        // Create new game if none exists
+        if (!gameId) {
+            const newGame = await createMultiplayerGame();
+            if (!newGame.success) {
+                return res.json({ success: false, error: newGame.error });
+            }
+            gameId = newGame.gameId;
+            gameNumber = newGame.gameNumber;
+        }
+        
+        // Join the game
+        const joinResult = await joinMultiplayerGame(gameId, userId, boardCount, boardNumbers);
+        
+        if (!joinResult.success) {
+            return res.json({ success: false, error: joinResult.error });
+        }
+        
+        res.json({
+            success: true,
+            gameId: gameId,
+            gameNumber: gameNumber,
+            boards: joinResult.boards,
+            prizePool: joinResult.prizePool,
+            playerCount: joinResult.playerCount,
+            selectionTimeLeft: GAME_CONFIG.SELECTION_TIME,
+            yourBalance: user.balance
+        });
+        
+    } catch (error) {
+        console.error('Multiplayer join error:', error);
+        res.json({ success: false, error: error.message });
+    }
+});
+
+// 3. Get multiplayer game state (matches frontend call)
+app.get('/api/multiplayer/state/:gameId/:userId', async (req, res) => {
     try {
         const { gameId, userId } = req.params;
         
-        // Get game info
-        const gameResult = await pool.query(
-            `SELECT * FROM multiplayer_games WHERE id = $1`,
-            [gameId]
-        );
+        // Check file-based games first
+        let game = activeMultiplayerGames[gameId];
         
-        if (gameResult.rows.length === 0) {
+        // If not in file, check database
+        if (!game) {
+            const dbResult = await pool.query(
+                `SELECT * FROM multiplayer_games WHERE id = $1`,
+                [gameId]
+            );
+            if (dbResult.rows.length > 0) {
+                game = dbResult.rows[0];
+                game.players = await getGamePlayersFromDB(gameId);
+            }
+        }
+        
+        if (!game) {
             return res.json({ success: false, error: 'Game not found' });
         }
         
-        const game = gameResult.rows[0];
-        
-        // Get player info
-        const playerResult = await pool.query(
-            `SELECT * FROM game_players WHERE game_id = $1 AND user_id = $2`,
-            [gameId, userId]
-        );
-        
-        if (playerResult.rows.length === 0) {
-            return res.json({ success: false, error: 'Not in this game' });
+        const player = game.players?.[userId];
+        if (!player) {
+            // Check database for player
+            const dbPlayer = await pool.query(
+                `SELECT * FROM game_players WHERE game_id = $1 AND user_id = $2`,
+                [gameId, userId]
+            );
+            if (dbPlayer.rows.length === 0) {
+                return res.json({ success: false, error: 'Not in this game' });
+            }
         }
         
-        const player = playerResult.rows[0];
-        
-        // Get all players
-        const playersResult = await pool.query(
-            `SELECT u.username FROM game_players gp
-             JOIN users u ON gp.user_id = u.id
-             WHERE gp.game_id = $1`,
-            [gameId]
-        );
-        
-        const playerList = playersResult.rows.map(p => p.username);
+        // Get player list
+        const playerList = [];
+        if (game.players) {
+            for (const pid in game.players) {
+                playerList.push(game.players[pid].username);
+            }
+        } else {
+            const dbPlayers = await pool.query(
+                `SELECT u.username FROM game_players gp
+                 JOIN users u ON gp.user_id = u.id
+                 WHERE gp.game_id = $1`,
+                [gameId]
+            );
+            for (const p of dbPlayers.rows) {
+                playerList.push(p.username);
+            }
+        }
         
         res.json({
             success: true,
             game: {
                 id: game.id,
+                gameNumber: game.gameNumber,
                 status: game.status,
-                calledNumbers: game.called_numbers || [],
-                currentCall: game.current_call,
-                prizePool: game.prize_pool,
-                playerCount: playerList.length,
+                calledNumbers: game.calledNumbers || game.called_numbers || [],
+                currentCall: game.currentCall || game.current_call,
+                prizePool: game.prizePool || game.prize_pool,
+                players: playerList.length,
                 playerList: playerList,
-                timeLeft: game.end_time ? Math.max(0, new Date(game.end_time) - new Date()) : 0
+                startTime: game.startTime || game.start_time,
+                endTime: game.endTime || game.end_time,
+                timeLeft: game.endTime ? Math.max(0, new Date(game.endTime) - new Date()) : 
+                          game.end_time ? Math.max(0, new Date(game.end_time) - new Date()) : 0
             },
             player: {
-                boards: JSON.parse(player.boards),
-                markedNumbers: JSON.parse(player.marked_numbers || '[]'),
-                hasBingo: player.has_bingo
+                boards: player?.boards || (game.players?.[userId]?.boards) || [],
+                markedNumbers: player?.markedNumbers || (game.players?.[userId]?.markedNumbers) || [],
+                hasBingo: player?.hasBingo || (game.players?.[userId]?.hasBingo) || false
             }
         });
         
     } catch (error) {
-        console.error('Game state error:', error);
-        res.status(500).json({ success: false, error: error.message });
+        console.error('Multiplayer state error:', error);
+        res.json({ success: false, error: error.message });
     }
 });
+
+// 4. Get next game start time
+app.get('/api/game/next-start', async (req, res) => {
+    try {
+        let nextStartTime = null;
+        
+        // Check file-based games
+        for (const gameId in activeMultiplayerGames) {
+            const game = activeMultiplayerGames[gameId];
+            if (game.status === 'waiting' && game.selectionEndTime) {
+                const endTime = new Date(game.selectionEndTime);
+                if (endTime > new Date()) {
+                    if (!nextStartTime || endTime < nextStartTime) {
+                        nextStartTime = endTime;
+                    }
+                }
+            }
+        }
+        
+        // Check database
+        const dbResult = await pool.query(`
+            SELECT selection_end_time FROM multiplayer_games 
+            WHERE status = 'waiting' AND selection_end_time > NOW()
+            ORDER BY selection_end_time ASC 
+            LIMIT 1
+        `);
+        
+        if (dbResult.rows.length > 0) {
+            const dbEndTime = new Date(dbResult.rows[0].selection_end_time);
+            if (!nextStartTime || dbEndTime < nextStartTime) {
+                nextStartTime = dbEndTime;
+            }
+        }
+        
+        if (nextStartTime) {
+            const secondsLeft = Math.max(0, Math.floor((nextStartTime - new Date()) / 1000));
+            res.json({ success: true, secondsLeft: secondsLeft });
+        } else {
+            // Default: next game in 25 seconds
+            res.json({ success: true, secondsLeft: 25 });
+        }
+        
+    } catch (error) {
+        console.error('Error getting next start:', error);
+        res.json({ success: true, secondsLeft: 25 });
+    }
+});
+
+// Helper function to get game players from database
+async function getGamePlayersFromDB(gameId) {
+    try {
+        const result = await pool.query(
+            `SELECT user_id, boards, marked_numbers, has_bingo 
+             FROM game_players WHERE game_id = $1`,
+            [gameId]
+        );
+        
+        const players = {};
+        for (const row of result.rows) {
+            const user = users[row.user_id];
+            players[row.user_id] = {
+                id: row.user_id,
+                username: user?.username || 'Player',
+                boards: JSON.parse(row.boards),
+                markedNumbers: JSON.parse(row.marked_numbers || '[]'),
+                hasBingo: row.has_bingo
+            };
+        }
+        return players;
+    } catch (error) {
+        console.error('Error getting game players:', error);
+        return {};
+    }
+}
+
 
 
 
