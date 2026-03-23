@@ -357,6 +357,8 @@
             languageSelector: null
         };
         
+
+
 // ==================== API CONFIGURATION ====================
 // ✅ Add this RIGHT AFTER your CONFIG object (around line 200)
 const API_BASE = 'https://shebabingo-bot.onrender.com'; // Your Render backend URL
@@ -386,8 +388,7 @@ function initializeApp() {
     // ✅ ADD HERE: Create grid immediately for visual feedback
     console.log("🎯 Creating static BINGO grid...");
     createMainBingoBoard();
-    
-    // ✅ ANDROID FIX: Ensure elements object exists
+     // ✅ ANDROID FIX: Ensure elements object exists
     if (!window.elements) {
         window.elements = {};
     }
@@ -405,23 +406,17 @@ function initializeApp() {
     
     console.log('🎮 ShebaBingo initialized successfully');
     
-    // ✅ REPLACE THIS SECTION WITH THE FIX:
     if (isTelegram && Telegram.WebApp) {
         Telegram.WebApp.MainButton.setText("🎮 PLAY BINGO");
         Telegram.WebApp.MainButton.onClick(() => {
             Telegram.WebApp.MainButton.hide();
-            // ✅ FIX: Directly open registration popup instead of startGameCycle()
-            console.log('🎮 PLAY button clicked - opening registration popup');
-            openRegistrationPopup();  // ← Direct call
+            startGameCycle();
         });
         Telegram.WebApp.MainButton.show();
         console.log('🤖 Telegram mode: Waiting for PLAY button click');
     } else {
-        // ✅ FIX: In browser, auto-show popup after 1 second
-        console.log('🌐 Browser mode: Auto-opening registration popup');
-        setTimeout(() => {
-            openRegistrationPopup();
-        }, 1000);
+        startGameCycle();
+        console.log('🌐 Browser mode: Starting game immediately');
     }
 }
 
@@ -1025,247 +1020,99 @@ function handleGameMessage(message) {
 
 
 // 3. UPDATE GAME FROM SERVER DATA
-function updateGameFromServer(serverData) {
-    if (!serverData || !serverData.success) return;
+function updateGameFromServer(serverState) {
+    if (!serverState) return;
     
-    const game = serverData.game;
-    const player = serverData.player;
+    console.log('🔄 Updating game from server state');
     
-    if (!game) return;
-    
-    console.log('🔄 Updating game from multiplayer server - Status:', game.status);
-    
-    // ==================== UPDATE GAME PHASE ====================
-    if (game.status !== gameState.gamePhase) {
-        console.log(`📊 Phase change: ${gameState.gamePhase} → ${game.status}`);
-        gameState.gamePhase = game.status;
+    // Update game phase
+    if (serverState.game && serverState.game.status) {
+        gameState.gamePhase = serverState.game.status;
         updateGameStatus();
         
-        // Handle phase-specific UI
-        switch(game.status) {
-            case 'shuffling':
-                showShufflingScreen();
-                break;
-            case 'active':
-                removeWaitingScreen();
-                console.log('🎮 GAME ACTIVE! Numbers will appear soon...');
-                break;
-            case 'completed':
-                stopGamePolling();
-                if (game.winners) {
-                    showGameResults(game);
-                }
-                break;
-        }
-    }
-    
-    // ==================== UPDATE CALLED NUMBERS ====================
-    if (game.calledNumbers && game.calledNumbers.length > 0) {
-        // Convert called numbers like "B5" to just numbers
-        const convertedNumbers = game.calledNumbers.map(cn => {
-            const match = cn.match(/\d+/);
-            return match ? parseInt(match[0]) : cn;
-        });
-        
-        // Check if new numbers were added
-        if (convertedNumbers.length > gameState.calledNumbers.length) {
-            const newNumbers = convertedNumbers.slice(gameState.calledNumbers.length);
-            console.log(`🔔 New numbers called: ${newNumbers.join(', ')}`);
-            
-            gameState.calledNumbers = convertedNumbers;
-            updateCalledNumbersList();
-            updateMainBoardColors();
-            
-            // Auto-check for BINGO after each number
-            if (game.status === 'active') {
-                setTimeout(() => checkPlayerBingo(), 500);
-            }
-        }
-    }
-    
-    // ==================== UPDATE CURRENT CALL ====================
-    if (game.currentCall) {
-        const call = game.currentCall;
-        const letter = call.charAt(0);
-        const number = parseInt(call.substring(1));
-        
-        if (!isNaN(number)) {
-            gameState.currentCall = { letter, number };
-            elements.currentLetter.textContent = letter;
-            elements.currentNumber.textContent = number;
-        }
-    }
-    
-    // ==================== UPDATE PLAYER BOARDS ====================
-    if (player && player.boards) {
-        console.log(`🎴 Loading ${player.boards.length} boards from server`);
-        
-        // Update boards
-        gameState.currentPlayer.boards = player.boards.map(board => ({
-            boardNumber: board.boardNumber,
-            boardData: board.boardData,
-            markedNumbers: new Set(board.markedNumbers || []),
-            isWinner: board.hasBingo || false,
-            isEliminated: false,
-            boardId: board.boardId || `B${board.boardNumber}`
-        }));
-        
-        gameState.currentPlayer.isActive = true;
-        
-        // Display boards
-        if (elements.gamePlaySection.style.display !== 'block') {
+        // Show/hide game play section based on status
+        if (serverState.game.status === 'active' || serverState.game.status === 'shuffling') {
             elements.gamePlaySection.style.display = 'block';
         }
-        
-        displayCurrentPlayerBoards(gameState.currentBoardIndex || 0);
     }
     
-    // ==================== UPDATE PLAYER'S MARKED NUMBERS ====================
-    if (player && player.markedNumbers && player.markedNumbers.length > 0) {
-        // Sync marked numbers from server
-        gameState.currentPlayer.boards.forEach(board => {
-            player.markedNumbers.forEach(num => {
-                // Check if this number exists on the board
-                for (let row = 0; row < 5; row++) {
-                    for (let col = 0; col < 5; col++) {
-                        if (board.boardData[row][col] === num) {
-                            board.markedNumbers.add(num);
-                        }
-                    }
-                }
-            });
+    // Update players count
+    if (serverState.players) {
+        updatePlayersCount(serverState.players.length);
+    }
+    
+    // Update prize pool
+    if (serverState.game && serverState.game.prizePool) {
+        gameState.totalPrizePool = serverState.game.prizePool;
+        elements.prizeValue.textContent = gameState.totalPrizePool;
+    }
+    
+    // Update called numbers
+    if (serverState.game && serverState.game.calledNumbers) {
+        gameState.calledNumbers = serverState.game.calledNumbers.map(cn => {
+            const num = cn.replace(/[BINGO]/, '');
+            return parseInt(num);
         });
-        
-        // Refresh display
-        displayCurrentPlayerBoards(gameState.currentBoardIndex || 0);
         updateCalledNumbersList();
     }
     
-    // ==================== UPDATE PRIZE POOL ====================
-    if (game.prizePool !== undefined && game.prizePool !== gameState.totalPrizePool) {
-        gameState.totalPrizePool = game.prizePool;
-        elements.prizeValue.textContent = game.prizePool;
+    // Update current call
+    if (serverState.game && serverState.game.currentCall) {
+        const call = serverState.game.currentCall;
+        const letter = call.charAt(0);
+        const number = parseInt(call.substring(1));
+        
+        gameState.currentCall = { letter, number };
+        updateGameDisplay();
     }
     
-    // ==================== UPDATE PLAYER COUNT ====================
-    if (game.players !== undefined) {
-        elements.playersValue.textContent = game.players;
-    }
-    
-    // ==================== UPDATE CALLED COUNT ====================
-    if (game.calledNumbers) {
-        elements.calledCount.textContent = game.calledNumbers.length;
-    }
-}
-
-// Helper function to show shuffling screen
-function showShufflingScreen() {
-    if (!elements.currentBoard) return;
-    
-    elements.currentBoard.innerHTML = `
-        <div class="shuffling-screen">
-            <div class="shuffling-animation">🔄 🔄 🔄</div>
-            <h3>SHUFFLING NUMBERS...</h3>
-            <p>Game starts in 5 seconds!</p>
-            <div class="boards-summary">
-                Your boards: ${gameState.currentPlayer.boards.map(b => `#${b.boardNumber}`).join(', ')}
-            </div>
-        </div>
-    `;
-}
-
-// Helper function to remove waiting/shuffling screen
-function removeWaitingScreen() {
-    const screens = document.querySelectorAll('.waiting-screen, .shuffling-screen, .results-screen');
-    screens.forEach(screen => screen.remove());
-}
-
-// Helper function to show game results
-function showGameResults(game) {
-    if (!elements.currentBoard) return;
-    
-    const winners = game.winners || [];
-    const prizePerWinner = game.prizePerWinner || 0;
-    const isCurrentPlayerWinner = winners.some(w => w.userId === gameState.currentPlayer.id);
-    
-    let message = '';
-    if (winners.length > 1) {
-        message = `🎉 ${winners.length} WINNERS! Each wins ${prizePerWinner} ETB!`;
-    } else if (winners.length === 1) {
-        if (isCurrentPlayerWinner) {
-            message = `🏆 YOU WON ${prizePerWinner} ETB! 🏆`;
+    // Update player's boards if they exist
+    if (serverState.player && serverState.player.boards) {
+        console.log('🎴 Loading player boards from server');
+        
+        gameState.currentPlayer.boards = serverState.player.boards.map(board => ({
+            boardNumber: board.boardNumber,
+            boardData: board.boardData,
+            markedNumbers: new Set(board.markedNumbers || []),
+            isWinner: false,
+            isEliminated: false
+        }));
+        
+        // Mark numbers on the boards
+        if (serverState.player.markedNumbers && serverState.player.markedNumbers.length > 0) {
+            serverState.player.markedNumbers.forEach(number => {
+                gameState.currentPlayer.boards.forEach(board => {
+                    if (!board.isEliminated) {
+                        // Check if this number is on the board
+                        for (let row = 0; row < 5; row++) {
+                            for (let col = 0; col < 5; col++) {
+                                if (board.boardData[row][col] === number) {
+                                    board.markedNumbers.add(number);
+                                }
+                            }
+                        }
+                    }
+                });
+            });
+        }
+        
+        // Display boards if we have them
+        if (gameState.currentPlayer.boards.length > 0) {
+            console.log(`📋 Displaying ${gameState.currentPlayer.boards.length} boards`);
+            gameState.currentPlayer.isActive = true;
+            displayCurrentPlayerBoards(0);
         } else {
-            message = `🏆 WINNER: ${winners[0].username} wins ${prizePerWinner} ETB!`;
-        }
-    } else {
-        message = '🤷 No winner this game! Next game starting soon.';
-    }
-    
-    elements.currentBoard.innerHTML = `
-        <div class="results-screen">
-            <h2>${message}</h2>
-            ${winners.length > 0 ? `<p>💰 Prize: ${prizePerWinner} ETB</p>` : ''}
-            <p>⏰ Next game starts in 25 seconds...</p>
-            <button onclick="location.reload()" class="play-again-btn">🎮 JOIN NEXT GAME</button>
-        </div>
-    `;
-}
-
-// Helper function to check player BINGO
-async function checkPlayerBingo() {
-    for (let i = 0; i < gameState.currentPlayer.boards.length; i++) {
-        const board = gameState.currentPlayer.boards[i];
-        if (!board.hasBingo && !board.isWinner) {
-            const hasBingo = checkBoardForBingo(board.boardData, Array.from(board.markedNumbers), gameState.calledNumbers);
-            if (hasBingo) {
-                console.log(`🎯 BINGO detected on board #${board.boardNumber}!`);
-                await claimBingo(board.boardId);
-                return;
-            }
+            console.log('⚠️ No boards received from server');
         }
     }
 }
-
-// Helper function to claim BINGO
-async function claimBingo(boardId) {
-    if (!window.currentGameId) {
-        console.error('No game ID to claim BINGO');
-        return;
-    }
-    
-    try {
-        const response = await fetch('/api/multiplayer/claim', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                gameId: window.currentGameId,
-                userId: gameState.currentPlayer.id,
-                boardId: boardId
-            })
-        });
-        
-        const data = await response.json();
-        
-        if (data.success) {
-            alert(`🎉 BINGO! You won ${data.prize} ETB!`);
-            // Mark board as winner
-            const board = gameState.currentPlayer.boards.find(b => b.boardId === boardId);
-            if (board) board.hasBingo = true;
-        }
-    } catch (error) {
-        console.error('Claim error:', error);
-    }
-}
-
-
-// ==================== MULTIPLAYER GAME FUNCTIONS ====================
 
 // 4. JOIN MULTIPLAYER GAME VIA API
 async function joinMultiplayerGameViaAPI(totalCost) {
     try {
         console.log('🚀 Joining multiplayer game via API...');
         
-        const response = await fetch(`${API_BASE}/api/game/join`, {
+         const response = await fetch(`${API_BASE}/api/game/join`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -1281,551 +1128,46 @@ async function joinMultiplayerGameViaAPI(totalCost) {
         if (data.success) {
             console.log('✅ Successfully joined game:', data.gameId);
             console.log('🎲 Game number:', data.gameNumber);
-            console.log('👥 Player count:', data.playerCount || data.players);
+            console.log('👥 Player count:', data.playerCount);
             console.log('💰 Prize pool:', data.prizePool);
             
             // Store game ID
             currentGameId = data.gameId;
             
-            // Connect WebSocket to this game (if using WebSockets)
-            if (typeof connectToMultiplayerServer === 'function') {
-                connectToMultiplayerServer(data.gameId);
-            }
+            // Connect WebSocket to this game
+            connectToMultiplayerServer(data.gameId);
             
-            // Handle different response formats
-            if (data.boards && Array.isArray(data.boards)) {
-                // Direct boards array
-                gameState.currentPlayer.isActive = true;
-                gameState.currentPlayer.boards = data.boards.map(board => ({
-                    boardNumber: board.boardNumber,
-                    boardData: board.boardData,
-                    markedNumbers: new Set(board.markedNumbers || []),
-                    isWinner: false,
-                    isEliminated: false
-                }));
-                console.log(`📊 Received ${data.boards.length} boards directly`);
-                
-            } else if (data.player && Array.isArray(data.player.boards)) {
-                // Player object with boards
-                gameState.currentPlayer.isActive = true;
-                gameState.currentPlayer.boards = data.player.boards.map(board => ({
-                    boardNumber: board.boardNumber,
-                    boardData: board.boardData,
-                    markedNumbers: new Set(board.markedNumbers || []),
-                    isWinner: false,
-                    isEliminated: false
-                }));
-                console.log(`📊 Received ${data.player.boards.length} boards from player object`);
-                
-            } else if (data.board && data.boards) {
-                // Mixed format
-                gameState.currentPlayer.isActive = true;
-                gameState.currentPlayer.boards = data.boards.map(board => ({
-                    boardNumber: board.boardNumber,
-                    boardData: board.boardData,
-                    markedNumbers: new Set(board.markedNumbers || []),
-                    isWinner: false,
-                    isEliminated: false
-                }));
-                console.log(`📊 Received ${data.boards.length} boards from mixed format`);
-                
-            } else {
-                console.warn('⚠️ No boards found in response, using default');
-                // Create default boards if needed
-                gameState.currentPlayer.isActive = true;
-                gameState.currentPlayer.boards = createDefaultBoards(gameState.selectedBoards.size);
-            }
-            
-            // Show boards immediately
-            displayCurrentPlayerBoards(0);
+            if (data.player && Array.isArray(data.player.boards)) {
+    gameState.currentPlayer.isActive = true;
+
+    gameState.currentPlayer.boards = data.player.boards.map(board => ({
+        boardNumber: board.boardNumber,
+        boardData: board.boardData,
+        markedNumbers: new Set(board.markedNumbers || []),
+        isWinner: false,
+        isEliminated: false
+    }));
+
+    // Show boards immediately
+    displayCurrentPlayerBoards(0);
+}
+
             
             // Update UI
             closeRegistrationPopup();
             updateGameStats();
             
-            // Show waiting message with player count
-            const playerCount = data.playerCount || data.players || 1;
-            const requiredPlayers = data.requiredPlayers || 2;
-            
-            showGameMessage(
-                `✅ Joined Game #${data.gameNumber || 'New'}!\n` +
-                `👥 Players: ${playerCount}/${requiredPlayers}\n` +
-                `⏳ Waiting for game to start...`,
-                'success'
-            );
-            
-            // Show waiting screen with boards minimized
-            showWaitingForGameScreen(playerCount, requiredPlayers);
-            
-            // Start polling for game state
-            startGamePolling(data.gameId);
-            
-            return true;
+            // Show success message
+            showGameMessage(`✅ Joined Game #${data.gameNumber}! Waiting for other players...`, 'success');
             
         } else {
             console.error('❌ Failed to join game:', data.error);
-            
-            // Show specific error message
-            let errorMessage = 'Failed to join game';
-            if (data.error.includes('balance')) {
-                errorMessage = '❌ Insufficient balance! Please deposit.';
-            } else if (data.error.includes('already')) {
-                errorMessage = '❌ You are already in a game!';
-            } else {
-                errorMessage = '❌ ' + data.error;
-            }
-            
-            alert(errorMessage);
-            return false;
+            alert('Failed to join game: ' + data.error);
         }
     } catch (error) {
         console.error('❌ Error joining multiplayer game:', error);
         alert('Network error. Please check your connection and try again.');
-        return false;
     }
-}
-
-// Create default boards if none returned
-function createDefaultBoards(count) {
-    const boards = [];
-    for (let i = 0; i < count; i++) {
-        boards.push({
-            boardNumber: Math.floor(Math.random() * 400) + 1,
-            boardData: generateBingoBoard(),
-            markedNumbers: new Set(),
-            isWinner: false,
-            isEliminated: false,
-            boardId: `B${i + 1}`
-        });
-    }
-    return boards;
-}
-
-// Show waiting screen during selection/shuffling
-function showWaitingForGameScreen(currentPlayers, requiredPlayers) {
-    // Clear current board area
-    elements.currentBoard.innerHTML = '';
-    
-    const waitingDiv = document.createElement('div');
-    waitingDiv.className = 'waiting-screen';
-    waitingDiv.innerHTML = `
-        <div class="waiting-content">
-            <div class="waiting-spinner"></div>
-            <h2>⏳ WAITING FOR GAME</h2>
-            <div class="player-count">
-                <span class="count">${currentPlayers}</span>/<span class="total">${requiredPlayers}</span>
-                <span class="label">Players Joined</span>
-            </div>
-            <div class="progress-bar">
-                <div class="progress-fill" style="width: ${(currentPlayers/requiredPlayers)*100}%"></div>
-            </div>
-            <p class="waiting-message">Game starts automatically when enough players join...</p>
-            <div class="mini-boards">
-                ${generateMiniBoardsHTML()}
-            </div>
-        </div>
-    `;
-    
-    elements.currentBoard.appendChild(waitingDiv);
-    
-    // Add CSS if not exists
-    if (!document.getElementById('waiting-screen-styles')) {
-        const style = document.createElement('style');
-        style.id = 'waiting-screen-styles';
-        style.textContent = `
-            .waiting-screen {
-                position: relative;
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                border-radius: 15px;
-                padding: 30px 20px;
-                color: white;
-                text-align: center;
-                margin: 10px 0;
-                box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-            }
-            .waiting-spinner {
-                width: 60px;
-                height: 60px;
-                border: 5px solid rgba(255,255,255,0.3);
-                border-top-color: white;
-                border-radius: 50%;
-                animation: spin 1s linear infinite;
-                margin: 0 auto 20px;
-            }
-            .player-count {
-                font-size: 2.5rem;
-                font-weight: bold;
-                margin: 15px 0 5px;
-            }
-            .player-count .label {
-                display: block;
-                font-size: 0.9rem;
-                opacity: 0.9;
-                font-weight: normal;
-            }
-            .progress-bar {
-                width: 80%;
-                height: 10px;
-                background: rgba(255,255,255,0.2);
-                border-radius: 10px;
-                margin: 20px auto;
-                overflow: hidden;
-            }
-            .progress-fill {
-                height: 100%;
-                background: #2ecc71;
-                border-radius: 10px;
-                transition: width 0.3s ease;
-            }
-            .waiting-message {
-                font-size: 0.9rem;
-                opacity: 0.9;
-                margin: 15px 0;
-            }
-            .mini-boards {
-                display: flex;
-                justify-content: center;
-                gap: 10px;
-                margin-top: 20px;
-                flex-wrap: wrap;
-            }
-            .mini-board {
-                width: 40px;
-                height: 40px;
-                background: rgba(255,255,255,0.1);
-                border: 2px solid rgba(255,255,255,0.3);
-                border-radius: 8px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                font-weight: bold;
-                font-size: 0.9rem;
-            }
-            @keyframes spin {
-                to { transform: rotate(360deg); }
-            }
-        `;
-        document.head.appendChild(style);
-    }
-}
-
-// Generate mini boards HTML
-function generateMiniBoardsHTML() {
-    if (!gameState.currentPlayer.boards) return '';
-    
-    let html = '';
-    gameState.currentPlayer.boards.forEach((board, index) => {
-        html += `<div class="mini-board">#${board.boardNumber}</div>`;
-    });
-    return html;
-}
-
-// Start polling for multiplayer game state
-function startGamePolling(gameId) {
-    // Clear any existing polling
-    if (window.gamePollInterval) {
-        clearInterval(window.gamePollInterval);
-        console.log('🔄 Cleared existing polling');
-    }
-    
-    console.log(`🔄 Started polling for multiplayer game ${gameId}`);
-    
-    window.gamePollInterval = setInterval(async () => {
-        try {
-            // ✅ CORRECT: Use the multiplayer endpoint
-            const response = await fetch(`/api/multiplayer/state/${gameId}/${gameState.currentPlayer.id}`);
-            const data = await response.json();
-            
-            if (data.success) {
-                // Update game state with new data
-                updateGameFromMultiplayer(data);
-            } else {
-                // Game no longer exists or player not in game
-                if (data.error === 'Game not found' || data.error === 'Not in this game') {
-                    console.log('⏹️ Game no longer available, stopping polling');
-                    stopGamePolling();
-                    
-                    // Show next game option
-                    setTimeout(() => {
-                        showNextGameOption();
-                    }, 2000);
-                }
-            }
-        } catch (error) {
-            console.error('Polling error:', error);
-        }
-    }, 2000); // Poll every 2 seconds
-}
-
-// Stop polling
-function stopGamePolling() {
-    if (window.gamePollInterval) {
-        clearInterval(window.gamePollInterval);
-        window.gamePollInterval = null;
-        console.log('⏹️ Game polling stopped');
-    }
-}
-
-// Update game from multiplayer data
-function updateGameFromMultiplayer(data) {
-    const game = data.game;
-    const player = data.player;
-    
-    // Update player data if provided
-    if (player && player.boards) {
-        gameState.currentPlayer.boards = player.boards;
-        gameState.currentPlayer.markedNumbers = player.markedNumbers || [];
-        
-        // Refresh board display
-        if (elements.gamePlaySection.style.display === 'block') {
-            displayCurrentPlayerBoards(gameState.currentBoardIndex);
-        }
-    }
-    
-    // Update game phase
-    if (game.status !== gameState.gamePhase) {
-        console.log(`🔄 Game phase changed: ${gameState.gamePhase} → ${game.status}`);
-        gameState.gamePhase = game.status;
-        updateGameStatus();
-        
-        switch(game.status) {
-            case 'shuffling':
-                showShufflingScreen();
-                break;
-                
-            case 'active':
-                removeWaitingScreen();
-                gameState.calledNumbers = game.calledNumbers || [];
-                gameState.currentCall = game.currentCall;
-                updateCalledNumbersList();
-                updateMainBoardColors();
-                console.log('🎮 GAME ACTIVE! Start marking numbers!');
-                break;
-                
-            case 'completed':
-                stopGamePolling();
-                showGameResults(game);
-                break;
-        }
-    }
-    
-    // Update called numbers during active game
-    if (game.status === 'active' && game.calledNumbers) {
-        if (game.calledNumbers.length > gameState.calledNumbers.length) {
-            const newNumbers = game.calledNumbers.slice(gameState.calledNumbers.length);
-            console.log(`🔔 New numbers: ${newNumbers.join(', ')}`);
-            
-            gameState.calledNumbers = game.calledNumbers;
-            gameState.currentCall = game.currentCall;
-            updateCalledNumbersList();
-            updateMainBoardColors();
-            
-            // Auto-check for BINGO after each number
-            checkPlayerBingo();
-        }
-    }
-    
-    // Update prize pool
-    if (game.prizePool !== gameState.totalPrizePool) {
-        gameState.totalPrizePool = game.prizePool;
-        updateGameStats();
-    }
-}
-// Show next game option when game ends
-function showNextGameOption() {
-    elements.currentBoard.innerHTML = `
-        <div class="next-game-screen">
-            <h2>🎮 Game Ended</h2>
-            <p>Next game starts in 25 seconds...</p>
-            <button onclick="location.reload()" class="play-again-btn">🔄 JOIN NEXT GAME</button>
-        </div>
-    `;
-    
-    // Add CSS if not exists
-    if (!document.getElementById('next-game-styles')) {
-        const style = document.createElement('style');
-        style.id = 'next-game-styles';
-        style.textContent = `
-            .next-game-screen {
-                text-align: center;
-                padding: 40px;
-                background: linear-gradient(135deg, #2c3e50, #1a2632);
-                border-radius: 15px;
-                color: white;
-                margin: 20px;
-            }
-            .play-again-btn {
-                background: linear-gradient(135deg, #27ae60, #2ecc71);
-                color: white;
-                border: none;
-                padding: 12px 30px;
-                border-radius: 25px;
-                font-size: 16px;
-                font-weight: bold;
-                margin-top: 20px;
-                cursor: pointer;
-            }
-        `;
-        document.head.appendChild(style);
-    }
-}
-
-
-// Handle game state updates from server
-function handleGameStateUpdate(data) {
-    const game = data.game;
-    const player = data.player;
-    
-    // Update player boards if provided
-    if (player && player.boards) {
-        gameState.currentPlayer.boards = player.boards.map(board => ({
-            boardNumber: board.boardNumber,
-            boardData: board.boardData,
-            markedNumbers: new Set(board.markedNumbers || []),
-            isWinner: board.isWinner || false,
-            isEliminated: board.isEliminated || false
-        }));
-    }
-    
-    // Update player marked numbers
-    if (player && player.markedNumbers) {
-        // Sync marked numbers with server
-        gameState.currentPlayer.boards.forEach(board => {
-            board.markedNumbers = new Set(player.markedNumbers || []);
-        });
-    }
-    
-    // Check for game phase changes
-    if (game.status !== gameState.gamePhase) {
-        console.log(`🔄 Game phase changed: ${gameState.gamePhase} → ${game.status}`);
-        gameState.gamePhase = game.status;
-        updateGameStatus();
-        
-        // Handle phase-specific UI
-        switch(game.status) {
-            case 'shuffling':
-                // Update waiting screen to shuffling
-                updateWaitingToShuffling();
-                break;
-                
-            case 'active':
-                // Game is active - remove waiting screen and show game
-                gameState.calledNumbers = game.calledNumbers || [];
-                gameState.currentCall = game.currentCall;
-                
-                // Remove waiting screen
-                const waitingScreen = document.querySelector('.waiting-screen');
-                if (waitingScreen) waitingScreen.remove();
-                
-                // Display boards
-                displayCurrentPlayerBoards(gameState.currentBoardIndex || 0);
-                
-                // Update called numbers
-                updateCalledNumbersList();
-                
-                // Update main board
-                updateMainBoardColors();
-                
-                console.log('🎮 Game is now ACTIVE!');
-                break;
-                
-            case 'completed':
-            case 'finished':
-                // Game ended
-                stopGamePolling();
-                showGameResults(game.winners);
-                break;
-        }
-    }
-    
-    // Update called numbers if game is active
-    if (game.status === 'active' && game.calledNumbers) {
-        // Check if new numbers were added
-        if (game.calledNumbers.length > gameState.calledNumbers.length) {
-            const newNumbers = game.calledNumbers.slice(gameState.calledNumbers.length);
-            console.log(`🔔 New numbers called: ${newNumbers.join(', ')}`);
-            
-            gameState.calledNumbers = game.calledNumbers;
-            gameState.currentCall = game.currentCall;
-            
-            updateCalledNumbersList();
-            updateMainBoardColors();
-            
-            // Optional: Auto-mark numbers
-            // autoMarkNumbers(newNumbers);
-        }
-    }
-    
-    // Update prize pool
-    if (game.prizePool !== gameState.totalPrizePool) {
-        gameState.totalPrizePool = game.prizePool;
-        updateGameStats();
-    }
-    
-    // Update player count in waiting screen
-    if (game.status === 'waiting' || game.status === 'selecting' || game.status === 'shuffling') {
-        const playerCountEl = document.querySelector('.player-count .count');
-        if (playerCountEl) {
-            playerCountEl.textContent = game.playerCount || 1;
-        }
-        
-        const progressFill = document.querySelector('.progress-fill');
-        if (progressFill) {
-            const required = 2; // MIN_PLAYERS
-            const percent = Math.min(100, ((game.playerCount || 1) / required) * 100);
-            progressFill.style.width = percent + '%';
-        }
-    }
-}
-
-// Update waiting screen to shuffling
-function updateWaitingToShuffling() {
-    const waitingScreen = document.querySelector('.waiting-screen');
-    if (!waitingScreen) return;
-    
-    const content = waitingScreen.querySelector('.waiting-content');
-    if (content) {
-        content.innerHTML = `
-            <div class="waiting-spinner" style="border-top-color: #f39c12;"></div>
-            <h2>🔄 SHUFFLING NUMBERS</h2>
-            <p class="waiting-message">Game starting in 5 seconds...</p>
-            <div class="mini-boards">
-                ${generateMiniBoardsHTML()}
-            </div>
-        `;
-    }
-}
-
-// Show game message
-function showGameMessage(message, type = 'info') {
-    // Remove existing message
-    const existingMsg = document.querySelector('.game-message');
-    if (existingMsg) existingMsg.remove();
-    
-    const msgDiv = document.createElement('div');
-    msgDiv.className = `game-message ${type}`;
-    msgDiv.textContent = message;
-    msgDiv.style.cssText = `
-        position: fixed;
-        top: 20px;
-        left: 50%;
-        transform: translateX(-50%);
-        background: ${type === 'success' ? '#2ecc71' : type === 'error' ? '#e74c3c' : '#3498db'};
-        color: white;
-        padding: 10px 20px;
-        border-radius: 50px;
-        box-shadow: 0 5px 15px rgba(0,0,0,0.2);
-        z-index: 9999;
-        font-weight: bold;
-        animation: slideDown 0.3s ease;
-    `;
-    
-    document.body.appendChild(msgDiv);
-    
-    setTimeout(() => {
-        msgDiv.style.animation = 'slideUp 0.3s ease';
-        setTimeout(() => msgDiv.remove(), 300);
-    }, 3000);
 }
 
 // 5. HELPER FUNCTIONS
@@ -2362,65 +1704,116 @@ function startGameCycle() {
         gameState.timerInterval = null;
     }
     
-    // Show waiting message briefly
-    showWaitForNextGame('Finding available games...');
+    // Show a "Loading games..." message immediately
+    showWaitForNextGame('Loading available games...');
     
-    // Check for active games after 1 second
+    // Then check for active games with a 2-second delay
     setTimeout(() => {
+        console.log('🔍 Starting game search...');
         checkForActiveGames();
-    }, 1000);
+    }, 2000);
 }
 
 async function checkForActiveGames() {
     try {
         console.log('🔍 Checking for active games...');
-        
-        // ✅ FIX 1: Use the CORRECT endpoint that exists in your server
-        const response = await fetch('/api/multiplayer/games');
+        const response = await fetch('https://shebabingo-bot.onrender.com/api/games/active');
         const data = await response.json();
         
-        console.log('📡 API Response:', data);
-        
-        // ✅ FIX 2: Handle the response correctly
         if (data.success && data.games && data.games.length > 0) {
             console.log(`🎮 Found ${data.games.length} active game(s)`);
             
-            // Find any waiting game
-            const availableGame = data.games.find(game => 
-                game.status === 'waiting' || game.status === 'selecting'
+            // Find a game in selection phase
+            const selectingGame = data.games.find(game => 
+                game.status === 'selecting' && 
+                game.player_count < 100 // MAX_PLAYERS
             );
             
-            if (availableGame) {
-                console.log(`🎯 Joining game: ${availableGame.id}`);
-                console.log(`👥 Players: ${availableGame.players}, Time left: ${availableGame.timeLeft}s`);
+            if (selectingGame) {
+                console.log(`🎯 Found game #${selectingGame.game_number}: ${selectingGame.id}`);
+                console.log(`👥 Players: ${selectingGame.player_count}, Status: ${selectingGame.status}`);
                 
-                // ✅ FIX 3: Store the game ID and show popup
-                window.currentGameId = availableGame.id;
+                // Calculate time left
+                if (selectingGame.selection_end_time) {
+                    const endTime = new Date(selectingGame.selection_end_time);
+                    const now = new Date();
+                    const timeLeft = Math.max(0, Math.floor((endTime - now) / 1000));
+                    
+                    console.log(`⏰ Selection ends in: ${timeLeft} seconds`);
+                    
+                    // If less than 5 seconds left, skip and wait for next game
+                    if (timeLeft < 5) {
+                        console.log('⚠️ Too little time left, waiting for next game');
+                        showWaitForNextGame(`Next game starting soon...`);
+                        setTimeout(() => checkForActiveGames(), 5000);
+                        return;
+                    }
+                    
+                    // Set the timer from server
+                    gameState.selectionTimer = timeLeft;
+                    console.log(`⏰ Server timer set: ${timeLeft} seconds`);
+                }
+                
+                // Show registration popup to join this game
                 openRegistrationPopup();
+                return;
+            }
+            
+            // Check for active/shuffling games to watch
+            const activeGame = data.games.find(game => 
+                game.status === 'shuffling' || game.status === 'active'
+            );
+            
+            if (activeGame) {
+                console.log(`👀 Active game found (${activeGame.status}), showing spectator mode`);
+                showSpectatorMessage(`Watching Game #${activeGame.game_number}`);
                 return;
             }
         }
         
-        // ✅ FIX 4: If no games, create one by showing registration popup directly
-        console.log('🆕 No active games found - showing registration to create new game');
+        // No suitable game found, check when next game starts
+        console.log('🆕 No suitable game found, checking next game...');
         
-        // Clear any waiting message
-        const waitDiv = document.querySelector('.wait-message');
-        if (waitDiv) waitDiv.remove();
-        
-        // Show registration popup immediately
-        openRegistrationPopup();
+        try {
+            const nextGameResponse = await fetch('https://shebabingo-bot.onrender.com/api/game/next-start');
+            const nextGameData = await nextGameResponse.json();
+            
+            if (nextGameData.success) {
+                console.log(`⏳ Next game in ${nextGameData.secondsLeft} seconds`);
+                
+                if (nextGameData.secondsLeft <= 30) {
+                    // Game starting soon, show countdown
+                    showWaitForNextGame(`Next game starts in ${nextGameData.secondsLeft}s`);
+                    setTimeout(() => checkForActiveGames(), nextGameData.secondsLeft * 1000);
+                } else {
+                    // Start local selection as fallback
+                    console.log('🆕 Starting local selection (no server games soon)');
+                    setTimeout(() => {
+                        startBoardSelection();
+                    }, 2000);
+                }
+            } else {
+                // Fallback to local selection
+                console.log('🆕 Starting local selection (fallback)');
+                setTimeout(() => {
+                    startBoardSelection();
+                }, 2000);
+            }
+        } catch (apiError) {
+            console.log('⚠️ /api/game/next-start not available, using fallback');
+            // Fallback to local selection
+            setTimeout(() => {
+                startBoardSelection();
+            }, 2000);
+        }
         
     } catch (error) {
-        console.error('❌ Error checking active games:', error);
-        
-        // ✅ FIX 5: On error, still show registration popup (fallback)
-        console.log('⚠️ API error, falling back to local mode');
-        showWaitForNextGame('Connecting to server...');
-        
+        console.error('Error checking active games:', error);
+        // Fallback to local mode
+        showWaitForNextGame('Server connection issue. Trying local mode...');
         setTimeout(() => {
-            openRegistrationPopup();
-        }, 2000);
+            startBoardSelection();
+        }, 3000);
     }
 }
 
@@ -3709,8 +3102,8 @@ function showSpectatorMessage(message = 'Watching Game') {
 }
 
 
-        // Balance deduction when buying boards - PURE MULTIPLAYER VERSION
-async function confirmSelection() {
+        // Balance deduction when buying boards
+       function confirmSelection() {
     if (gameState.selectedBoards.size === 0) {
         alert(t('selectOneBoard'));
         return;
@@ -3722,94 +3115,44 @@ async function confirmSelection() {
         return;
     }
     
-    // Show loading state
-    const confirmBtn = document.getElementById('confirmSelection');
-    const originalText = confirmBtn.textContent;
-    confirmBtn.textContent = '⏳ Joining game...';
-    confirmBtn.disabled = true;
+    // Deduct cost from balance
+    const oldBalance = gameState.currentPlayer.balance;
+    gameState.currentPlayer.balance -= totalCost;
+    console.log(`💰 Balance deducted: ${totalCost} (${oldBalance} → ${gameState.currentPlayer.balance})`);
     
-    try {
-        // Send join request to MULTIPLAYER server
-        const response = await fetch('/api/multiplayer/join', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                userId: gameState.currentPlayer.id,
-                boardCount: gameState.selectedBoards.size,
-                boardNumbers: Array.from(gameState.selectedBoards)
-            })
+    gameState.currentPlayer.isActive = true;
+    gameState.currentPlayer.boards = createPlayerBoards();
+    gameState.currentPlayer.totalPaid = totalCost;
+    gameState.activePlayers.push(gameState.currentPlayer);
+    
+    console.log(`✅ YOU selected ${gameState.selectedBoards.size} boards:`);
+    gameState.selectedBoards.forEach(boardNum => {
+        console.log(`   - Board #${boardNum}`);
+    });
+    
+    // Update board display to show player's boards as selected (not taken)
+    gameState.selectedBoards.forEach(boardNumber => {
+        const boardElements = document.querySelectorAll('.board-option');
+        boardElements.forEach(element => {
+            const elementBoardNum = parseInt(element.querySelector('.board-number').textContent);
+            if (elementBoardNum === boardNumber) {
+                element.classList.remove('taken');
+                element.classList.add('selected');
+                element.style.background = 'linear-gradient(135deg, #2ecc71, #27ae60)';
+                element.style.color = 'white';
+                element.style.cursor = 'pointer';
+                element.style.opacity = '1';
+                element.style.border = '2px solid #27ae60';
+            }
         });
-        
-        const data = await response.json();
-        
-        if (data.success) {
-            console.log('✅ Successfully joined multiplayer game:', data.gameId);
-            
-            // Store game ID for polling
-            window.currentGameId = data.gameId;
-            
-            // Update local state with server data
-            gameState.currentPlayer.balance -= totalCost;
-            gameState.currentPlayer.isActive = true;
-            gameState.currentPlayer.boards = data.boards.map(board => ({
-                boardNumber: board.boardNumber,
-                boardData: board.boardData,
-                markedNumbers: new Set(board.markedNumbers || []),
-                isWinner: false,
-                isEliminated: false
-            }));
-            gameState.currentPlayer.totalPaid = totalCost;
-            
-            // Update UI
-            updateGameStats();
-            closeRegistrationPopup();
-            elements.gamePlaySection.style.display = 'block';
-            displayCurrentPlayerBoards(0);
-            
-            // Show waiting screen
-            showWaitingForPlayers(data.playerCount, data.selectionTimeLeft || 25);
-            
-            // Start polling for game state
-            startGamePolling(data.gameId);
-            
-        } else {
-            // Server error - show message and retry
-            console.error('Join failed:', data.error);
-            alert(data.error || 'Failed to join game. Please try again.');
-            confirmBtn.textContent = originalText;
-            confirmBtn.disabled = false;
-        }
-        
-    } catch (error) {
-        console.error('Network error:', error);
-        alert('Network error. Please check your connection and try again.');
-        confirmBtn.textContent = originalText;
-        confirmBtn.disabled = false;
-    }
-}
-
-// Show waiting for players screen
-function showWaitingForPlayers(playerCount, timeLeft) {
-    const waitingHTML = `
-        <div class="waiting-screen">
-            <div class="waiting-spinner">⏳</div>
-            <h3>⏳ WAITING FOR GAME</h3>
-            <div class="player-count">👥 ${playerCount} players joined</div>
-            <div class="countdown-timer">⏰ Game starts in ${timeLeft} seconds...</div>
-            <div class="boards-summary">
-                Your boards: ${gameState.currentPlayer.boards.map(b => `#${b.boardNumber}`).join(', ')}
-            </div>
-            <div class="waiting-tip">💡 Share the game link to invite friends!</div>
-        </div>
-    `;
+    });
     
-    elements.currentBoard.innerHTML = waitingHTML;
+    // Update balance display immediately
+    updateGameStats();
+    
+    closeRegistrationPopup();
+    startShufflingPhase();
 }
-
-
-
-
-
 
         function createPlayerBoards() {
             const playerBoards = [];
