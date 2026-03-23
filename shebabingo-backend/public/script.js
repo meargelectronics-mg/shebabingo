@@ -1704,116 +1704,67 @@ function startGameCycle() {
         gameState.timerInterval = null;
     }
     
-    // Show a "Loading games..." message immediately
+    // Show waiting message briefly
     showWaitForNextGame('Loading available games...');
     
-    // Then check for active games with a 2-second delay
+    // Check for active games after 1 second
     setTimeout(() => {
-        console.log('🔍 Starting game search...');
+        console.log('🔍 Checking for active games...');
         checkForActiveGames();
-    }, 2000);
+    }, 1000);
 }
 
 async function checkForActiveGames() {
     try {
         console.log('🔍 Checking for active games...');
-        const response = await fetch('https://shebabingo-bot.onrender.com/api/games/active');
+        
+        // ✅ FIX 1: Use correct endpoint
+        const response = await fetch('/api/multiplayer/games');
         const data = await response.json();
         
+        console.log('📡 Server response:', data);
+        
+        // ✅ FIX 2: Check if we have any games to join
         if (data.success && data.games && data.games.length > 0) {
             console.log(`🎮 Found ${data.games.length} active game(s)`);
             
-            // Find a game in selection phase
-            const selectingGame = data.games.find(game => 
-                game.status === 'selecting' && 
-                game.player_count < 100 // MAX_PLAYERS
+            // Find any waiting game
+            const availableGame = data.games.find(game => 
+                game.status === 'waiting' || game.status === 'selecting'
             );
             
-            if (selectingGame) {
-                console.log(`🎯 Found game #${selectingGame.game_number}: ${selectingGame.id}`);
-                console.log(`👥 Players: ${selectingGame.player_count}, Status: ${selectingGame.status}`);
+            if (availableGame) {
+                console.log(`🎯 Joining game: ${availableGame.id}`);
+                console.log(`👥 Players: ${availableGame.players}, Time left: ${availableGame.timeLeft}s`);
                 
-                // Calculate time left
-                if (selectingGame.selection_end_time) {
-                    const endTime = new Date(selectingGame.selection_end_time);
-                    const now = new Date();
-                    const timeLeft = Math.max(0, Math.floor((endTime - now) / 1000));
-                    
-                    console.log(`⏰ Selection ends in: ${timeLeft} seconds`);
-                    
-                    // If less than 5 seconds left, skip and wait for next game
-                    if (timeLeft < 5) {
-                        console.log('⚠️ Too little time left, waiting for next game');
-                        showWaitForNextGame(`Next game starting soon...`);
-                        setTimeout(() => checkForActiveGames(), 5000);
-                        return;
-                    }
-                    
-                    // Set the timer from server
-                    gameState.selectionTimer = timeLeft;
-                    console.log(`⏰ Server timer set: ${timeLeft} seconds`);
-                }
+                // Store game ID
+                window.currentGameId = availableGame.id;
                 
-                // Show registration popup to join this game
+                // ✅ FIX 3: ALWAYS show registration popup
                 openRegistrationPopup();
                 return;
             }
-            
-            // Check for active/shuffling games to watch
-            const activeGame = data.games.find(game => 
-                game.status === 'shuffling' || game.status === 'active'
-            );
-            
-            if (activeGame) {
-                console.log(`👀 Active game found (${activeGame.status}), showing spectator mode`);
-                showSpectatorMessage(`Watching Game #${activeGame.game_number}`);
-                return;
-            }
         }
         
-        // No suitable game found, check when next game starts
-        console.log('🆕 No suitable game found, checking next game...');
+        // ✅ FIX 4: If no games, STILL show popup to create a new game
+        console.log('🆕 No active games found - showing registration to create new game');
         
-        try {
-            const nextGameResponse = await fetch('https://shebabingo-bot.onrender.com/api/game/next-start');
-            const nextGameData = await nextGameResponse.json();
-            
-            if (nextGameData.success) {
-                console.log(`⏳ Next game in ${nextGameData.secondsLeft} seconds`);
-                
-                if (nextGameData.secondsLeft <= 30) {
-                    // Game starting soon, show countdown
-                    showWaitForNextGame(`Next game starts in ${nextGameData.secondsLeft}s`);
-                    setTimeout(() => checkForActiveGames(), nextGameData.secondsLeft * 1000);
-                } else {
-                    // Start local selection as fallback
-                    console.log('🆕 Starting local selection (no server games soon)');
-                    setTimeout(() => {
-                        startBoardSelection();
-                    }, 2000);
-                }
-            } else {
-                // Fallback to local selection
-                console.log('🆕 Starting local selection (fallback)');
-                setTimeout(() => {
-                    startBoardSelection();
-                }, 2000);
-            }
-        } catch (apiError) {
-            console.log('⚠️ /api/game/next-start not available, using fallback');
-            // Fallback to local selection
-            setTimeout(() => {
-                startBoardSelection();
-            }, 2000);
-        }
+        // Clear waiting message
+        const waitDiv = document.querySelector('.wait-message');
+        if (waitDiv) waitDiv.remove();
+        
+        // ✅ SHOW THE POPUP
+        openRegistrationPopup();
         
     } catch (error) {
-        console.error('Error checking active games:', error);
-        // Fallback to local mode
-        showWaitForNextGame('Server connection issue. Trying local mode...');
+        console.error('❌ Error checking active games:', error);
+        
+        // ✅ FIX 5: On error, still show popup (fallback)
+        console.log('⚠️ API error, showing registration popup anyway');
+        
         setTimeout(() => {
-            startBoardSelection();
-        }, 3000);
+            openRegistrationPopup();
+        }, 2000);
     }
 }
 
@@ -2667,93 +2618,66 @@ function updateGameStatus() {
 
         
         function openRegistrationPopup() {
-    console.log("🎮 MULTIPLAYER: Opening registration popup...");
+    console.log("🎮 Opening registration popup...");
     
-    // 1. SAFETY CHECK: Get popup directly (Android fix)
+    // 1. Get popup element
     const popup = document.getElementById('registrationPopup');
     if (!popup) {
-        console.error("❌ MULTIPLAYER ERROR: registrationPopup element not found!");
+        console.error("❌ registrationPopup element not found!");
         return;
     }
     
-    // 2. SHOW POPUP (Multiple methods for cross-device)
+    // 2. Show popup
     popup.style.display = 'flex';
-    elements.registrationPopup.style.display = 'flex'; // Keep both for compatibility
-    
     console.log("✅ Popup displayed");
     
-    // 3. MULTIPLAYER: Generate boards from server data, not locally
+    // 3. Generate board options
     if (typeof generateBoardOptions === 'function') {
-        generateBoardOptions(); // This should use gameState.availableBoards from server
-    } else {
-        console.warn("⚠️ generateBoardOptions function not found");
+        generateBoardOptions();
     }
     
-    // 4. MULTIPLAYER: Update UI with current selection
+    // 4. Update selection info
     updateSelectionInfo();
     
-    // 5. MULTIPLAYER: Clear any existing timer
+    // 5. Clear any existing timer
     if (gameState.timerInterval) {
         clearInterval(gameState.timerInterval);
         gameState.timerInterval = null;
-        console.log("🧹 Cleared previous timer");
     }
     
-    // 6. MULTIPLAYER TIMER LOGIC (Server-driven)
-    const hasServerTimer = gameState.selectionTimer && gameState.selectionTimer > 0;
+    // 6. Start timer (25 seconds)
+    gameState.selectionTimer = CONFIG.SELECTION_TIME;
+    updateTimerDisplay();
     
-    if (hasServerTimer) {
-        // MULTIPLAYER MODE: Use server timer
-        console.log(`⏰ MULTIPLAYER: Server timer = ${gameState.selectionTimer} seconds`);
-        console.log(`👥 Game ID: ${currentGameId || 'not set'}`);
-        
+    gameState.timerInterval = setInterval(() => {
+        gameState.selectionTimer--;
         updateTimerDisplay();
         
-        // Start server-synchronized countdown
-        gameState.timerInterval = setInterval(() => {
-            gameState.selectionTimer--;
-            updateTimerDisplay();
-            
-            // MULTIPLAYER: When timer hits 0, server will auto-start game
-            if (gameState.selectionTimer <= 0) {
-                clearInterval(gameState.timerInterval);
-                console.log("⏰ MULTIPLAYER: Selection time ended (server will handle)");
-                
-                // Don't auto-confirm - server handles this in multiplayer
-                // autoConfirmSelection(); // ❌ REMOVE in multiplayer
-            }
-        }, 1000);
-        
-    } else {
-        // SINGLE PLAYER/FALLBACK MODE: Use local timer
-        console.log('⏰ SINGLE PLAYER: Default timer = 25 seconds');
-        gameState.selectionTimer = CONFIG.SELECTION_TIME;
-        updateTimerDisplay();
-        
-        gameState.timerInterval = setInterval(() => {
-            gameState.selectionTimer--;
-            updateTimerDisplay();
-            
-            if (gameState.selectionTimer <= 0) {
-                clearInterval(gameState.timerInterval);
-                autoConfirmSelection(); // Single player fallback
-            }
-        }, 1000);
-    }
+        if (gameState.selectionTimer <= 0) {
+            clearInterval(gameState.timerInterval);
+            console.log("⏰ Selection time ended");
+            // In multiplayer, we don't auto-confirm
+            // The server will handle game start
+        }
+    }, 1000);
     
-    // 7. MULTIPLAYER: Log current state
-    console.log("📊 MULTIPLAYER STATE:", {
+    console.log("📊 Current state:", {
         selectedBoards: gameState.selectedBoards.size,
         availableBoards: gameState.availableBoards.length,
-        hasServerTimer: hasServerTimer,
-        gamePhase: gameState.gamePhase
+        timer: gameState.selectionTimer
     });
 }
-        function closeRegistrationPopup() {
-            elements.registrationPopup.style.display = 'none';
-            clearInterval(gameState.timerInterval);
-        }
 
+function closeRegistrationPopup() {
+    const popup = document.getElementById('registrationPopup');
+    if (popup) {
+        popup.style.display = 'none';
+    }
+    if (gameState.timerInterval) {
+        clearInterval(gameState.timerInterval);
+        gameState.timerInterval = null;
+    }
+}
         function updateTimerDisplay() {
             elements.selectionTimer.textContent = `${gameState.selectionTimer} ${t('seconds') || 'seconds'}`;
             
