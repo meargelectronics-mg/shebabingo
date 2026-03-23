@@ -381,19 +381,28 @@ function initializeMultiplayer() {
 function initializeApp() {
     const isTelegram = initializeTelegram();
     
+    // ✅ FIX: Load balance first and update button text
     loadBalanceFromServer().then(() => {
         console.log('💰 Balance loaded from server:', gameState.currentPlayer.balance);
+        
+        // ✅ UPDATE BUTTON TEXT WITH BALANCE
+        if (isTelegram && Telegram.WebApp) {
+            const balance = gameState.currentPlayer.balance;
+            Telegram.WebApp.MainButton.setText(`🎮 PLAY BINGO (${balance} ETB)`);
+            Telegram.WebApp.MainButton.show();
+        }
     });
 
-    // ✅ ADD HERE: Create grid immediately for visual feedback
+    // Create grid immediately for visual feedback
     console.log("🎯 Creating static BINGO grid...");
     createMainBingoBoard();
-     // ✅ ANDROID FIX: Ensure elements object exists
+    
+    // Android fix: Ensure elements object exists
     if (!window.elements) {
         window.elements = {};
     }
     
-    // ✅ ANDROID FIX: Populate elements if missing
+    // Android fix: Populate elements if missing
     if (!elements.registrationPopup) {
         elements.registrationPopup = document.getElementById('registrationPopup');
         console.log("📱 Android: Manually set registrationPopup element");
@@ -407,15 +416,19 @@ function initializeApp() {
     console.log('🎮 ShebaBingo initialized successfully');
     
     if (isTelegram && Telegram.WebApp) {
-        Telegram.WebApp.MainButton.setText("🎮 PLAY BINGO");
+        // ✅ FIX: Directly open popup, don't call startGameCycle()
         Telegram.WebApp.MainButton.onClick(() => {
             Telegram.WebApp.MainButton.hide();
-            startGameCycle();
+            console.log('🎮 PLAY button clicked - Opening registration popup');
+            openRegistrationPopup();  // ← Direct call
         });
-        Telegram.WebApp.MainButton.show();
-        console.log('🤖 Telegram mode: Waiting for PLAY button click');
+        // Button text already set above after balance loads
+        console.log('🤖 Telegram mode: PLAY button ready');
     } else {
-        startGameCycle();
+        // Browser mode: auto-show popup after 1 second
+        setTimeout(() => {
+            openRegistrationPopup();
+        }, 1000);
         console.log('🌐 Browser mode: Starting game immediately');
     }
 }
@@ -429,6 +442,7 @@ if (!window.userId) {
 }
 
 console.log('👤 User ID:', window.userId);
+
 
 // ==================== TELEGRAM INTEGRATION ====================
 
@@ -1377,39 +1391,87 @@ function showChatMessage(senderId, senderName, message) {
 const urlParams = new URLSearchParams(window.location.search);
 const userId = urlParams.get('user') || 'demo';
 
-// Load user balance from server API
+
+// ==================== GET USER ID FROM URL ====================
+function getUserIdFromUrl() {
+    const urlParams = new URLSearchParams(window.location.search);
+    let userId = urlParams.get('user');
+    
+    // Also check Telegram WebApp data
+    if (window.Telegram && Telegram.WebApp && Telegram.WebApp.initDataUnsafe?.user) {
+        const tgUser = Telegram.WebApp.initDataUnsafe.user;
+        userId = tgUser.id;
+    }
+    
+    // Store in localStorage for persistence
+    if (userId) {
+        localStorage.setItem('sheba_user_id', userId);
+        return userId;
+    }
+    
+    // Check localStorage
+    return localStorage.getItem('sheba_user_id') || 'demo_' + Math.floor(Math.random() * 10000);
+}
+
+
+// ==================== LOAD BALANCE FROM SERVER ====================
 async function loadBalanceFromServer() {
+    const userId = getUserIdFromUrl();
+    
+    if (!userId) {
+        console.error('❌ No user ID available');
+        gameState.currentPlayer.balance = 0;
+        return false;
+    }
+    
     try {
+        console.log(`🔍 Loading balance for user: ${userId}`);
         const response = await fetch(`${API_BASE}/api/user/${userId}/balance`);
         const data = await response.json();
         
         if (data.success) {
-            // Update YOUR balance display (match your element ID)
+            gameState.currentPlayer.balance = data.balance;
+            gameState.currentPlayer.id = userId;
+            gameState.currentPlayer.username = data.username || 'Player';
+            gameState.currentPlayer.registered = data.registered || false;
+            
+            // Update balance display
             const balanceElement = document.getElementById('balanceValue');
             if (balanceElement) {
                 balanceElement.textContent = data.balance + ' ETB';
             }
             
-            // Store in global variables
-            gameState.currentPlayer.balance = data.balance;
-            gameState.currentPlayer.username = data.username;
+            console.log(`💰 Balance loaded: ${data.balance} ETB for ${gameState.currentPlayer.username}`);
+            return true;
             
-            // Update gameState balance
-            if (data.registered) {
-                console.log(`Welcome ${data.username}! Balance: ${data.balance} ETB`);
-            } else {
-                console.log(`Guest user. Balance: ${data.balance} ETB`);
+        } else {
+            console.log('⚠️ User not found in server, using demo balance');
+            gameState.currentPlayer.balance = 100;
+            gameState.currentPlayer.id = userId;
+            gameState.currentPlayer.username = 'Player';
+            gameState.currentPlayer.registered = false;
+            
+            // Update display with demo balance
+            const balanceElement = document.getElementById('balanceValue');
+            if (balanceElement) {
+                balanceElement.textContent = '100 ETB';
             }
             
-            // Update stats
-            updateGameStats();
-            return true;
+            return false;
         }
+        
     } catch (error) {
-        console.error('Error loading balance from server:', error);
-        // Fallback for local testing
-        gameState.currentPlayer.balance = 1000;
-        updateGameStats();
+        console.error('❌ Error loading balance:', error);
+        // Fallback demo balance
+        gameState.currentPlayer.balance = 100;
+        gameState.currentPlayer.id = userId;
+        gameState.currentPlayer.username = 'Player';
+        
+        const balanceElement = document.getElementById('balanceValue');
+        if (balanceElement) {
+            balanceElement.textContent = '100 ETB';
+        }
+        
         return false;
     }
 }
@@ -3027,56 +3089,198 @@ function showSpectatorMessage(message = 'Watching Game') {
 
 
         // Balance deduction when buying boards
-       function confirmSelection() {
+       // ==================== CONFIRM SELECTION (MULTIPLAYER) ====================
+async function confirmSelection() {
     if (gameState.selectedBoards.size === 0) {
         alert(t('selectOneBoard'));
         return;
     }
     
     const totalCost = gameState.selectedBoards.size * CONFIG.BET_AMOUNT;
+    
+    // Check balance
     if (totalCost > gameState.currentPlayer.balance) {
-        alert(t('insufficientBalance'));
+        alert(`❌ Insufficient balance!\n\nNeed: ${totalCost} ETB\nYour balance: ${gameState.currentPlayer.balance} ETB\n\nUse /deposit in Telegram to add funds.`);
         return;
     }
     
-    // Deduct cost from balance
-    const oldBalance = gameState.currentPlayer.balance;
-    gameState.currentPlayer.balance -= totalCost;
-    console.log(`💰 Balance deducted: ${totalCost} (${oldBalance} → ${gameState.currentPlayer.balance})`);
+    // Show loading state
+    const confirmBtn = document.getElementById('confirmSelection');
+    const originalText = confirmBtn.textContent;
+    confirmBtn.textContent = '⏳ Joining game...';
+    confirmBtn.disabled = true;
     
-    gameState.currentPlayer.isActive = true;
-    gameState.currentPlayer.boards = createPlayerBoards();
-    gameState.currentPlayer.totalPaid = totalCost;
-    gameState.activePlayers.push(gameState.currentPlayer);
-    
-    console.log(`✅ YOU selected ${gameState.selectedBoards.size} boards:`);
-    gameState.selectedBoards.forEach(boardNum => {
-        console.log(`   - Board #${boardNum}`);
-    });
-    
-    // Update board display to show player's boards as selected (not taken)
-    gameState.selectedBoards.forEach(boardNumber => {
-        const boardElements = document.querySelectorAll('.board-option');
-        boardElements.forEach(element => {
-            const elementBoardNum = parseInt(element.querySelector('.board-number').textContent);
-            if (elementBoardNum === boardNumber) {
-                element.classList.remove('taken');
-                element.classList.add('selected');
-                element.style.background = 'linear-gradient(135deg, #2ecc71, #27ae60)';
-                element.style.color = 'white';
-                element.style.cursor = 'pointer';
-                element.style.opacity = '1';
-                element.style.border = '2px solid #27ae60';
-            }
+    try {
+        const userId = getUserIdFromUrl();
+        
+        console.log(`🎮 Joining multiplayer game with ${gameState.selectedBoards.size} boards`);
+        
+        // Join multiplayer game via API
+        const response = await fetch('/api/multiplayer/join', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                userId: userId,
+                boardCount: gameState.selectedBoards.size,
+                boardNumbers: Array.from(gameState.selectedBoards)
+            })
         });
-    });
-    
-    // Update balance display immediately
-    updateGameStats();
-    
-    closeRegistrationPopup();
-    startShufflingPhase();
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            console.log('✅ Successfully joined game:', data.gameId);
+            console.log(`👥 Players: ${data.playerCount}, Selection time: ${data.selectionTimeLeft}s`);
+            
+            // Store game ID for polling
+            window.currentGameId = data.gameId;
+            
+            // Update local balance (server already deducted)
+            gameState.currentPlayer.balance -= totalCost;
+            gameState.currentPlayer.isActive = true;
+            
+            // Store boards from server
+            gameState.currentPlayer.boards = data.boards.map(board => ({
+                boardNumber: board.boardNumber,
+                boardData: board.boardData,
+                markedNumbers: new Set(board.markedNumbers || []),
+                isWinner: false,
+                isEliminated: false
+            }));
+            gameState.currentPlayer.totalPaid = totalCost;
+            
+            // Update UI
+            updateGameStats();
+            closeRegistrationPopup();
+            elements.gamePlaySection.style.display = 'block';
+            displayCurrentPlayerBoards(0);
+            
+            // Show waiting screen
+            showWaitingForPlayers(data.playerCount, data.selectionTimeLeft || 25);
+            
+            // Start polling for game state
+            startGamePolling(data.gameId);
+            
+        } else {
+            console.error('Join failed:', data.error);
+            alert('Failed to join game: ' + data.error);
+            confirmBtn.textContent = originalText;
+            confirmBtn.disabled = false;
+        }
+        
+    } catch (error) {
+        console.error('Join error:', error);
+        alert('Network error. Please try again.');
+        confirmBtn.textContent = originalText;
+        confirmBtn.disabled = false;
+    }
 }
+
+// ==================== SHOW WAITING FOR PLAYERS ====================
+function showWaitingForPlayers(playerCount, timeLeft) {
+    const waitingHTML = `
+        <div class="waiting-screen">
+            <div class="waiting-spinner">⏳</div>
+            <h3>⏳ WAITING FOR GAME</h3>
+            <div class="player-count">👥 ${playerCount} players joined</div>
+            <div class="countdown-timer">⏰ Game starts in ${timeLeft} seconds...</div>
+            <div class="boards-summary">
+                Your boards: ${gameState.currentPlayer.boards.map(b => `#${b.boardNumber}`).join(', ')}
+            </div>
+            <div class="waiting-tip">💡 Share the game link to invite friends!</div>
+        </div>
+    `;
+    
+    elements.currentBoard.innerHTML = waitingHTML;
+}
+
+// ==================== START GAME POLLING ====================
+function startGamePolling(gameId) {
+    // Clear any existing polling
+    if (window.gamePollInterval) {
+        clearInterval(window.gamePollInterval);
+    }
+    
+    console.log(`🔄 Started polling for game ${gameId}`);
+    
+    window.gamePollInterval = setInterval(async () => {
+        try {
+            const userId = getUserIdFromUrl();
+            const response = await fetch(`/api/multiplayer/state/${gameId}/${userId}`);
+            const data = await response.json();
+            
+            if (data.success) {
+                updateGameFromMultiplayer(data);
+            } else {
+                if (data.error === 'Game not found' || data.error === 'Not in this game') {
+                    console.log('⏹️ Game no longer available, stopping polling');
+                    stopGamePolling();
+                }
+            }
+        } catch (error) {
+            console.error('Polling error:', error);
+        }
+    }, 2000);
+}
+// ==================== STOP GAME POLLING ====================
+function stopGamePolling() {
+    if (window.gamePollInterval) {
+        clearInterval(window.gamePollInterval);
+        window.gamePollInterval = null;
+        console.log('⏹️ Game polling stopped');
+    }
+}
+
+
+// ==================== UPDATE GAME FROM MULTIPLAYER ====================
+function updateGameFromMultiplayer(data) {
+    const game = data.game;
+    const player = data.player;
+    
+    // Update game phase
+    if (game.status !== gameState.gamePhase) {
+        console.log(`🔄 Phase change: ${gameState.gamePhase} → ${game.status}`);
+        gameState.gamePhase = game.status;
+        updateGameStatus();
+        
+        switch(game.status) {
+            case 'shuffling':
+                showShufflingScreen();
+                break;
+            case 'active':
+                removeWaitingScreen();
+                gameState.calledNumbers = game.calledNumbers || [];
+                gameState.currentCall = game.currentCall;
+                updateCalledNumbersList();
+                updateMainBoardColors();
+                console.log('🎮 GAME ACTIVE!');
+                break;
+            case 'completed':
+                stopGamePolling();
+                if (game.winners) {
+                    showGameResults(game);
+                }
+                break;
+        }
+    }
+    
+    // Update called numbers during active game
+    if (game.status === 'active' && game.calledNumbers) {
+        if (game.calledNumbers.length > gameState.calledNumbers.length) {
+            gameState.calledNumbers = game.calledNumbers;
+            gameState.currentCall = game.currentCall;
+            updateCalledNumbersList();
+            updateMainBoardColors();
+        }
+    }
+}
+
+
+
+
+
+
+
 
         function createPlayerBoards() {
             const playerBoards = [];
