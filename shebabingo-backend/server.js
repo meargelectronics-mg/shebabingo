@@ -3410,6 +3410,8 @@ app.get('/api/multiplayer/games', async (req, res) => {
 app.post('/api/multiplayer/join', async (req, res) => {
     try {
         const { userId, boardCount = 1, boardNumbers = [] } = req.body;
+        // ✅ Convert userId to string for consistency
+        const userIdStr = userId.toString();
         
         console.log(`📥 Multiplayer join: userId=${userId}, boardCount=${boardCount}`);
         
