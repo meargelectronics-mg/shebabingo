@@ -1785,6 +1785,52 @@ app.post('/telegram-webhook', async (req, res) => {
             // Update last active time
             users[userId].lastActive = new Date().toISOString();
             const user = users[userId];
+
+// Handle /play command
+if (text === '/play') {
+    console.log(`🎮 /play command from user ${userId}`);
+    
+    // Check balance before allowing to play
+    if (user.balance < GAME_CONFIG.BOARD_PRICE) {
+        await sendTelegramMessage(chatId,
+            `❌ *INSUFFICIENT BALANCE*\n\n` +
+            `💰 Required: *${GAME_CONFIG.BOARD_PRICE} ETB*\n` +
+            `💵 Your balance: *${user.balance} ETB*\n\n` +
+            `💡 Use /deposit to add funds instantly!`,
+            {
+                inline_keyboard: [[
+                    { text: "💰 DEPOSIT NOW", callback_data: "deposit" }
+                ]]
+            }
+        );
+        return;
+    }
+    
+    // ✅ CORRECT: Open WebApp with user ID
+    await sendTelegramMessage(chatId,
+        `🎮 *SHEBA BINGO - MULTIPLAYER*\n\n` +
+        `💰 Your Balance: *${user.balance} ETB*\n` +
+        `🎲 Entry Fee: *${GAME_CONFIG.BOARD_PRICE} ETB* per board\n` +
+        `🏆 Prize Pool: 80% of all bets\n` +
+        `👥 Min Players: 2 | Max: Unlimited\n\n` +
+        `🎯 *HOW TO PLAY:*\n` +
+        `1️⃣ Select 1-3 boards\n` +
+        `2️⃣ Mark numbers as they're called\n` +
+        `3️⃣ Complete a row, column, or diagonal\n` +
+        `4️⃣ Click "CLAIM BINGO" to win!\n\n` +
+        `⏱️ Game starts in 25 seconds!\n\n` +
+        `👇 *Click PLAY to start!*`,
+        {
+            inline_keyboard: [[
+                { 
+                    text: `🎮 PLAY NOW (${user.balance} ETB)`, 
+                    web_app: { url: `${RENDER_URL}/?user=${userId}` }
+                }
+            ]]
+        }
+    );
+}
+            
             
             // Handle /start command  
 if (text === '/start') {
