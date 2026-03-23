@@ -1,3528 +1,4692 @@
-// ==================== IMPORTS ====================
-const express = require('express');
-const http = require('http');
-const WebSocket = require('ws');
-const axios = require('axios');
-const path = require('path');
-const fs = require('fs');
-const { Pool } = require('pg');
-const cors = require('cors');
+        // Game Configuration
+        const CONFIG = {
+            BET_AMOUNT: 10,
+            TOTAL_BOARDS: 400,
+            MAX_BOARDS_PER_PLAYER: 3,
+            SELECTION_TIME: 25,
+            SHUFFLE_TIME: 3,
+            CHECKING_TIME: 3,
+            BINGO_NUMBERS: {
+                'B': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+                'I': [16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30],
+                'N': [31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45],
+                'G': [46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60],
+                'O': [61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75]
+            },
+            
+            GAME_MODES: {
+                classic: {
+                    name: 'Classic Bingo',
+                    enabled: true,
+                    description: 'Complete any row, column, or diagonal',
+                    callInterval: 3000
+                }
+            },
+            
+            BOT_DIFFICULTY: {
+                easy: {
+                    name: 'Easy',
+                    description: 'Marks numbers slowly',
+                    reactionTime: { min: 3000, max: 8000 },
+                    markChance: 0.7
+                },
+                medium: {
+                    name: 'Medium', 
+                    description: 'Strategic marking',
+                    reactionTime: { min: 2000, max: 5000 },
+                    markChance: 0.85
+                },
+                hard: {
+                    name: 'Hard',
+                    description: 'Multiple board strategy', 
+                    reactionTime: { min: 1000, max: 3000 },
+                    markChance: 0.95
+                }
+            },
+            
+            LAZYLOAD: {
+                enabled: false,
+                enableServiceWorker: false
+            }
+        };
 
-// Create Express app
-const app = express();
-// Create HTTP server
-const server = http.createServer(app);
-// ==================== MIDDLEWARE ====================
-app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.use(express.static(path.join(__dirname, 'public')));
 
-// ==================== CONFIGURATION ====================
-const BOT_TOKEN = process.env.BOT_TOKEN || '8238998135:AAGKZIQWwsTBECcqjY2X9oJM_gN595tcFcI';
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'Mg@sheba#23';
-const RENDER_URL = process.env.RENDER_URL || 'https://shebabingo-bot.onrender.com';
-const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID || '6297094384';
+        // Internationalization Support - Amharic & English Only
+        const TRANSLATIONS = {
+            en: {
+                // Game Status
+                waiting: "Waiting for Next Game",
+                selecting: "Selecting Boards",
+                shuffling: "Shuffling Numbers...",
+                started: "Game Started",
+                checking: "Checking for BINGO...",
+                finished: "Game Finished",
+                
+                // UI Elements
+                balance: "Balance",
+                prize: "Prize",
+                players: "Players",
+                bet: "Bet",
+                called: "Called",
+                currentCall: "Current Call",
+                recentlyCalled: "Recently Called",
+                howToWin: "How to Win",
+                winCondition: "Row • Column • Diagonal",
+                yourBoards: "Your Bingo Boards",
+                claimBingo: "🎯 CLAIM BINGO",
+                
+                // Registration
+                pricePerBoard: "Price per board:",
+                maxBoards: "Max boards per player:",
+                timeRemaining: "Time remaining:",
+                boardsSelected: "Boards Selected:",
+                totalCost: "Total Cost:",
+                cancel: "Cancel",
+                confirmJoin: "Confirm Selection & Join Game",
+                
+                // Messages
+                boardTaken: "This board is already taken by another player!",
+                maxBoardsReached: "Maximum 3 boards allowed per player",
+                selectOneBoard: "Please select at least one board",
+                insufficientBalance: "Insufficient balance",
+                cannotClaimBingo: "You cannot claim BINGO at this time.",
+                fraudDetected: "FRAUD DETECTED! You marked numbers that were not called. Board(s) eliminated!",
+                noBingo: "All boards eliminated - No BINGO found!",
+                allFraud: "All boards eliminated due to FRAUD! You marked uncalled numbers.",
+                
+                // Winner Notification
+                you: "(YOU) 💹",
+                nextGame: "Next game starting automatically...",
+                seconds: "Sec",
 
-console.log('='.repeat(60));
-console.log('🚀 SHEBA BINGO - MULTIPLAYER SERVER STARTING');
-console.log('📅 Time:', new Date().toISOString());
-console.log('🔄 NODE_ENV:', process.env.NODE_ENV || 'development');
-console.log('🔑 BOT_TOKEN exists:', !!process.env.BOT_TOKEN);
-console.log('🗄️ DATABASE_URL exists:', !!process.env.DATABASE_URL);
-console.log('🌐 RENDER_URL:', process.env.RENDER_URL || 'Not set');
-console.log('='.repeat(60));
+            
+                // New Features
+                live: "LIVE",
+                spectator: "Spectator Mode",
+                watching: "Watching Game",
+                joinNext: "Join Next Game",
 
-// ==================== POSTGRESQL DATABASE CONNECTION ====================
-// Get database URL from environment
-const DATABASE_URL = process.env.DATABASE_URL;
+// NEW: Game title and other static text
+        gameTitle: "🎯 ShebaBingo",
+        supportTitle: "💬 Support",
+        howToPlay: "How to Play",
+        payments: "Payments",
+        prizes: "Prizes",
+        gameRules: "Game Rules",
+        
+        // NEW: Support modal content
+        supportTelegram: "Contact us on Telegram",
+        supportHelp: "Quick Help & FAQ",
+        supportCall: "Call Support",
+        supportContact: "Need more help? Contact us via Telegram or phone!",
+        
+        // NEW: Game instructions
+        selectBoardsInstruction: "Select 1-3 boards during registration",
+        markNumbersInstruction: "Mark numbers as they are called",
+        winConditionInstruction: "Complete a row, column, or diagonal to win",
+        claimBingoInstruction: 'Click "CLAIM BINGO" when you have a winning pattern',
+        boardCostInstruction: "Each board costs 10 ETB to play",
+        
+        // NEW: Payment instructions
+        minDeposit: "Minimum deposit: 10 ETB",
+        minWithdrawal: "Minimum withdrawal: 50 ETB ",
+        supportedPayment: "Supported: Telebirr, CBE, BOA",
+        withdrawalTime: "Withdrawals processed within 5 minutes",
+        
+        // NEW: Prize instructions
+        autoPrize: "Prizes automatically added to balance",
+        multipleWinners: "Multiple winners split the prize",
+        
+        // NEW: Call support
+        callSupportTitle: "📞 Call Support",
+        immediateAssistance: "For immediate assistance, call our support team:",
+        supportNumber: "+251945343143",
+        supportAvailability: "Available 24/7 for game support and account issues",
+        
+        // NEW: Fraud messages
+        fraudClaimed: "🚨 You claimed BINGO without a valid pattern. board eliminated!",
+        // In the Amharic section:
+           fraudClaimed: "🚨 ልክ ያልሆነ ንድፍ የሌለው ቢንጎ አምጥተዋል። ቦርዱ ተሰርዟል!",
+        
+        // NEW: No winner message
+        noWinnerRound: "No Winners This Round!",
+        prizeCarryOver: "Prize carried over to next game",
+        
+        // NEW: Table headers
+        bingoB: "B",
+        bingoI: "I",
+        bingoN: "N",
+        bingoG: "G",
+        bingoO: "O",
+        
+        // NEW: Game phases
+        gameOver: "Game Over",
+        selectingBoards: "Selecting Boards",
+        shufflingNumbers: "Shuffling Numbers",
+        gameInProgress: "Game In Progress",
+        checkingBingo: "Checking Bingo",
+        
+        // NEW: Button texts
+        playBingo: "🎮 PLAY BINGO",
+        close: "Close",
+        ok: "OK"
 
-if (!DATABASE_URL) {
-    console.error('❌ DATABASE_URL environment variable is NOT set!');
-    console.error('📌 Please add it in Render dashboard: https://dashboard.render.com');
-    console.log('⚠️ Running without PostgreSQL database (using file storage only)');
+            },
+            am: {
+                // Game Status
+        waiting: "የሚቀጥለው ጨዋታ በመጠበቅ ላይ",
+        selecting: "ቦርዶች በመምረጥ ላይ",
+        shuffling: "ቁጥሮች በማደባለቅ ላይ...",
+        started: "ጨዋታው ጀምሯል",
+        checking: "ቢንጎ በመፈተሽ ላይ...",
+        finished: "ጨዋታው ተጠናቋል",
+        
+        // UI Elements
+        balance: "ቀሪ ሂሳብ",
+        prize: "ሽልማት",
+        players: "ተጫዋቾች",
+        bet: "ውርርድ",
+        called: "የተጠራ",
+        currentCall: "የአሁኑ ጥሪ",
+        recentlyCalled: "በቅርብ ጊዜ የተጠሩ",
+        howToWin: "እንዴት እንደሚያሸንፉ",
+        winCondition: "ረድፍ • አምድ • ሰያፍ",
+        yourBoards: "የእርስዎ ቢንጎ ቦርዶች",
+        claimBingo: "🎯 ቢንጎ አለኝ",
+        
+        // Registration
+        pricePerBoard: "የአንድ ቦርድ ዋጋ:",
+        maxBoards: "ከፍተኛ ቦርዶች በአንድ ተጫዋች:",
+        timeRemaining: "የቀረው ጊዜ:",
+        boardsSelected: "የተመረጡ ቦርዶች:",
+        totalCost: "ጠቅላላ ወጪ:",
+        cancel: "ሰርዝ",
+        confirmJoin: "ምርጫ አረጋግጥ እና ወደ ጨዋታ ይቀላቀሉ",
+        
+        // Messages
+        boardTaken: "ይህ ቦርድ በሌላ ተጫዋች ተያዝቷል!",
+        maxBoardsReached: "ከፍተኛው 3 ቦርዶች ብቻ ይፈቀዳሉ",
+        selectOneBoard: "እባክዎ ቢያንስ አንድ ቦርድ ይምረጡ",
+        insufficientBalance: "በቂ ቀሪ ሂሳብ የለም",
+        cannotClaimBingo: "በዚህ ጊዜ ቢንጎ ማምጣት አይችሉም።",
+        fraudDetected: "ማጭበርበር ተገኝቷል! ያልተጠሩ ቁጥሮችን ምልክት አድርገዋል። ቦርድ(ዎች) ተሰርዘዋል!",
+        noBingo: "ሁሉም ቦርዶች ተሰርዘዋል - ቢንጎ አልተገኘም!",
+        allFraud: "ሁሉም ቦርዶች በማጭበርበር ተሰርዘዋል! ያልተጠሩ ቁጥሮችን ምልክት አድርገዋል።",
+        
+        // Winner Notification
+        you: "(አንተ) 💹",
+        nextGame: "የሚቀጥለው ጨዋታ በራስ ሰር እየጀመረ...",
+        seconds: "ሰከንድ",
+        
+        // New Features
+        live: "ቀጥታ",
+        spectator: "የተመልካች ሁነታ",
+        watching: "ጨዋታን በመመልከት ላይ",
+        joinNext: "ወደ ቀጣዩ ጨዋታ ይቀላቀሉ",
+        
+        // NEW: Game title and other static text
+        gameTitle: "🎯 ሸባ ቢንጎ",
+        supportTitle: "💬 ድጋፍ",
+        howToPlay: "እንዴት እንደሚጫወቱ",
+        payments: "ክፍያዎች",
+        prizes: "ሽልማቶች",
+        gameRules: "የጨዋታ ደንቦች",
+        
+        // NEW: Support modal content
+        supportTelegram: "በቴሌግራም ያግኙን",
+        supportHelp: "ፈጣን እገዛ እና ጥያቄዎች",
+        supportCall: "ድጋፍ ይደውሉ",
+        supportContact: "ተጨማሪ እገዛ የሚፈልጉ? በቴሌግራም ወይም ስልክ ያግኙን!",
+        
+        // NEW: Game instructions
+        selectBoardsInstruction: "በምዝገባ ጊዜ 1-3 ቦርዶች ይምረጡ",
+        markNumbersInstruction: "ቁጥሮች እየተጠሩ ምልክት ያድርጉ",
+        winConditionInstruction: "ረድፍ፣ አምድ ወይም ሰያፍ ይጠናቀቁ",
+        claimBingoInstruction: 'የማሸነፍ ንድፍ ሲኖርዎት "ቢንጎ አለኝ" ይጫኑ',
+        boardCostInstruction: "እያንዳንዱ ቦርድ $10 ያስከፍላል",
+        
+        // NEW: Payment instructions
+        minDeposit: "አነስተኛ ተቀማጭ: 10 ETB",
+        minWithdrawal: "አነስተኛ መልሶ ማውጣት: 50 ETB",
+        supportedPayment: "የሚደገፉ: ቴሌቢር፣ ኢትዮጵያ ንግድ ባንክ፣ ባንክ ማስተላለፍ",
+        withdrawalTime: "መልሶ ማውጣቶች በ24 ሰዓታት ውስጥ ይከናወናሉ",
+        
+        // NEW: Prize instructions
+        autoPrize: "ሽልማቶች በራስ ሰር ወደ ቀሪ ሂሳብ ይጨመራሉ",
+        multipleWinners: "ብዙ አሸናፊዎች ሽልማቱን ይካፈላሉ",
+        
+        // NEW: Call support
+        callSupportTitle: "📞 ድጋፍ ይደውሉ",
+        immediateAssistance: "ለፈጣን እገዛ፣ የድጋፍ ቡድናችንን ይደውሉ:",
+        supportNumber: "+251945343143",
+        supportAvailability: "ለጨዋታ ድጋፍ እና ሂሳብ ችግሮች 24/7 ይገኛል",
+        
+        // NEW: No winner message
+        noWinnerRound: "በዚህ ዙር አሸናፊ የለም!",
+        prizeCarryOver: "ሽልማቱ ለቀጣዩ ጨዋታ ይዛወራል",
+        
+        // NEW: Table headers
+        bingoB: "B",
+        bingoI: "I",
+        bingoN: "N",
+        bingoG: "G",
+        bingoO: "O",
+        
+        // NEW: Game phases
+        gameOver: "ጨዋታው አልቋል",
+        selectingBoards: "ቦርዶች በመምረጥ ላይ",
+        shufflingNumbers: "ቁጥሮች በማደባለቅ ላይ",
+        gameInProgress: "ጨዋታው እየተካሄደ ነው",
+        checkingBingo: "ቢንጎ በመፈተሽ ላይ",
+        
+        // NEW: Button texts
+        playBingo: "🎮 ቢንጎ ተጫውት",
+        close: "መዝጋት",
+        ok: "እሺ"
+    }
+        };
+
+        // Global Game State
+        let gameState = {
+            // Player state
+            currentPlayer: {
+                id: 1,
+                name: 'You',
+                telegramName: '@player1',
+                balance: 0,
+                boards: [],
+                isActive: false,
+                totalPaid: 0
+            },
+            
+            // Multiplayer state
+            allPlayers: [],
+            activePlayers: [],
+            winners: [],
+            
+            // Game state
+            selectedBoards: new Set(),
+            availableBoards: Array.from({length: CONFIG.TOTAL_BOARDS}, (_, i) => i + 1),
+            gamePhase: 'waiting',
+            calledNumbers: [],
+            currentCall: null,
+            selectionTimer: CONFIG.SELECTION_TIME,
+            timerInterval: null,
+            callInterval: null,
+            
+            // Game statistics
+            totalPrizePool: 0,
+            commissionRate: 0.20,
+            ownerCommission: 0,
+            totalCommissionEarned: 0,
+            
+            // Internationalization
+            currentLanguage: 'en',
+            
+            // Track current board view
+            currentBoardIndex: 0
+        };
+
+        // DOM Elements
+        const elements = {
+            // Main screen elements
+            balanceValue: document.getElementById('balanceValue'),
+            prizeValue: document.getElementById('prizeValue'),
+            playersValue: document.getElementById('playersValue'),
+            calledCount: document.getElementById('calledCount'),
+            gameStatus: document.getElementById('gameStatus'),
+            currentLetter: document.getElementById('currentLetter'),
+            currentNumber: document.getElementById('currentNumber'),
+            calledNumbersList: document.getElementById('calledNumbersList'),
+            bingoGrid: document.getElementById('bingoGrid'),
+            
+            // Registration popup elements
+            registrationPopup: document.getElementById('registrationPopup'),
+            boardsGrid: document.getElementById('boardsGrid'),
+            selectedCount: document.getElementById('selectedCount'),
+            totalCost: document.getElementById('totalCost'),
+            confirmSelection: document.getElementById('confirmSelection'),
+            selectionTimer: document.getElementById('selectionTimer'),
+            
+            // Game play section elements
+            gamePlaySection: document.getElementById('gamePlaySection'),
+            boardsCarousel: document.getElementById('boardsCarousel'),
+            currentBoard: document.getElementById('currentBoard'),
+            
+            // Language selector (will be created)
+            languageSelector: null
+        };
+        
+
+
+// ==================== API CONFIGURATION ====================
+// ✅ Add this RIGHT AFTER your CONFIG object (around line 200)
+const API_BASE = 'https://shebabingo-bot.onrender.com'; // Your Render backend URL
+const WS_URL = 'wss://shebabingo-bot.onrender.com'; // WebSocket URL
+console.log('🌐 APK Mode: Connecting to', API_BASE);
+
+
+
+
+
+        // ==================== MULTIPLAYER INITIALIZATION ====================
+function initializeMultiplayer() {
+    // Just track current player - server tracks others
+    gameState.allPlayers = [gameState.currentPlayer];
+    gameState.activePlayers = [];
+    
+    console.log('🎮 Multiplayer system ready (connected to server)');
 }
+// ==================== APP INITIALIZATION ====================
+function initializeApp() {
+    const isTelegram = initializeTelegram();
+    
+    loadBalanceFromServer().then(() => {
+        console.log('💰 Balance loaded from server:', gameState.currentPlayer.balance);
+    });
 
-// Create connection pool with better settings
-const pool = new Pool({
-    connectionString: DATABASE_URL,
-    ssl: DATABASE_URL ? {
-        rejectUnauthorized: false  // CRITICAL for Render PostgreSQL
-    } : undefined,
-    connectionTimeoutMillis: 10000,  // 10 seconds timeout
-    idleTimeoutMillis: 30000,
-    max: 20
-});
-
-// Add connection error handler
-pool.on('error', (err) => {
-    console.error('❌ Unexpected database error:', err.message);
-});
-
-// Test database connection with async/await
-async function testDatabaseConnection() {
-    if (!DATABASE_URL) {
-        console.log('⚠️ No DATABASE_URL, skipping PostgreSQL connection test');
-        return false;
+    // ✅ ADD HERE: Create grid immediately for visual feedback
+    console.log("🎯 Creating static BINGO grid...");
+    createMainBingoBoard();
+    
+    // ✅ ANDROID FIX: Ensure elements object exists
+    if (!window.elements) {
+        window.elements = {};
     }
     
-    try {
-        const client = await pool.connect();
-        const result = await client.query('SELECT NOW()');
-        console.log('✅ PostgreSQL connected successfully at:', result.rows[0].now);
-        client.release();
+    // ✅ ANDROID FIX: Populate elements if missing
+    if (!elements.registrationPopup) {
+        elements.registrationPopup = document.getElementById('registrationPopup');
+        console.log("📱 Android: Manually set registrationPopup element");
+    }
+    
+    setupEventListeners();
+    updateGameStats();
+    initializeMultiplayer();
+    supportManager.init();
+    
+    console.log('🎮 ShebaBingo initialized successfully');
+    
+    // ✅ REPLACE THIS SECTION WITH THE FIX:
+    if (isTelegram && Telegram.WebApp) {
+        Telegram.WebApp.MainButton.setText("🎮 PLAY BINGO");
+        Telegram.WebApp.MainButton.onClick(() => {
+            Telegram.WebApp.MainButton.hide();
+            // ✅ FIX: Directly open registration popup instead of startGameCycle()
+            console.log('🎮 PLAY button clicked - opening registration popup');
+            openRegistrationPopup();  // ← Direct call
+        });
+        Telegram.WebApp.MainButton.show();
+        console.log('🤖 Telegram mode: Waiting for PLAY button click');
+    } else {
+        // ✅ FIX: In browser, auto-show popup after 1 second
+        console.log('🌐 Browser mode: Auto-opening registration popup');
+        setTimeout(() => {
+            openRegistrationPopup();
+        }, 1000);
+    }
+}
+
+// ================= USER INIT =================
+window.userId = localStorage.getItem('userId');
+
+if (!window.userId) {
+    window.userId = crypto.randomUUID();
+    localStorage.setItem('userId', window.userId);
+}
+
+console.log('👤 User ID:', window.userId);
+
+// ==================== TELEGRAM INTEGRATION ====================
+
+// 1. Initialize Telegram Web App// Initialize Telegram Web App
+// 1. Initialize Telegram Web App
+function initializeTelegram() {
+    // First, check if Telegram Web App SDK is available
+    if (typeof window.Telegram !== 'undefined' && Telegram.WebApp) {
+        const tg = Telegram.WebApp;
+        
+        // CRITICAL: Get user ID from Telegram OR URL parameter
+        const urlParams = new URLSearchParams(window.location.search);
+        const urlUserId = urlParams.get('user');
+        
+        // Get user data from Telegram
+        const telegramUser = tg.initDataUnsafe?.user;
+        
+        // Determine the actual user ID (priority: Telegram > URL param > random)
+        let actualUserId;
+        let userName;
+        let telegramName;
+        
+        if (telegramUser?.id) {
+            // User opened from Telegram button (INSIDE Telegram)
+            actualUserId = telegramUser.id;
+            userName = telegramUser.first_name || 'Player';
+            telegramName = telegramUser.username ? '@' + telegramUser.username : 'Telegram User';
+            console.log('✅ User opened from INSIDE Telegram');
+        } else if (urlUserId) {
+            // User opened from direct link (OUTSIDE Telegram but has user ID)
+            actualUserId = urlUserId;
+            userName = 'Player';
+            telegramName = 'Web Player';
+            console.log('ℹ️ User opened from direct link, ID:', urlUserId);
+        } else {
+            // No user ID found (testing mode)
+            actualUserId = Math.floor(Math.random() * 10000) + 1;
+            userName = 'Test Player';
+            telegramName = 'Browser Mode';
+            console.log('⚠️ No user ID found - using test mode');
+        }
+        
+        // Save user ID to localStorage for API calls
+        localStorage.setItem('sheba_user_id', actualUserId);
+        console.log('📱 User ID saved:', actualUserId);
+        
+        // Configure Telegram Web App
+        tg.expand(); // Expand to full screen
+        tg.enableClosingConfirmation(); // Ask before closing
+        
+        // Set theme colors to match your game
+        tg.setHeaderColor('#8b3de8');
+        tg.setBackgroundColor('#d7b9f7');
+        
+        // Set back button behavior
+        tg.BackButton.onClick(() => {
+            tg.close(); // Close the app when back button pressed
+        });
+        
+        // Show back button if in Telegram Web App
+        tg.BackButton.show();
+        
+        // Update player info
+        gameState.currentPlayer.name = userName;
+        gameState.currentPlayer.telegramName = telegramName;
+        gameState.currentPlayer.id = actualUserId;
+       // gameState.currentPlayer.balance will be set by loadUserBalance()
+        
+        // Save user ID to localStorage
+        localStorage.setItem('sheba_user_id', actualUserId);
+        
+        // Configure Telegram Web App
+        tg.expand();
+        tg.enableClosingConfirmation();
+        tg.setHeaderColor('#8b3de8');
+        tg.setBackgroundColor('#d7b9f7');
+        
+        // Load user balance from API
+        loadUserBalance(actualUserId);
+        
+        console.log('✅ Telegram initialized. User:', userName, 'ID:', actualUserId);
         return true;
-    } catch (error) {
-        console.error('❌ Database connection FAILED:', error.message);
-        console.error('🔍 DATABASE_URL format should be: postgresql://user:password@host:port/database');
-        console.error('📌 Make sure your DATABASE_URL is set correctly in Render dashboard');
-        console.log('⚠️ Continuing with file-based storage only...');
+    } else {
+        console.log('ℹ️ Running outside Telegram (browser mode)');
+        
+        // Get user ID from URL parameter even in browser mode
+        const urlParams = new URLSearchParams(window.location.search);
+        const urlUserId = urlParams.get('user');
+        
+        if (urlUserId) {
+            // User opened from direct link in browser
+            localStorage.setItem('sheba_user_id', urlUserId);
+            gameState.currentPlayer.id = urlUserId;
+            console.log('🌐 Browser mode with user ID:', urlUserId);
+        } else {
+            // Pure browser testing (no user ID)
+            gameState.currentPlayer.id = Math.floor(Math.random() * 10000) + 1;
+            console.log('🌐 Pure browser test mode');
+        }
+        
+        gameState.currentPlayer.name = 'Player';
+        gameState.currentPlayer.telegramName = 'Browser Player';
+        gameState.currentPlayer.balance = 1000; // Default test balance
+        
         return false;
     }
 }
 
-// Run the test
-testDatabaseConnection();
-
-// Keep database alive (prevents free tier from sleeping)
-if (DATABASE_URL) {
-    setInterval(async () => {
-        try {
-            await pool.query('SELECT 1');
-            console.log('💤 Database keep-alive ping');
-        } catch (err) {
-            console.error('Keep-alive failed:', err.message);
+// 2. Add this NEW function to load user balance
+async function loadUserBalance(userId) {
+    try {
+        const API_BASE = 'https://shebabingo-bot.onrender.com';
+        const response = await fetch(`${API_BASE}/api/user/${userId}/balance`);
+        const data = await response.json();
+        
+        if (data.success) {
+            // ✅ Case 1: Server returns balance successfully
+            gameState.currentPlayer.balance = data.balance;
+            console.log('💰 Balance loaded:', data.balance);
+            updateBalanceDisplay(data.balance);
+        } else {
+            // ✅ Case 2: Server responds but with error
+            console.warn('Failed to load balance, using default');
+            gameState.currentPlayer.balance = 0; // KEEP THIS!
         }
-    }, 60000); // Ping every 60 seconds
-}// ==================== FILE-BASED STORAGE (BACKUP) ====================
-const USERS_FILE = path.join(__dirname, 'users.json');
-const DEPOSITS_FILE = path.join(__dirname, 'deposits.json');
-const GAMES_FILE = path.join(__dirname, 'games.json');
-
-let users = {};
-let deposits = [];
-let games = [];
-
-// Load existing data
-if (fs.existsSync(USERS_FILE)) {
-    try {
-        users = JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
-        console.log(`✅ Loaded ${Object.keys(users).length} users from file`);
     } catch (error) {
-        console.error('Error loading users:', error.message);
+        // ✅ Case 3: Network/server error
+        console.error('Error loading balance:', error);
+        gameState.currentPlayer.balance = 0; // KEEP THIS TOO!
     }
 }
 
-if (fs.existsSync(DEPOSITS_FILE)) {
-    try {
-        deposits = JSON.parse(fs.readFileSync(DEPOSITS_FILE, 'utf8'));
-        console.log(`✅ Loaded ${deposits.length} deposits from file`);
-    } catch (error) {
-        console.error('Error loading deposits:', error.message);
+// 3. Add this function to update balance display (you need to create this)
+function updateBalanceDisplay(balance) {
+    // Update wherever you show balance in your game UI
+    const balanceElement = document.getElementById('playerBalance');
+    if (balanceElement) {
+        balanceElement.textContent = `${balance} ETB`;
     }
 }
 
-if (fs.existsSync(GAMES_FILE)) {
-    try {
-        games = JSON.parse(fs.readFileSync(GAMES_FILE, 'utf8'));
-        console.log(`✅ Loaded ${games.length} games from file`);
-    } catch (error) {
-        console.error('Error loading games:', error.message);
+
+// ==================== SHOW GAME INTERFACE ====================
+function showGameInterface(gameData) {
+    // Hide registration popup if open
+    document.getElementById('registrationPopup').style.display = 'none';
+    
+    // Show game play section
+    document.getElementById('gamePlaySection').style.display = 'block';
+    
+    // Update UI
+    if (gameData.playerCount !== undefined) {
+        updatePlayerCount(gameData.playerCount);
+    }
+    
+    if (gameData.prizePool !== undefined) {
+        updatePrizePool(gameData.prizePool);
+    }
+    
+    if (gameData.yourBalance !== undefined) {
+        // Update user's balance display
+        const balanceElement = document.getElementById('balanceValue');
+        if (balanceElement) {
+            balanceElement.textContent = gameData.yourBalance;
+        }
+        gameState.currentPlayer.balance = gameData.yourBalance;
+    }
+    
+    // Display player's boards if available
+    if (gameData.boards && gameData.boards.length > 0) {
+        gameState.currentPlayer.boards = gameData.boards.map(board => ({
+            boardNumber: board.boardNumber,
+            boardData: board.boardData,
+            markedNumbers: new Set(board.markedNumbers || []),
+            isWinner: false,
+            isEliminated: false
+        }));
+        
+        displayCurrentPlayerBoards(0);
+    }
+    
+    // Update game status
+    updateGameStatus('selecting', 'Waiting for more players...');
+    
+    console.log('🎮 Game interface loaded');
+}
+// ==================== UTILITY FUNCTIONS ====================
+function updatePlayerCount(count) {
+    const playersElement = document.getElementById('playersValue');
+    if (playersElement) {
+        playersElement.textContent = count;
     }
 }
 
-// Save functions
-function saveUsers() {
-    try {
-        fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
-    } catch (error) {
-        console.error('Error saving users:', error.message);
+function updatePrizePool(pool) {
+    const prizeElement = document.getElementById('prizeValue');
+    if (prizeElement) {
+        prizeElement.textContent = pool;
     }
+    gameState.totalPrizePool = pool;
 }
 
-function saveDeposits() {
+// ==================== GAME JOIN FUNCTION ====================
+async function joinGame(gameId, boardCount) {
     try {
-        fs.writeFileSync(DEPOSITS_FILE, JSON.stringify(deposits, null, 2));
-    } catch (error) {
-        console.error('Error saving deposits:', error.message);
-    }
-}
-
-function saveGames() {
-    try {
-        fs.writeFileSync(GAMES_FILE, JSON.stringify(games, null, 2));
-    } catch (error) {
-        console.error('Error saving games:', error.message);
-    }
-}
-
-// ==================== GAME CONFIGURATION ====================
-const GAME_CONFIG = {
-    BOARD_PRICE: 10,
-    PRIZE_POOL_PERCENT: 80,
-    MAX_CALLS: 45,
-    CALL_INTERVAL: 5000,           // 5 seconds between numbers
-    SELECTION_TIME: 25,            // 25 seconds board selection (NOT 2 minutes!)
-    SHUFFLE_TIME: 5,              // 5 seconds shuffling countdown
-    GAME_DURATION: 300000,         // 5 minutes active game
-    RESULTS_TIME: 30,              // 30 seconds results
-    NEXT_GAME_DELAY: 5000,         // 5 seconds between games
-    MIN_PLAYERS: 2,
-    MAX_PLAYERS: 999,
-    MAX_BOARDS_PER_PLAYER: 3,
-    TOTAL_BOARDS: 400
-};
-
-// ==================== WEBSOCKET FOR REAL-TIME ====================
-const wss = new WebSocket.Server({
-    server,    
-    path: '/game-ws',             // ✅ REQUIRED (DO NOT use noServer)
-    clientTracking: true,
-    perMessageDeflate: {
-        zlibDeflateOptions: {
-            chunkSize: 1024,
-            memLevel: 7,
-            level: 3
-        },
-        zlibInflateOptions: {
-            chunkSize: 10 * 1024
-        },
-        clientNoContextTakeover: true,
-        serverNoContextTakeover: true,
-        serverMaxWindowBits: 10,
-        concurrencyLimit: 10,
-        threshold: 1024
-    }
-});
-
-// ==================== WEBSOCKET HEARTBEAT ====================
-const heartbeatInterval = setInterval(() => {
-    wss.clients.forEach((ws) => {
-        if (ws.isAlive === false) {
-            console.log(`💔 Closing dead WebSocket for user ${ws.userId}`);
-            return ws.terminate();
+        if (!window.userId) {
+            window.userId = generateUserId(); // simple unique ID if not logged in
         }
 
-        ws.isAlive = false;
-        try {
-            ws.ping();
-        } catch (err) {
-            console.error('Ping error:', err.message);
+        const response = await fetch(`${API_BASE}/api/game/join`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                userId: window.userId,
+                gameId: gameId,
+                boardCount: boardCount
+            })
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            console.log('✅ Joined game:', result.gameId);
+
+            // Connect WebSocket after successful join
+            connectWebSocket(result.gameId, window.userId);
+
+            // Show game UI
+            showGameInterface(result);
+
+            // ✅ Set player boards and display the grid
+            if (result.boards && result.boards.length > 0) {
+                gameState.currentPlayer.boards = result.boards.map(board => ({
+                    boardNumber: board.boardNumber,
+                    boardData: board.boardData,
+                    markedNumbers: new Set(board.markedNumbers || []),
+                    isWinner: false,
+                    isEliminated: false
+                }));
+
+                gameState.currentPlayer.isActive = true;
+
+                // Display the boards in bingoGrid
+                displayCurrentPlayerBoards(0);
+
+                console.log(`📋 Displaying ${result.boards.length} boards`);
+            } else {
+                console.warn('⚠️ No boards received from server');
+            }
+
+        } else {
+            alert('Error joining game: ' + result.error);
         }
-    });
-}, 30000);
+    } catch (err) {
+        console.error('Join game error:', err);
+    }
+}
 
-// ==================== GAME CONNECTIONS ====================
-const gameConnections = new Map();
+// ✅ Handle WebSocket game state updates (REAL MULTIPLAYER)
+function updateGameState(data) {
+    if (!data || !gameState) return;
 
-// ==================== CONNECTION HANDLER ====================
-wss.on('connection', (ws, request) => {
-    ws.isAlive = true;
+    /* ================= GAME STATE ================= */
+    if (data.game) {
+        // Server is the ONLY source of truth
+        gameState.gamePhase = data.game.status || 'waiting';
 
-    ws.on('pong', () => {
-        ws.isAlive = true;
-    });
+        if (typeof data.game.prizePool === 'number') {
+            updatePrizePool(data.game.prizePool);
+        }
 
-    // Parse query parameters
-    const query = request.url.split('?')[1] || '';
-    const params = new URLSearchParams(query);
+        if (Array.isArray(data.game.calledNumbers)) {
+            gameState.calledNumbers = data.game.calledNumbers.map(cn => {
+                const num = cn.replace(/[BINGO]/, '');
+                return Number(num);
+            });
+            updateCalledNumbersList();
+        }
 
-    const gameId = params.get('gameId');
-    const userId = params.get('userId');
+        // Update status badge
+        updateGameStatus();
+    }
 
-    // Validate connection
+    /* ================= PLAYER STATE ================= */
+    if (data.player && Array.isArray(data.player.boards)) {
+        gameState.currentPlayer.boards = data.player.boards.map(board => ({
+            boardNumber: board.boardNumber,
+            boardData: board.boardData,
+            markedNumbers: new Set(board.markedNumbers || []),
+            isWinner: false,
+            isEliminated: false
+        }));
+
+        displayCurrentPlayerBoards(0);
+    }
+}
+
+// 2. Handle Telegram Commands (optional)
+function handleTelegramCommands() {
+    const tg = Telegram.WebApp;
+    if (!tg) return;
+    
+    // Get command from launch parameters
+    const startParam = tg.initDataUnsafe?.start_param;
+    if (startParam) {
+        console.log('Start param:', startParam);
+        
+        switch(startParam) {
+            case 'play':
+                startGameCycle();
+                break;
+            case 'rules':
+                alert("🎯 Game Rules:\n1. Select 1-3 boards\n2. Mark numbers as called\n3. Complete row/column/diagonal\n4. Claim BINGO to win!");
+                break;
+        }
+    }
+}
+
+// 3. Send data back to Telegram Bot
+function sendToTelegram(data) {
+    if (window.Telegram && Telegram.WebApp) {
+        Telegram.WebApp.sendData(JSON.stringify(data));
+        // Telegram.WebApp.close(); // Optional: close after sending
+    }
+}
+
+// 4. Update game to use Telegram when available
+function updateGameForTelegram() {
+    if (window.Telegram && Telegram.WebApp) {
+        const tg = Telegram.WebApp;
+        
+        // Update game state with Telegram user
+        const user = tg.initDataUnsafe?.user;
+        if (user) {
+            gameState.currentPlayer.telegramName = user.username ? 
+                '@' + user.username : user.first_name;
+        }
+        
+        // Send game results to bot
+        gameState.winners.forEach(winner => {
+            if (winner.player.id === gameState.currentPlayer.id) {
+                sendToTelegram({
+                    action: 'won',
+                    prize: prizePerWinner,
+                    board: winner.board.boardNumber,
+                    timestamp: Date.now()
+                });
+            }
+        });
+    }
+}
+
+// ==================== WEBSOCKET CONNECTION ====================
+let socket;
+let reconnectAttempts = 0;
+
+function connectWebSocket(gameId, userId) {
+    console.log("🔌 connectWebSocket called with:", gameId, userId);
+    
     if (!gameId || !userId) {
-        console.error('❌ WebSocket rejected: Missing gameId or userId');
-        ws.close(1008, 'Missing parameters');
+        console.error('❌ Missing gameId or userId for WebSocket');
         return;
     }
 
-    // Attach metadata
-    ws.gameId = gameId;
-    ws.userId = userId;
-
-    // Store connection by game
-    if (!gameConnections.has(gameId)) {
-        gameConnections.set(gameId, new Set());
+    // Close existing connection
+    if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.close();
     }
-    gameConnections.get(gameId).add(ws);
 
-    console.log(`🔗 User ${userId} connected to game ${gameId}`);
+    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    const wsUrl = `wss://shebabingo-bot.onrender.com/game-ws?gameId=${encodeURIComponent(gameId)}&userId=${encodeURIComponent(userId)}`;
+    console.log('🔗 Connecting WebSocket to Render:', wsUrl);
+    
+    try {
+        socket = new WebSocket(wsUrl);
+        console.log("✅ WebSocket object created");
+    } catch (error) {
+        console.error('❌ WebSocket creation failed:', error);
+        return;
+    }
 
-    // Send initial game state
-    getGameState(gameId, userId)
-        .then(gameState => {
-            if (gameState && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({
-                    type: 'game_state',
-                    data: gameState
-                }));
-            }
-        })
-        .catch(err => {
-            console.error('Game state error:', err.message);
-        });
+    socket.onopen = () => {
+        console.log('✅ WebSocket connected to game:', gameId);
+        reconnectAttempts = 0;
+        // Request game state
+        socket.send(JSON.stringify({ type: 'get_state' }));
+        
+        // Start heartbeat
+        startWebSocketHeartbeat();
+    };
 
-    // ==================== MESSAGE HANDLER ====================
-    ws.on('message', async (message) => {
+    socket.onmessage = (event) => {
         try {
-            await handleGameMessage(ws, message);
+            const data = JSON.parse(event.data);
+
+            if (data.type === 'pong') return;
+
+            console.log('📨 WebSocket message:', data.type);
+            handleWebSocketMessage(data);
         } catch (err) {
-            console.error('Message handling error:', err.message);
+            console.error('❌ Invalid WS message:', err);
         }
-    });
+    };
 
-    // ==================== DISCONNECT CLEANUP ====================
-    ws.on('close', () => {
-        const connections = gameConnections.get(gameId);
-        if (connections) {
-            connections.delete(ws);
-            if (connections.size === 0) {
-                gameConnections.delete(gameId);
-            }
-        }
+    socket.onerror = (err) => {
+        console.error('❌ WebSocket error:', err);
+    };
 
-        console.log(`🔌 User ${userId} disconnected from game ${gameId}`);
+    socket.onclose = (event) => {
+        console.warn(`⚠️ WebSocket closed (${event.code})`);
 
-        broadcastToGame(gameId, {
-            type: 'players_update',
-            count: connections ? connections.size : 0
-        });
-    });
-
-    ws.on('error', (err) => {
-        console.error(`WebSocket error (${userId}):`, err.message);
-    });
-});
-
-
-
-
-// ==================== GAME MESSAGE HANDLER ====================
-async function handleGameMessage(ws, message) {
-    const data = JSON.parse(message);
-    const { gameId, userId } = ws;
-
-    switch (data.type) {
-
-        case 'mark_number':
-            await markPlayerNumber(gameId, userId, data.number);
-            broadcastToGame(gameId, {
-                type: 'number_marked',
-                userId,
-                number: data.number
-            });
-            break;
-
-        case 'claim_bingo':
-            const valid = await checkBingo(gameId, userId);
-            if (valid) {
-                const result = await declareWinner(gameId, userId);
-                if (result.success) {
-                    broadcastToGame(gameId, {
-                        type: 'winner',
-                        userId,
-                        prize: result.prize
-                    });
-                }
-            }
-            break;
-
-        case 'chat_message':
-            broadcastToGame(gameId, {
-                type: 'chat',
-                userId,
-                message: data.message,
-                timestamp: new Date().toISOString()
-            });
-            break;
-
-        case 'get_state':
-            const state = await getGameState(gameId, userId);
-            if (state && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({
-                    type: 'game_state',
-                    data: state
-                }));
-            }
-            break;
-
-        case 'ping':
-            ws.send(JSON.stringify({ type: 'pong', ts: Date.now() }));
-            break;
-    }
-}
-
-// ==================== BROADCAST HELPER ====================
-function broadcastToGame(gameId, payload) {
-    const connections = gameConnections.get(gameId);
-    if (!connections) return;
-
-    const message = JSON.stringify(payload);
-
-    connections.forEach(ws => {
-        if (ws.readyState === WebSocket.OPEN) {
-            ws.send(message);
-        }
-    });
-}
-
-// Add these variables near the top of your server.js
-const gameIntervals = {};
-const gameTimers = {};
-
-
-// ==================== DATABASE FUNCTIONS ====================
-async function getNextGameNumber() {
-    try {
-        const result = await pool.query(
-            "SELECT COALESCE(MAX(game_number), 0) + 1 as next_number FROM multiplayer_games WHERE DATE(created_at) = CURRENT_DATE"
-        );
-        return result.rows[0].next_number;
-    } catch (error) {
-        console.error('Error getting next game number:', error);
-        return 1;
-    }
-}
-
-async function createMultiplayerGame() {
-    // RATE LIMITING CHECK: Prevent creating too many games at once
-    try {
-        const recentGames = await pool.query(`
-            SELECT COUNT(*) as count FROM multiplayer_games 
-            WHERE created_at > NOW() - INTERVAL '30 seconds'
-            AND status = 'selecting'
-        `);
-        
-        const recentCount = parseInt(recentGames.rows[0].count);
-        
-        if (recentCount >= 2) {
-            console.log('⏳ Too many recent games created, waiting...');
-            return { success: false, error: 'Too many recent games' };
-        }
-        
-        console.log(`📈 Recent games in last 30 seconds: ${recentCount}`);
-    } catch (error) {
-        console.error('Error checking recent games:', error);
-        // Continue anyway, don't block game creation on error
-    }
-    
-    // Generate unique game ID and number
-    const gameId = 'GAME_' + Date.now().toString(36);
-    const gameNumber = await getNextGameNumber();
-    
-    try {
-        await pool.query(
-            `INSERT INTO multiplayer_games (id, game_number, status, selection_end_time) 
-             VALUES ($1, $2, $3, $4)`,
-            [gameId, gameNumber, 'selecting', 
-             new Date(Date.now() + GAME_CONFIG.SELECTION_TIME * 1000).toISOString()]
-        );
-        
-        console.log(`🆕 Multiplayer Game #${gameNumber} created (ID: ${gameId})`);
-        
-        // Schedule game start check with error handling
-        setTimeout(async () => {
-            try {
-                await checkAndStartGame(gameId);
-            } catch (error) {
-                console.error(`❌ Error in scheduled game check for ${gameId}:`, error.message);
-                // Cancel game if check fails
-                await cancelGame(gameId);
-            }
-        }, GAME_CONFIG.SELECTION_TIME * 1000);
-        
-        return { success: true, gameId, gameNumber };
-    } catch (error) {
-        console.error('Error creating multiplayer game:', error);
-        return { success: false, error: error.message };
-    }
-}
-
-async function checkAndStartGame(gameId) {
-    try {
-        console.log(`🔍 Checking game ${gameId} for starting...`);
-        
-        // First verify game still exists and is in selecting status
-        const gameCheck = await pool.query(
-            `SELECT status FROM multiplayer_games WHERE id = $1`,
-            [gameId]
-        );
-        
-        if (gameCheck.rows.length === 0) {
-            console.log(`❌ Game ${gameId} not found, skipping`);
-            return;
-        }
-        
-        if (gameCheck.rows[0].status !== 'selecting') {
-            console.log(`⚠️ Game ${gameId} is already ${gameCheck.rows[0].status}, skipping`);
-            return;
-        }
-        
-        // Get player count
-        const playerCount = await getPlayerCount(gameId);
-        console.log(`📊 Game ${gameId} has ${playerCount} players, minimum: ${GAME_CONFIG.MIN_PLAYERS}`);
-        
-        if (playerCount >= GAME_CONFIG.MIN_PLAYERS) {
-            console.log(`✅ Game ${gameId} meets minimum players (${playerCount} >= ${GAME_CONFIG.MIN_PLAYERS})`);
-            console.log(`🎮 STARTING Game ${gameId} with ${playerCount} players`);
-            await startGamePlay(gameId);
+        if (reconnectAttempts < 5) {
+            reconnectAttempts++;
+            setTimeout(() => {
+                console.log(`🔄 Reconnecting... (${reconnectAttempts})`);
+                connectWebSocket(gameId, userId);
+            }, 2000 * reconnectAttempts);
         } else {
-            console.log(`❌ Game ${gameId} cancelled - only ${playerCount} players (need ${GAME_CONFIG.MIN_PLAYERS})`);
-            await cancelGame(gameId);
+            console.error('❌ WebSocket reconnect failed');
         }
-    } catch (error) {
-        console.error('❌ Error checking game:', error.message);
-        // Try to cancel the game on error
-        try {
-            await cancelGame(gameId);
-        } catch (cancelError) {
-            console.error('Failed to cancel game:', cancelError.message);
-        }
+    };
+}
+
+// ==================== MESSAGE HANDLER ====================
+function handleWebSocketMessage(data) {
+    switch(data.type) {
+         case 'game_state':
+            updateGameState(data.data);
+            break;
+            
+        case 'number_called':
+            // 1. Handle game logic
+            handleNumberCalled(data.number, data.calledNumbers);
+            
+            // 2. ✅ ADD THIS: Highlight on main grid
+            highlightNumberOnGrid(data.number);
+            break;
+            
+        case 'player_joined':
+            // Update player count
+            updatePlayerCount(data.playerCount);
+            break;
+            
+        case 'player_left':
+            // Update player count
+            updatePlayerCount(data.playerCount);
+            break;
+            
+        case 'game_status':
+            // Update game status (selecting, shuffling, active, etc.)
+            updateGameStatus(data.status, data.message);
+            break;
+            
+        case 'winner':
+            // Show winner announcement
+            showWinner(data.userId, data.prize);
+            break;
+            
+        case 'chat':
+            // Add chat message
+            addChatMessage(data.userId, data.message, data.timestamp);
+            break;
+            
+        case 'countdown':
+            // Update countdown timer
+            updateCountdown(data.seconds, data.message);
+            break;
+            
+        case 'game_ended':
+            // Handle game end
+            handleGameEnd(data.message);
+            break;
     }
 }
 
-async function joinMultiplayerGame(gameId, userId, boardCount, boardNumbers) {
-    const client = await pool.connect();
+function highlightNumberOnGrid(number) {
+    console.log(`🟢 Simple highlight for number ${number}`);
     
-    try {
-        await client.query('BEGIN');
-        
-        // 1. Check user exists and has balance
-        const user = users[userId];
-        if (!user) {
-            throw new Error('User not found. Please register first.');
+    // Simple: just add a class to mark it as called
+    const cells = document.querySelectorAll('.bingo-cell');
+    cells.forEach(cell => {
+        if (parseInt(cell.textContent) === number) {
+            cell.style.background = '#2ecc71';
+            cell.style.color = 'white';
+            cell.style.fontWeight = 'bold';
+            cell.style.border = '2px solid #e74c3c';
         }
-        
-        const totalCost = boardCount * GAME_CONFIG.BOARD_PRICE;
-        if (user.balance < totalCost) {
-            throw new Error(`Insufficient balance. Need ${totalCost} ETB, have ${user.balance} ETB`);
+    });
+}
+// ==================== SEND FUNCTIONS ====================
+function sendMarkNumber(number) {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({
+            type: 'mark_number',
+            number: number
+        }));
+    }
+}
+
+function sendClaimBingo() {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({
+            type: 'claim_bingo'
+        }));
+    }
+}
+
+function sendChatMessage(message) {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({
+            type: 'chat_message',
+            message: message
+        }));
+    }
+}
+
+
+
+
+// Add heartbeat function (optional but good to have)
+function startWebSocketHeartbeat() {
+    setInterval(() => {
+        if (socket && socket.readyState === WebSocket.OPEN) {
+            try {
+                socket.send(JSON.stringify({ type: 'ping' }));
+            } catch (error) {
+                console.log('Heartbeat send error:', error);
+            }
         }
-        
-        // 2. Generate unique boards
-        const playerBoards = [];
-        const availableNumbers = await getAvailableBoardNumbers(gameId);
-        
-        for (let i = 0; i < boardCount; i++) {
-            let boardNumber;
-            if (boardNumbers[i] && !availableNumbers.includes(boardNumbers[i])) {
-                boardNumber = boardNumbers[i];
+    }, 30000); // Every 30 seconds
+}
+
+
+
+// 2. HANDLE SERVER MESSAGES
+function handleGameMessage(message) {
+    console.log('🎮 Processing message type:', message.type);
+
+    switch (message.type) {
+
+        case 'game_state':
+            updateGameFromServer(message.data);
+            break;
+
+        case 'player_joined':
+            updatePlayersCount(message.playerCount);
+            break;
+
+        case 'players_update':
+            updatePlayersCount(message.count);
+            break;
+
+        case 'number_called':
+            handleNumberCalled(message.number, message.calledNumbers);
+            break;
+
+        case 'number_marked':
+            break;
+
+        case 'winner':
+            if (message.userId == userId) {
+                gameState.currentPlayer.balance += message.prize;
+                updateGameStats();
+                showWinnerMessage('YOU', 'You', message.prize);
             } else {
-                // Get random available number
-                boardNumber = availableNumbers[Math.floor(Math.random() * availableNumbers.length)];
+                showWinnerMessage(message.userId, `Player ${message.userId}`, message.prize);
             }
-            
-            playerBoards.push({
-                boardNumber: boardNumber,
-                boardData: generateBingoBoard(),
-                markedNumbers: [],
-                hasBingo: false,
-                boardId: `B${i + 1}`
-            });
-            
-            // Remove used number
-            const index = availableNumbers.indexOf(boardNumber);
-            if (index > -1) availableNumbers.splice(index, 1);
-        }
-        
-        // 3. Add player to game in database
-        await client.query(
-            `INSERT INTO game_players (game_id, user_id, boards, marked_numbers)
-             VALUES ($1, $2, $3, $4)`,
-            [gameId, userId, JSON.stringify(playerBoards), '[]']
-        );
-        
-        // 4. Deduct balance from user
-        user.balance -= totalCost;
-        user.totalWagered = (user.totalWagered || 0) + totalCost;
-        saveUsers();
-        
-        // 5. Update prize pool
-        const prizeContribution = totalCost * (GAME_CONFIG.PRIZE_POOL_PERCENT / 100);
-        await client.query(
-            `UPDATE multiplayer_games 
-             SET prize_pool = prize_pool + $1
-             WHERE id = $2`,
-            [prizeContribution, gameId]
-        );
-        
-        // 6. Get current player count
-        const playerCountResult = await client.query(
-            `SELECT COUNT(*) FROM game_players WHERE game_id = $1`,
-            [gameId]
-        );
-        const playerCount = parseInt(playerCountResult.rows[0].count);
-        
-        // 7. Update game status based on player count
-        if (playerCount >= GAME_CONFIG.MIN_PLAYERS) {
-            // Check if game is still in waiting/selecting phase
-            const gameResult = await client.query(
-                `SELECT status FROM multiplayer_games WHERE id = $1`,
-                [gameId]
-            );
-            
-            if (gameResult.rows[0].status === 'waiting' || gameResult.rows[0].status === 'selecting') {
-                // Start the game countdown
-                await client.query(
-                    `UPDATE multiplayer_games 
-                     SET status = 'shuffling', 
-                         start_time = NOW(),
-                         end_time = NOW() + INTERVAL '1.5 minutes'
-                     WHERE id = $1`,
-                    [gameId]
-                );
-                
-                // Trigger game start (you'll need a function for this)
-                setTimeout(() => {
-                    startGamePlay(gameId);
-                }, 5000); // 5 seconds shuffling
-            }
-        }
-        
-        // 8. Record in file-based games
-        const gameRecordId = 'game_' + Date.now();
-        games.push({
-            id: gameRecordId,
-            userId: userId,
-            amount: totalCost,
-            date: new Date().toISOString(),
-            type: 'join',
-            gameId: gameId,
-            boardCount: boardCount
-        });
-        saveGames();
-        
-        await client.query('COMMIT');
-        
-        // 9. Broadcast player joined
-        broadcastToGame(gameId, {
-            type: 'player_joined',
-            userId: userId,
-            username: user.username,
-            playerCount: playerCount
-        });
-        
-        console.log(`🎮 User ${user.username} joined game ${gameId} with ${boardCount} boards`);
-        
-        return {
-            success: true,
-            gameId: gameId,
-            boards: playerBoards,
-            prizePool: await getGamePrizePool(gameId),
-            playerCount: playerCount
-        };
-        
-    } catch (error) {
-        await client.query('ROLLBACK');
-        console.error('Error joining multiplayer game:', error);
-        return { success: false, error: error.message };
-    } finally {
-        client.release();
+            break;
+
+        case 'game_status':
+            updateGameStatus(message.status, message.message);
+            break;
+
+        case 'game_ended':
+            showGameEndedMessage(message.message);
+            break;
+
+        case 'chat':
+            showChatMessage(message.userId, message.username || 'Player', message.message);
+            break;
+
+        case 'pong':
+            break;
+
+        default:
+            console.warn('⚠️ Unknown message type:', message.type);
     }
 }
 
-// Get available board numbers for a game
-async function getAvailableBoardNumbers(gameId) {
-    try {
-        const result = await pool.query(
-            `SELECT boards FROM game_players WHERE game_id = $1`,
-            [gameId]
-        );
+
+// 3. UPDATE GAME FROM SERVER DATA
+function updateGameFromServer(serverData) {
+    if (!serverData || !serverData.success) return;
+    
+    const game = serverData.game;
+    const player = serverData.player;
+    
+    if (!game) return;
+    
+    console.log('🔄 Updating game from multiplayer server - Status:', game.status);
+    
+    // ==================== UPDATE GAME PHASE ====================
+    if (game.status !== gameState.gamePhase) {
+        console.log(`📊 Phase change: ${gameState.gamePhase} → ${game.status}`);
+        gameState.gamePhase = game.status;
+        updateGameStatus();
         
-        const usedNumbers = new Set();
-        result.rows.forEach(row => {
-            const boards = JSON.parse(row.boards);
-            boards.forEach(board => {
-                usedNumbers.add(board.boardNumber);
-            });
+        // Handle phase-specific UI
+        switch(game.status) {
+            case 'shuffling':
+                showShufflingScreen();
+                break;
+            case 'active':
+                removeWaitingScreen();
+                console.log('🎮 GAME ACTIVE! Numbers will appear soon...');
+                break;
+            case 'completed':
+                stopGamePolling();
+                if (game.winners) {
+                    showGameResults(game);
+                }
+                break;
+        }
+    }
+    
+    // ==================== UPDATE CALLED NUMBERS ====================
+    if (game.calledNumbers && game.calledNumbers.length > 0) {
+        // Convert called numbers like "B5" to just numbers
+        const convertedNumbers = game.calledNumbers.map(cn => {
+            const match = cn.match(/\d+/);
+            return match ? parseInt(match[0]) : cn;
         });
         
-        const available = [];
-        for (let i = 1; i <= GAME_CONFIG.TOTAL_BOARDS; i++) {
-            if (!usedNumbers.has(i)) {
-                available.push(i);
+        // Check if new numbers were added
+        if (convertedNumbers.length > gameState.calledNumbers.length) {
+            const newNumbers = convertedNumbers.slice(gameState.calledNumbers.length);
+            console.log(`🔔 New numbers called: ${newNumbers.join(', ')}`);
+            
+            gameState.calledNumbers = convertedNumbers;
+            updateCalledNumbersList();
+            updateMainBoardColors();
+            
+            // Auto-check for BINGO after each number
+            if (game.status === 'active') {
+                setTimeout(() => checkPlayerBingo(), 500);
             }
         }
-        
-        return available;
-    } catch (error) {
-        console.error('Error getting available board numbers:', error);
-        // Fallback: return all numbers
-        const available = [];
-        for (let i = 1; i <= GAME_CONFIG.TOTAL_BOARDS; i++) {
-            available.push(i);
-        }
-        return available;
     }
-}
-
-async function getGameState(gameId, userId) {
-    try {
-        // Get game info
-        const gameResult = await pool.query(
-            `SELECT * FROM multiplayer_games WHERE id = $1`,
-            [gameId]
-        );
+    
+    // ==================== UPDATE CURRENT CALL ====================
+    if (game.currentCall) {
+        const call = game.currentCall;
+        const letter = call.charAt(0);
+        const number = parseInt(call.substring(1));
         
-        if (gameResult.rows.length === 0) {
-            return null;
+        if (!isNaN(number)) {
+            gameState.currentCall = { letter, number };
+            elements.currentLetter.textContent = letter;
+            elements.currentNumber.textContent = number;
         }
+    }
+    
+    // ==================== UPDATE PLAYER BOARDS ====================
+    if (player && player.boards) {
+        console.log(`🎴 Loading ${player.boards.length} boards from server`);
         
-        const game = gameResult.rows[0];
-        
-        // Get player info for this specific user
-        const playerResult = await pool.query(
-            `SELECT * FROM game_players WHERE game_id = $1 AND user_id = $2`,
-            [gameId, userId]
-        );
-        
-        // Get all players in this game (using file-based users since you don't have users table)
-        const allPlayersResult = await pool.query(
-            `SELECT gp.user_id, gp.boards 
-             FROM game_players gp
-             WHERE gp.game_id = $1`,
-            [gameId]
-        );
-        
-        // Build player list with usernames from your file-based users object
-        const playersWithUsernames = allPlayersResult.rows.map(row => ({
-            userId: row.user_id,
-            username: users[row.user_id]?.username || `Player ${row.user_id}`,
-            boardCount: JSON.parse(row.boards).length
+        // Update boards
+        gameState.currentPlayer.boards = player.boards.map(board => ({
+            boardNumber: board.boardNumber,
+            boardData: board.boardData,
+            markedNumbers: new Set(board.markedNumbers || []),
+            isWinner: board.hasBingo || false,
+            isEliminated: false,
+            boardId: board.boardId || `B${board.boardNumber}`
         }));
         
-        return {
-            game: {
-                id: game.id,
-                gameNumber: game.game_number,
-                status: game.status,
-                prizePool: parseFloat(game.prize_pool) || 0,
-                calledNumbers: game.called_numbers ? JSON.parse(game.called_numbers) : [],
-                currentCall: game.current_call,
-                startTime: game.start_time,
-                endTime: game.end_time,
-                selectionEndTime: game.selection_end_time,
-                playerCount: playersWithUsernames.length
-            },
-            player: playerResult.rows.length > 0 ? {
-                boards: JSON.parse(playerResult.rows[0].boards),
-                markedNumbers: playerResult.rows[0].marked_numbers ? JSON.parse(playerResult.rows[0].marked_numbers) : [],
-                hasBingo: playerResult.rows[0].has_bingo
-            } : null,
-            players: playersWithUsernames
-        };
+        gameState.currentPlayer.isActive = true;
         
+        // Display boards
+        if (elements.gamePlaySection.style.display !== 'block') {
+            elements.gamePlaySection.style.display = 'block';
+        }
+        
+        displayCurrentPlayerBoards(gameState.currentBoardIndex || 0);
+    }
+    
+    // ==================== UPDATE PLAYER'S MARKED NUMBERS ====================
+    if (player && player.markedNumbers && player.markedNumbers.length > 0) {
+        // Sync marked numbers from server
+        gameState.currentPlayer.boards.forEach(board => {
+            player.markedNumbers.forEach(num => {
+                // Check if this number exists on the board
+                for (let row = 0; row < 5; row++) {
+                    for (let col = 0; col < 5; col++) {
+                        if (board.boardData[row][col] === num) {
+                            board.markedNumbers.add(num);
+                        }
+                    }
+                }
+            });
+        });
+        
+        // Refresh display
+        displayCurrentPlayerBoards(gameState.currentBoardIndex || 0);
+        updateCalledNumbersList();
+    }
+    
+    // ==================== UPDATE PRIZE POOL ====================
+    if (game.prizePool !== undefined && game.prizePool !== gameState.totalPrizePool) {
+        gameState.totalPrizePool = game.prizePool;
+        elements.prizeValue.textContent = game.prizePool;
+    }
+    
+    // ==================== UPDATE PLAYER COUNT ====================
+    if (game.players !== undefined) {
+        elements.playersValue.textContent = game.players;
+    }
+    
+    // ==================== UPDATE CALLED COUNT ====================
+    if (game.calledNumbers) {
+        elements.calledCount.textContent = game.calledNumbers.length;
+    }
+}
+
+// Helper function to show shuffling screen
+function showShufflingScreen() {
+    if (!elements.currentBoard) return;
+    
+    elements.currentBoard.innerHTML = `
+        <div class="shuffling-screen">
+            <div class="shuffling-animation">🔄 🔄 🔄</div>
+            <h3>SHUFFLING NUMBERS...</h3>
+            <p>Game starts in 5 seconds!</p>
+            <div class="boards-summary">
+                Your boards: ${gameState.currentPlayer.boards.map(b => `#${b.boardNumber}`).join(', ')}
+            </div>
+        </div>
+    `;
+}
+
+// Helper function to remove waiting/shuffling screen
+function removeWaitingScreen() {
+    const screens = document.querySelectorAll('.waiting-screen, .shuffling-screen, .results-screen');
+    screens.forEach(screen => screen.remove());
+}
+
+// Helper function to show game results
+function showGameResults(game) {
+    if (!elements.currentBoard) return;
+    
+    const winners = game.winners || [];
+    const prizePerWinner = game.prizePerWinner || 0;
+    const isCurrentPlayerWinner = winners.some(w => w.userId === gameState.currentPlayer.id);
+    
+    let message = '';
+    if (winners.length > 1) {
+        message = `🎉 ${winners.length} WINNERS! Each wins ${prizePerWinner} ETB!`;
+    } else if (winners.length === 1) {
+        if (isCurrentPlayerWinner) {
+            message = `🏆 YOU WON ${prizePerWinner} ETB! 🏆`;
+        } else {
+            message = `🏆 WINNER: ${winners[0].username} wins ${prizePerWinner} ETB!`;
+        }
+    } else {
+        message = '🤷 No winner this game! Next game starting soon.';
+    }
+    
+    elements.currentBoard.innerHTML = `
+        <div class="results-screen">
+            <h2>${message}</h2>
+            ${winners.length > 0 ? `<p>💰 Prize: ${prizePerWinner} ETB</p>` : ''}
+            <p>⏰ Next game starts in 25 seconds...</p>
+            <button onclick="location.reload()" class="play-again-btn">🎮 JOIN NEXT GAME</button>
+        </div>
+    `;
+}
+
+// Helper function to check player BINGO
+async function checkPlayerBingo() {
+    for (let i = 0; i < gameState.currentPlayer.boards.length; i++) {
+        const board = gameState.currentPlayer.boards[i];
+        if (!board.hasBingo && !board.isWinner) {
+            const hasBingo = checkBoardForBingo(board.boardData, Array.from(board.markedNumbers), gameState.calledNumbers);
+            if (hasBingo) {
+                console.log(`🎯 BINGO detected on board #${board.boardNumber}!`);
+                await claimBingo(board.boardId);
+                return;
+            }
+        }
+    }
+}
+
+// Helper function to claim BINGO
+async function claimBingo(boardId) {
+    if (!window.currentGameId) {
+        console.error('No game ID to claim BINGO');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/multiplayer/claim', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                gameId: window.currentGameId,
+                userId: gameState.currentPlayer.id,
+                boardId: boardId
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            alert(`🎉 BINGO! You won ${data.prize} ETB!`);
+            // Mark board as winner
+            const board = gameState.currentPlayer.boards.find(b => b.boardId === boardId);
+            if (board) board.hasBingo = true;
+        }
     } catch (error) {
-        console.error('Error getting game state:', error);
+        console.error('Claim error:', error);
+    }
+}
+
+
+// ==================== MULTIPLAYER GAME FUNCTIONS ====================
+
+// 4. JOIN MULTIPLAYER GAME VIA API
+async function joinMultiplayerGameViaAPI(totalCost) {
+    try {
+        console.log('🚀 Joining multiplayer game via API...');
+        
+        const response = await fetch(`${API_BASE}/api/game/join`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                userId: userId,
+                boardCount: gameState.selectedBoards.size,
+                boardNumbers: Array.from(gameState.selectedBoards)
+            })
+        });
+        
+        const data = await response.json();
+        console.log('API response:', data);
+        
+        if (data.success) {
+            console.log('✅ Successfully joined game:', data.gameId);
+            console.log('🎲 Game number:', data.gameNumber);
+            console.log('👥 Player count:', data.playerCount || data.players);
+            console.log('💰 Prize pool:', data.prizePool);
+            
+            // Store game ID
+            currentGameId = data.gameId;
+            
+            // Connect WebSocket to this game (if using WebSockets)
+            if (typeof connectToMultiplayerServer === 'function') {
+                connectToMultiplayerServer(data.gameId);
+            }
+            
+            // Handle different response formats
+            if (data.boards && Array.isArray(data.boards)) {
+                // Direct boards array
+                gameState.currentPlayer.isActive = true;
+                gameState.currentPlayer.boards = data.boards.map(board => ({
+                    boardNumber: board.boardNumber,
+                    boardData: board.boardData,
+                    markedNumbers: new Set(board.markedNumbers || []),
+                    isWinner: false,
+                    isEliminated: false
+                }));
+                console.log(`📊 Received ${data.boards.length} boards directly`);
+                
+            } else if (data.player && Array.isArray(data.player.boards)) {
+                // Player object with boards
+                gameState.currentPlayer.isActive = true;
+                gameState.currentPlayer.boards = data.player.boards.map(board => ({
+                    boardNumber: board.boardNumber,
+                    boardData: board.boardData,
+                    markedNumbers: new Set(board.markedNumbers || []),
+                    isWinner: false,
+                    isEliminated: false
+                }));
+                console.log(`📊 Received ${data.player.boards.length} boards from player object`);
+                
+            } else if (data.board && data.boards) {
+                // Mixed format
+                gameState.currentPlayer.isActive = true;
+                gameState.currentPlayer.boards = data.boards.map(board => ({
+                    boardNumber: board.boardNumber,
+                    boardData: board.boardData,
+                    markedNumbers: new Set(board.markedNumbers || []),
+                    isWinner: false,
+                    isEliminated: false
+                }));
+                console.log(`📊 Received ${data.boards.length} boards from mixed format`);
+                
+            } else {
+                console.warn('⚠️ No boards found in response, using default');
+                // Create default boards if needed
+                gameState.currentPlayer.isActive = true;
+                gameState.currentPlayer.boards = createDefaultBoards(gameState.selectedBoards.size);
+            }
+            
+            // Show boards immediately
+            displayCurrentPlayerBoards(0);
+            
+            // Update UI
+            closeRegistrationPopup();
+            updateGameStats();
+            
+            // Show waiting message with player count
+            const playerCount = data.playerCount || data.players || 1;
+            const requiredPlayers = data.requiredPlayers || 2;
+            
+            showGameMessage(
+                `✅ Joined Game #${data.gameNumber || 'New'}!\n` +
+                `👥 Players: ${playerCount}/${requiredPlayers}\n` +
+                `⏳ Waiting for game to start...`,
+                'success'
+            );
+            
+            // Show waiting screen with boards minimized
+            showWaitingForGameScreen(playerCount, requiredPlayers);
+            
+            // Start polling for game state
+            startGamePolling(data.gameId);
+            
+            return true;
+            
+        } else {
+            console.error('❌ Failed to join game:', data.error);
+            
+            // Show specific error message
+            let errorMessage = 'Failed to join game';
+            if (data.error.includes('balance')) {
+                errorMessage = '❌ Insufficient balance! Please deposit.';
+            } else if (data.error.includes('already')) {
+                errorMessage = '❌ You are already in a game!';
+            } else {
+                errorMessage = '❌ ' + data.error;
+            }
+            
+            alert(errorMessage);
+            return false;
+        }
+    } catch (error) {
+        console.error('❌ Error joining multiplayer game:', error);
+        alert('Network error. Please check your connection and try again.');
+        return false;
+    }
+}
+
+// Create default boards if none returned
+function createDefaultBoards(count) {
+    const boards = [];
+    for (let i = 0; i < count; i++) {
+        boards.push({
+            boardNumber: Math.floor(Math.random() * 400) + 1,
+            boardData: generateBingoBoard(),
+            markedNumbers: new Set(),
+            isWinner: false,
+            isEliminated: false,
+            boardId: `B${i + 1}`
+        });
+    }
+    return boards;
+}
+
+// Show waiting screen during selection/shuffling
+function showWaitingForGameScreen(currentPlayers, requiredPlayers) {
+    // Clear current board area
+    elements.currentBoard.innerHTML = '';
+    
+    const waitingDiv = document.createElement('div');
+    waitingDiv.className = 'waiting-screen';
+    waitingDiv.innerHTML = `
+        <div class="waiting-content">
+            <div class="waiting-spinner"></div>
+            <h2>⏳ WAITING FOR GAME</h2>
+            <div class="player-count">
+                <span class="count">${currentPlayers}</span>/<span class="total">${requiredPlayers}</span>
+                <span class="label">Players Joined</span>
+            </div>
+            <div class="progress-bar">
+                <div class="progress-fill" style="width: ${(currentPlayers/requiredPlayers)*100}%"></div>
+            </div>
+            <p class="waiting-message">Game starts automatically when enough players join...</p>
+            <div class="mini-boards">
+                ${generateMiniBoardsHTML()}
+            </div>
+        </div>
+    `;
+    
+    elements.currentBoard.appendChild(waitingDiv);
+    
+    // Add CSS if not exists
+    if (!document.getElementById('waiting-screen-styles')) {
+        const style = document.createElement('style');
+        style.id = 'waiting-screen-styles';
+        style.textContent = `
+            .waiting-screen {
+                position: relative;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                border-radius: 15px;
+                padding: 30px 20px;
+                color: white;
+                text-align: center;
+                margin: 10px 0;
+                box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            }
+            .waiting-spinner {
+                width: 60px;
+                height: 60px;
+                border: 5px solid rgba(255,255,255,0.3);
+                border-top-color: white;
+                border-radius: 50%;
+                animation: spin 1s linear infinite;
+                margin: 0 auto 20px;
+            }
+            .player-count {
+                font-size: 2.5rem;
+                font-weight: bold;
+                margin: 15px 0 5px;
+            }
+            .player-count .label {
+                display: block;
+                font-size: 0.9rem;
+                opacity: 0.9;
+                font-weight: normal;
+            }
+            .progress-bar {
+                width: 80%;
+                height: 10px;
+                background: rgba(255,255,255,0.2);
+                border-radius: 10px;
+                margin: 20px auto;
+                overflow: hidden;
+            }
+            .progress-fill {
+                height: 100%;
+                background: #2ecc71;
+                border-radius: 10px;
+                transition: width 0.3s ease;
+            }
+            .waiting-message {
+                font-size: 0.9rem;
+                opacity: 0.9;
+                margin: 15px 0;
+            }
+            .mini-boards {
+                display: flex;
+                justify-content: center;
+                gap: 10px;
+                margin-top: 20px;
+                flex-wrap: wrap;
+            }
+            .mini-board {
+                width: 40px;
+                height: 40px;
+                background: rgba(255,255,255,0.1);
+                border: 2px solid rgba(255,255,255,0.3);
+                border-radius: 8px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-weight: bold;
+                font-size: 0.9rem;
+            }
+            @keyframes spin {
+                to { transform: rotate(360deg); }
+            }
+        `;
+        document.head.appendChild(style);
+    }
+}
+
+// Generate mini boards HTML
+function generateMiniBoardsHTML() {
+    if (!gameState.currentPlayer.boards) return '';
+    
+    let html = '';
+    gameState.currentPlayer.boards.forEach((board, index) => {
+        html += `<div class="mini-board">#${board.boardNumber}</div>`;
+    });
+    return html;
+}
+
+// Start polling for multiplayer game state
+function startGamePolling(gameId) {
+    // Clear any existing polling
+    if (window.gamePollInterval) {
+        clearInterval(window.gamePollInterval);
+        console.log('🔄 Cleared existing polling');
+    }
+    
+    console.log(`🔄 Started polling for multiplayer game ${gameId}`);
+    
+    window.gamePollInterval = setInterval(async () => {
+        try {
+            // ✅ CORRECT: Use the multiplayer endpoint
+            const response = await fetch(`/api/multiplayer/state/${gameId}/${gameState.currentPlayer.id}`);
+            const data = await response.json();
+            
+            if (data.success) {
+                // Update game state with new data
+                updateGameFromMultiplayer(data);
+            } else {
+                // Game no longer exists or player not in game
+                if (data.error === 'Game not found' || data.error === 'Not in this game') {
+                    console.log('⏹️ Game no longer available, stopping polling');
+                    stopGamePolling();
+                    
+                    // Show next game option
+                    setTimeout(() => {
+                        showNextGameOption();
+                    }, 2000);
+                }
+            }
+        } catch (error) {
+            console.error('Polling error:', error);
+        }
+    }, 2000); // Poll every 2 seconds
+}
+
+// Stop polling
+function stopGamePolling() {
+    if (window.gamePollInterval) {
+        clearInterval(window.gamePollInterval);
+        window.gamePollInterval = null;
+        console.log('⏹️ Game polling stopped');
+    }
+}
+
+// Update game from multiplayer data
+function updateGameFromMultiplayer(data) {
+    const game = data.game;
+    const player = data.player;
+    
+    // Update player data if provided
+    if (player && player.boards) {
+        gameState.currentPlayer.boards = player.boards;
+        gameState.currentPlayer.markedNumbers = player.markedNumbers || [];
+        
+        // Refresh board display
+        if (elements.gamePlaySection.style.display === 'block') {
+            displayCurrentPlayerBoards(gameState.currentBoardIndex);
+        }
+    }
+    
+    // Update game phase
+    if (game.status !== gameState.gamePhase) {
+        console.log(`🔄 Game phase changed: ${gameState.gamePhase} → ${game.status}`);
+        gameState.gamePhase = game.status;
+        updateGameStatus();
+        
+        switch(game.status) {
+            case 'shuffling':
+                showShufflingScreen();
+                break;
+                
+            case 'active':
+                removeWaitingScreen();
+                gameState.calledNumbers = game.calledNumbers || [];
+                gameState.currentCall = game.currentCall;
+                updateCalledNumbersList();
+                updateMainBoardColors();
+                console.log('🎮 GAME ACTIVE! Start marking numbers!');
+                break;
+                
+            case 'completed':
+                stopGamePolling();
+                showGameResults(game);
+                break;
+        }
+    }
+    
+    // Update called numbers during active game
+    if (game.status === 'active' && game.calledNumbers) {
+        if (game.calledNumbers.length > gameState.calledNumbers.length) {
+            const newNumbers = game.calledNumbers.slice(gameState.calledNumbers.length);
+            console.log(`🔔 New numbers: ${newNumbers.join(', ')}`);
+            
+            gameState.calledNumbers = game.calledNumbers;
+            gameState.currentCall = game.currentCall;
+            updateCalledNumbersList();
+            updateMainBoardColors();
+            
+            // Auto-check for BINGO after each number
+            checkPlayerBingo();
+        }
+    }
+    
+    // Update prize pool
+    if (game.prizePool !== gameState.totalPrizePool) {
+        gameState.totalPrizePool = game.prizePool;
+        updateGameStats();
+    }
+}
+// Show next game option when game ends
+function showNextGameOption() {
+    elements.currentBoard.innerHTML = `
+        <div class="next-game-screen">
+            <h2>🎮 Game Ended</h2>
+            <p>Next game starts in 25 seconds...</p>
+            <button onclick="location.reload()" class="play-again-btn">🔄 JOIN NEXT GAME</button>
+        </div>
+    `;
+    
+    // Add CSS if not exists
+    if (!document.getElementById('next-game-styles')) {
+        const style = document.createElement('style');
+        style.id = 'next-game-styles';
+        style.textContent = `
+            .next-game-screen {
+                text-align: center;
+                padding: 40px;
+                background: linear-gradient(135deg, #2c3e50, #1a2632);
+                border-radius: 15px;
+                color: white;
+                margin: 20px;
+            }
+            .play-again-btn {
+                background: linear-gradient(135deg, #27ae60, #2ecc71);
+                color: white;
+                border: none;
+                padding: 12px 30px;
+                border-radius: 25px;
+                font-size: 16px;
+                font-weight: bold;
+                margin-top: 20px;
+                cursor: pointer;
+            }
+        `;
+        document.head.appendChild(style);
+    }
+}
+
+
+// Handle game state updates from server
+function handleGameStateUpdate(data) {
+    const game = data.game;
+    const player = data.player;
+    
+    // Update player boards if provided
+    if (player && player.boards) {
+        gameState.currentPlayer.boards = player.boards.map(board => ({
+            boardNumber: board.boardNumber,
+            boardData: board.boardData,
+            markedNumbers: new Set(board.markedNumbers || []),
+            isWinner: board.isWinner || false,
+            isEliminated: board.isEliminated || false
+        }));
+    }
+    
+    // Update player marked numbers
+    if (player && player.markedNumbers) {
+        // Sync marked numbers with server
+        gameState.currentPlayer.boards.forEach(board => {
+            board.markedNumbers = new Set(player.markedNumbers || []);
+        });
+    }
+    
+    // Check for game phase changes
+    if (game.status !== gameState.gamePhase) {
+        console.log(`🔄 Game phase changed: ${gameState.gamePhase} → ${game.status}`);
+        gameState.gamePhase = game.status;
+        updateGameStatus();
+        
+        // Handle phase-specific UI
+        switch(game.status) {
+            case 'shuffling':
+                // Update waiting screen to shuffling
+                updateWaitingToShuffling();
+                break;
+                
+            case 'active':
+                // Game is active - remove waiting screen and show game
+                gameState.calledNumbers = game.calledNumbers || [];
+                gameState.currentCall = game.currentCall;
+                
+                // Remove waiting screen
+                const waitingScreen = document.querySelector('.waiting-screen');
+                if (waitingScreen) waitingScreen.remove();
+                
+                // Display boards
+                displayCurrentPlayerBoards(gameState.currentBoardIndex || 0);
+                
+                // Update called numbers
+                updateCalledNumbersList();
+                
+                // Update main board
+                updateMainBoardColors();
+                
+                console.log('🎮 Game is now ACTIVE!');
+                break;
+                
+            case 'completed':
+            case 'finished':
+                // Game ended
+                stopGamePolling();
+                showGameResults(game.winners);
+                break;
+        }
+    }
+    
+    // Update called numbers if game is active
+    if (game.status === 'active' && game.calledNumbers) {
+        // Check if new numbers were added
+        if (game.calledNumbers.length > gameState.calledNumbers.length) {
+            const newNumbers = game.calledNumbers.slice(gameState.calledNumbers.length);
+            console.log(`🔔 New numbers called: ${newNumbers.join(', ')}`);
+            
+            gameState.calledNumbers = game.calledNumbers;
+            gameState.currentCall = game.currentCall;
+            
+            updateCalledNumbersList();
+            updateMainBoardColors();
+            
+            // Optional: Auto-mark numbers
+            // autoMarkNumbers(newNumbers);
+        }
+    }
+    
+    // Update prize pool
+    if (game.prizePool !== gameState.totalPrizePool) {
+        gameState.totalPrizePool = game.prizePool;
+        updateGameStats();
+    }
+    
+    // Update player count in waiting screen
+    if (game.status === 'waiting' || game.status === 'selecting' || game.status === 'shuffling') {
+        const playerCountEl = document.querySelector('.player-count .count');
+        if (playerCountEl) {
+            playerCountEl.textContent = game.playerCount || 1;
+        }
+        
+        const progressFill = document.querySelector('.progress-fill');
+        if (progressFill) {
+            const required = 2; // MIN_PLAYERS
+            const percent = Math.min(100, ((game.playerCount || 1) / required) * 100);
+            progressFill.style.width = percent + '%';
+        }
+    }
+}
+
+// Update waiting screen to shuffling
+function updateWaitingToShuffling() {
+    const waitingScreen = document.querySelector('.waiting-screen');
+    if (!waitingScreen) return;
+    
+    const content = waitingScreen.querySelector('.waiting-content');
+    if (content) {
+        content.innerHTML = `
+            <div class="waiting-spinner" style="border-top-color: #f39c12;"></div>
+            <h2>🔄 SHUFFLING NUMBERS</h2>
+            <p class="waiting-message">Game starting in 5 seconds...</p>
+            <div class="mini-boards">
+                ${generateMiniBoardsHTML()}
+            </div>
+        `;
+    }
+}
+
+// Show game message
+function showGameMessage(message, type = 'info') {
+    // Remove existing message
+    const existingMsg = document.querySelector('.game-message');
+    if (existingMsg) existingMsg.remove();
+    
+    const msgDiv = document.createElement('div');
+    msgDiv.className = `game-message ${type}`;
+    msgDiv.textContent = message;
+    msgDiv.style.cssText = `
+        position: fixed;
+        top: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: ${type === 'success' ? '#2ecc71' : type === 'error' ? '#e74c3c' : '#3498db'};
+        color: white;
+        padding: 10px 20px;
+        border-radius: 50px;
+        box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        z-index: 9999;
+        font-weight: bold;
+        animation: slideDown 0.3s ease;
+    `;
+    
+    document.body.appendChild(msgDiv);
+    
+    setTimeout(() => {
+        msgDiv.style.animation = 'slideUp 0.3s ease';
+        setTimeout(() => msgDiv.remove(), 300);
+    }, 3000);
+}
+
+// 5. HELPER FUNCTIONS
+function updatePlayersCount(count) {
+    elements.playersValue.textContent = count;
+}
+function handleNumberCalled(number, calledNumbers) {
+    const letter = number.charAt(0);
+    const num = parseInt(number.substring(1));
+    
+    console.log(`🎯 New number called: ${letter}${num}`);
+    
+    // Update called numbers list
+    gameState.calledNumbers = calledNumbers.map(cn => {
+        const n = cn.replace(/[BINGO]/, '');
+        return parseInt(n);
+    });
+    
+    // Update current call
+    gameState.currentCall = { letter, number: num };
+    
+    // Update display
+    updateGameDisplay();
+    updateCalledNumbersList();
+    
+    // ✅ ADD THIS: Highlight the number on the main BINGO grid
+    highlightNumberOnGrid(num);
+    
+    // Auto-mark on player's boards
+    if (gameState.currentPlayer.isActive && gameState.currentPlayer.boards) {
+        let markedAny = false;
+        
+        gameState.currentPlayer.boards.forEach(board => {
+            if (!board.isEliminated) {
+                // Check if this number is on the board
+                for (let row = 0; row < 5; row++) {
+                    for (let col = 0; col < 5; col++) {
+                        if (board.boardData[row][col] === num) {
+                            board.markedNumbers.add(num);
+                            markedAny = true;
+                            console.log(`✅ Auto-marked ${number} on board ${board.boardNumber}`);
+                        }
+                    }
+                }
+            }
+        });
+        
+        // Update board display if marked
+        if (markedAny && gameState.currentPlayer.boards.length > 0) {
+            displayCurrentPlayerBoards(gameState.currentBoardIndex);
+        }
+    }
+}
+
+function showWinnerMessage(winnerId, winnerName, prize) {
+    const isCurrentPlayer = winnerId == userId; // Use == for string/number comparison
+    
+    console.log(`🏆 ${winnerName} won ${prize} ETB. Is it you? ${isCurrentPlayer}`);
+    
+    if (isCurrentPlayer) {
+        // Current player won!
+        console.log('🎉 YOU WON! Prize:', prize);
+        
+        // Add prize to balance
+        const oldBalance = gameState.currentPlayer.balance;
+        gameState.currentPlayer.balance += prize;
+        console.log(`💰 Balance updated: ${oldBalance} → ${gameState.currentPlayer.balance}`);
+        
+        // Update display
+        updateGameStats();
+        
+        // Show celebration
+        showWinnersList(prize, 1); // You can adjust total boards
+        
+        // Send win to Telegram if applicable
+        if (window.Telegram && Telegram.WebApp) {
+            Telegram.WebApp.sendData(JSON.stringify({
+                action: 'won',
+                prize: prize,
+                timestamp: Date.now()
+            }));
+        }
+    } else {
+        // Other player won
+        console.log(`😔 ${winnerName} won ${prize} ETB`);
+        
+        const winnerMsg = document.createElement('div');
+        winnerMsg.style.cssText = `
+            position: fixed;
+            top: 20%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.9);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            z-index: 1000;
+            text-align: center;
+            border: 2px solid var(--safari-gold);
+            min-width: 300px;
+        `;
+        winnerMsg.innerHTML = `
+            <h3 style="color: var(--safari-gold); margin-bottom: 10px;">🎉 BINGO! 🎉</h3>
+            <p style="font-size: 1.2rem; margin: 10px 0;">
+                <strong>${winnerName}</strong> won!
+            </p>
+            <div style="background: rgba(52, 152, 219, 0.3); padding: 10px; border-radius: 5px; margin: 10px 0;">
+                <p style="margin: 0; font-size: 1.1rem;">🏆 Prize: <strong>${prize} ETB</strong></p>
+            </div>
+            <p style="font-size: 0.9rem; color: #aaa; margin-top: 15px;">
+                Next game starting soon...
+            </p>
+        `;
+        document.body.appendChild(winnerMsg);
+        
+        setTimeout(() => {
+            if (winnerMsg.parentNode) {
+                winnerMsg.parentNode.removeChild(winnerMsg);
+            }
+        }, 5000);
+    }
+}
+
+function showGameEndedMessage(message) {
+    console.log('⏰ Game ended:', message);
+    
+    const endMsg = document.createElement('div');
+    endMsg.style.cssText = `
+        position: fixed;
+        top: 30%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: rgba(0,0,0,0.9);
+        color: white;
+        padding: 20px;
+        border-radius: 10px;
+        z-index: 1000;
+        text-align: center;
+        border: 2px solid #e74c3c;
+        min-width: 300px;
+    `;
+    endMsg.innerHTML = `
+        <h3 style="color: #e74c3c; margin-bottom: 10px;">⏰ Game Ended</h3>
+        <p style="margin: 10px 0; font-size: 1.1rem;">${message}</p>
+        <p style="font-size: 0.9rem; color: #aaa; margin-top: 15px;">
+            Next game starting in 5 seconds...
+        </p>
+    `;
+    document.body.appendChild(endMsg);
+    
+    setTimeout(() => {
+        if (endMsg.parentNode) {
+            endMsg.parentNode.removeChild(endMsg);
+        }
+        // Start new game cycle
+        setTimeout(() => startGameCycle(), 2000);
+    }, 5000);
+}
+
+function showGameMessage(text, type = 'info') {
+    const colors = {
+        'success': '#2ecc71',
+        'error': '#e74c3c', 
+        'info': '#3498db',
+        'warning': '#f39c12'
+    };
+    
+    const msg = document.createElement('div');
+    msg.style.cssText = `
+        position: fixed;
+        top: 50px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: ${colors[type] || colors.info};
+        color: white;
+        padding: 12px 24px;
+        border-radius: 8px;
+        z-index: 1000;
+        text-align: center;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        font-weight: 500;
+        min-width: 300px;
+        max-width: 90%;
+        word-wrap: break-word;
+    `;
+    msg.textContent = text;
+    document.body.appendChild(msg);
+    
+    setTimeout(() => {
+        if (msg.parentNode) {
+            msg.parentNode.removeChild(msg);
+        }
+    }, 3000);
+}
+
+function showChatMessage(senderId, senderName, message) {
+    // Optional: You can implement a chat UI if you want
+    console.log(`💬 ${senderName}: ${message}`);
+}
+
+
+
+
+// ==================== INTEGRATE WITH SERVER  ====================
+
+// Get user ID from URL
+const urlParams = new URLSearchParams(window.location.search);
+const userId = urlParams.get('user') || 'demo';
+
+// Load user balance from server API
+async function loadBalanceFromServer() {
+    try {
+        const response = await fetch(`${API_BASE}/api/user/${userId}/balance`);
+        const data = await response.json();
+        
+        if (data.success) {
+            // Update YOUR balance display (match your element ID)
+            const balanceElement = document.getElementById('balanceValue');
+            if (balanceElement) {
+                balanceElement.textContent = data.balance + ' ETB';
+            }
+            
+            // Store in global variables
+            gameState.currentPlayer.balance = data.balance;
+            gameState.currentPlayer.username = data.username;
+            
+            // Update gameState balance
+            if (data.registered) {
+                console.log(`Welcome ${data.username}! Balance: ${data.balance} ETB`);
+            } else {
+                console.log(`Guest user. Balance: ${data.balance} ETB`);
+            }
+            
+            // Update stats
+            updateGameStats();
+            return true;
+        }
+    } catch (error) {
+        console.error('Error loading balance from server:', error);
+        // Fallback for local testing
+        gameState.currentPlayer.balance = 1000;
+        updateGameStats();
+        return false;
+    }
+}
+
+// Deduct game fee from server
+async function deductGameFeeFromServer(amount) {
+    try {
+        const response = await fetch(`${API_BASE}/api/game/play`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ userId: userId, amount: amount })
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+            // Update local balance
+            gameState.currentPlayer.balance = data.newBalance;
+            
+            // Update display
+            const balanceElement = document.getElementById('balanceValue');
+            if (balanceElement) {
+                balanceElement.textContent = data.newBalance + ' ETB';
+            }
+            
+            console.log(`💰 Game fee deducted: ${amount} ETB. New balance: ${data.newBalance} ETB`);
+            return true;
+        } else {
+            alert(data.error || 'Payment failed');
+            return false;
+        }
+    } catch (error) {
+        console.error('Payment error:', error);
+        alert('Network error. Please check your connection.');
+        return false;
+    }
+}
+
+// Add winnings to server
+async function addWinningsToServer(amount) {
+    try {
+       const response = await fetch(`${API_BASE}/api/game/win`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ userId: userId, amount: amount })
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+            // Update local balance
+            gameState.currentPlayer.balance = data.newBalance;
+            
+            // Update display
+            const balanceElement = document.getElementById('balanceValue');
+            if (balanceElement) {
+                balanceElement.textContent = data.newBalance + ' ETB';
+            }
+            
+            console.log(`🎉 Winnings added: ${amount} ETB. New balance: ${data.newBalance} ETB`);
+            return true;
+        }
+    } catch (error) {
+        console.error('Win error:', error);
+    }
+    return false;
+}
+
+
+// ==================== MISSING API FUNCTIONS ====================
+
+// Get active games from server
+async function getActiveGames() {
+    try {
+        console.log('🔍 Fetching active games...');
+        const response = await fetch(`${API_BASE}/api/games/active`);
+        const data = await response.json();
+        
+        if (data.success) {
+            console.log(`🎮 Found ${data.games.length} active game(s)`);
+            return data.games;
+        }
+        return [];
+    } catch (error) {
+        console.error('Error fetching active games:', error);
+        return [];
+    }
+}
+
+// Get next game start time
+async function getNextGameStart() {
+    try {
+        const response = await fetch(`${API_BASE}/api/game/next-start`);
+        const data = await response.json();
+        
+        if (data.success) {
+            return data;
+        }
+        return null;
+    } catch (error) {
+        console.error('Error getting next game:', error);
         return null;
     }
 }
 
-async function getPlayerCount(gameId) {
+// Load user data
+async function loadUserData() {
     try {
-        const result = await pool.query(
-            `SELECT COUNT(*) as count FROM game_players WHERE game_id = $1`,
-            [gameId]
-        );
-        return parseInt(result.rows[0].count);
-    } catch (error) {
-        console.error('Error getting player count:', error);
-        return 0;
-    }
-}
-
-async function getGamePrizePool(gameId) {
-    try {
-        const result = await pool.query(
-            `SELECT prize_pool FROM multiplayer_games WHERE id = $1`,
-            [gameId]
-        );
-        return parseFloat(result.rows[0]?.prize_pool) || 0;
-    } catch (error) {
-        console.error('Error getting prize pool:', error);
-        return 0;
-    }
-}
-
-async function markPlayerNumber(gameId, userId, number) {
-    try {
-        const playerResult = await pool.query(
-            `SELECT marked_numbers FROM game_players WHERE game_id = $1 AND user_id = $2`,
-            [gameId, userId]
-        );
+        const response = await fetch(`/api/user/${userId}/balance`);
+        const data = await response.json();
         
-        if (playerResult.rows.length === 0) return false;
-        
-        let markedNumbers = playerResult.rows[0].marked_numbers ? 
-            JSON.parse(playerResult.rows[0].marked_numbers) : [];
-        
-        if (!markedNumbers.includes(number)) {
-            markedNumbers.push(number);
-            await pool.query(
-                `UPDATE game_players SET marked_numbers = $1 WHERE game_id = $2 AND user_id = $3`,
-                [JSON.stringify(markedNumbers), gameId, userId]
-            );
+        if (data.success) {
+            // Update your UI elements
+            const balanceElement = document.getElementById('balanceValue');
+            if (balanceElement) {
+                balanceElement.textContent = data.balance + ' ETB';
+            }
+            
+            gameState.currentPlayer.balance = data.balance;
+            gameState.currentPlayer.username = data.username || 'Player';
+            
+            console.log(`👤 User ${gameState.currentPlayer.username} loaded, balance: ${data.balance} ETB`);
             return true;
         }
         return false;
     } catch (error) {
-        console.error('Error marking number:', error);
+        console.error('Error loading user data:', error);
         return false;
     }
 }
 
-async function checkBingo(gameId, userId) {
+
+// Get game state
+async function getGameStateApi(gameId) {
     try {
-        const gameResult = await pool.query(
-            `SELECT called_numbers FROM multiplayer_games WHERE id = $1`,
-            [gameId]
-        );
+        const response = await fetch(`${API_BASE}/api/game/${gameId}/state/${userId}`);
+        return await response.json();
+    } catch (error) {
+        console.error('Error getting game state:', error);
+        return { success: false, error: 'Network error' };
+    }
+}
+
+
+// MODIFY YOUR confirmSelection() FUNCTION:
+
+// A. Replace confirmSelection() function (around line 1500)
+// Find this function and REPLACE it completely:
+function confirmSelection() {
+    if (gameState.selectedBoards.size === 0) {
+        alert(t('selectOneBoard'));
+        return;
+    }
+    
+    const totalCost = gameState.selectedBoards.size * CONFIG.BET_AMOUNT;
+    
+    // Check balance
+    if (totalCost > gameState.currentPlayer.balance) {
+        alert(t('insufficientBalance'));
+        return;
+    }
+    
+    // JOIN MULTIPLAYER GAME (NOT local simulation)
+    joinMultiplayerGameViaAPI(totalCost);
+}
+
+
+        // Add event listener for the existing language selector in top-nav
+document.addEventListener('DOMContentLoaded', function() {
+    const languageSelect = document.getElementById('languageSelect');
+    
+    if (languageSelect) {
+        // Load saved language preference
+        const savedLanguage = localStorage.getItem('shebaBingoLanguage') || 'en';
+        languageSelect.value = savedLanguage;
         
-        const playerResult = await pool.query(
-            `SELECT boards, marked_numbers FROM game_players WHERE game_id = $1 AND user_id = $2 AND has_bingo = false`,
-            [gameId, userId]
-        );
-        
-        if (gameResult.rows.length === 0 || playerResult.rows.length === 0) {
-            return false;
+        // Apply saved language on load
+        if (typeof setLanguage === 'function') {
+            setLanguage(savedLanguage);
         }
         
-        const calledNumbers = gameResult.rows[0].called_numbers ? 
-            JSON.parse(gameResult.rows[0].called_numbers) : [];
-        const playerBoards = JSON.parse(playerResult.rows[0].boards);
-        const markedNumbers = playerResult.rows[0].marked_numbers ? 
-            JSON.parse(playerResult.rows[0].marked_numbers) : [];
+        // Listen for language changes
+        languageSelect.addEventListener('change', function() {
+            const selectedLanguage = this.value;
+            localStorage.setItem('shebaBingoLanguage', selectedLanguage);
+            
+            if (typeof setLanguage === 'function') {
+                setLanguage(selectedLanguage);
+            }
+        });
+    }
+});
+        // Service Worker Communication
+        function setupServiceWorker() {
+             // Empty function - does nothing
+        }
+
+        function showUpdateNotification() {
+            // Show a notification that an update is available
+            return;
+        }
+
+        // Create language selector
+        // Keep this function but remove the CSS styling:
+// Set language function - COMPREHENSIVE VERSION
+function setLanguage(lang) {
+    gameState.currentLanguage = lang;
+    const t = TRANSLATIONS[lang];
+    
+    // Update game title
+    const headerTitle = document.querySelector('.header h1');
+    if (headerTitle) headerTitle.textContent = t.gameTitle;
+    
+    // Update game status
+    updateGameStatus();
+    
+    // Update dashboard stats labels
+    document.querySelectorAll('.stat-label').forEach((label, index) => {
+        const labels = [t.balance, t.prize, t.players, t.bet, t.called];
+        if (labels[index]) {
+            label.textContent = labels[index];
+        }
+    });
+    
+    // Update BINGO header letters
+    const boardLetters = document.querySelectorAll('.board-letter');
+    const bingoLetters = [t.bingoB, t.bingoI, t.bingoN, t.bingoG, t.bingoO];
+    boardLetters.forEach((letter, index) => {
+        if (bingoLetters[index]) {
+            letter.textContent = bingoLetters[index];
+        }
+    });
+    
+    // Update table headers in player boards
+    const tableHeaders = document.querySelectorAll('.bingo-table th');
+    tableHeaders.forEach((th, index) => {
+        if (bingoLetters[index]) {
+            th.textContent = bingoLetters[index];
+        }
+    });
+    
+    // Update other UI elements
+    const callLabel = document.querySelector('.call-label');
+    const calledNumbersLabel = document.querySelector('.called-numbers-label');
+    const instructionsTitle = document.querySelector('.instructions-title');
+    const instructionsContent = document.querySelector('.instructions-content');
+    const playerBoardsTitle = document.querySelector('.player-boards-title');
+    
+    if (callLabel) callLabel.textContent = t.currentCall;
+    if (calledNumbersLabel) calledNumbersLabel.textContent = t.recentlyCalled;
+    if (instructionsTitle) instructionsTitle.innerHTML = `<u>${t.howToWin}</u>`;
+    if (instructionsContent) instructionsContent.innerHTML = `${t.howToWin}: <br><span class="win-condition">${t.winCondition}</span>`;
+    if (playerBoardsTitle) playerBoardsTitle.textContent = t.yourBoards;
+    
+    // Update registration popup
+    const infoItems = document.querySelectorAll('.info-item span');
+    if (infoItems[0]) infoItems[0].textContent = t.pricePerBoard;
+    if (infoItems[1]) infoItems[1].textContent = t.maxBoards;
+    if (infoItems[2]) infoItems[2].textContent = t.timeRemaining;
+    
+    const summaryItems = document.querySelectorAll('.summary-item span');
+    if (summaryItems[0]) summaryItems[0].textContent = t.boardsSelected;
+    if (summaryItems[1]) summaryItems[1].textContent = t.totalCost;
+    
+    const popupButtons = document.querySelectorAll('.popup-actions button');
+    if (popupButtons[0]) popupButtons[0].textContent = t.cancel;
+    if (popupButtons[1]) popupButtons[1].textContent = t.confirmJoin;
+    
+    // Update BINGO button if it exists
+    const bingoBtn = document.querySelector('.bingo-btn');
+    if (bingoBtn) bingoBtn.textContent = t.claimBingo;
+    
+    // Update Telegram Main Button if exists
+    if (window.Telegram && Telegram.WebApp) {
+        Telegram.WebApp.MainButton.setText(t.playBingo);
+    }
+    
+    console.log(`🌍 Language changed to: ${lang}`);
+}
+        // Get translation
+        function t(key) {
+            return TRANSLATIONS[gameState.currentLanguage][key] || TRANSLATIONS.en[key] || key;
+        }
+
+       // C. Replace startGameCycle() function (around line 500)
+function startGameCycle() {
+    console.log('🔄 Starting game cycle...');
+    gameState.gamePhase = 'waiting';
+    updateGameStatus();
+    
+    // Clear any existing intervals
+    if (gameState.timerInterval) {
+        clearInterval(gameState.timerInterval);
+        gameState.timerInterval = null;
+    }
+    
+    // Show waiting message briefly
+    showWaitForNextGame('Finding available games...');
+    
+    // Check for active games after 1 second
+    setTimeout(() => {
+        checkForActiveGames();
+    }, 1000);
+}
+
+async function checkForActiveGames() {
+    try {
+        console.log('🔍 Checking for active games...');
         
-        // Check each board for BINGO
-        for (const board of playerBoards) {
-            if (checkBoardForBingo(board.boardData, markedNumbers, calledNumbers)) {
-                return true;
+        // ✅ FIX 1: Use the CORRECT endpoint that exists in your server
+        const response = await fetch('/api/multiplayer/games');
+        const data = await response.json();
+        
+        console.log('📡 API Response:', data);
+        
+        // ✅ FIX 2: Handle the response correctly
+        if (data.success && data.games && data.games.length > 0) {
+            console.log(`🎮 Found ${data.games.length} active game(s)`);
+            
+            // Find any waiting game
+            const availableGame = data.games.find(game => 
+                game.status === 'waiting' || game.status === 'selecting'
+            );
+            
+            if (availableGame) {
+                console.log(`🎯 Joining game: ${availableGame.id}`);
+                console.log(`👥 Players: ${availableGame.players}, Time left: ${availableGame.timeLeft}s`);
+                
+                // ✅ FIX 3: Store the game ID and show popup
+                window.currentGameId = availableGame.id;
+                openRegistrationPopup();
+                return;
             }
         }
         
-        return false;
+        // ✅ FIX 4: If no games, create one by showing registration popup directly
+        console.log('🆕 No active games found - showing registration to create new game');
+        
+        // Clear any waiting message
+        const waitDiv = document.querySelector('.wait-message');
+        if (waitDiv) waitDiv.remove();
+        
+        // Show registration popup immediately
+        openRegistrationPopup();
+        
     } catch (error) {
-        console.error('Error checking BINGO:', error);
-        return false;
+        console.error('❌ Error checking active games:', error);
+        
+        // ✅ FIX 5: On error, still show registration popup (fallback)
+        console.log('⚠️ API error, falling back to local mode');
+        showWaitForNextGame('Connecting to server...');
+        
+        setTimeout(() => {
+            openRegistrationPopup();
+        }, 2000);
     }
 }
 
-async function declareWinner(gameId, userId) {
-    const client = await pool.connect();
+// D. Add mark number function for WebSocket
+function markNumberOnBoard(number) {
+    if (!gameState.currentPlayer.isActive || !currentGameId) return;
     
-    try {
-        await client.query('BEGIN');
-        
-        // 1. Get game and user info
-        const gameResult = await client.query(
-            `SELECT prize_pool FROM multiplayer_games WHERE id = $1 AND status = 'active'`,
-            [gameId]
-        );
-        
-        if (gameResult.rows.length === 0) {
-            throw new Error('Game not found or not active');
-        }
-        
-        const user = users[userId];
-        if (!user) throw new Error('User not found');
-        
-        const prize = parseFloat(gameResult.rows[0]?.prize_pool) || 0;
-        
-        // 2. Award prize to user
-        user.balance += prize;
-        user.totalWon = (user.totalWon || 0) + prize;
-        saveUsers();
-        
-        // 3. Update game status
-        await client.query(
-            `UPDATE multiplayer_games 
-             SET status = 'completed', winner_id = $1, end_time = $2
-             WHERE id = $3`,
-            [userId, new Date().toISOString(), gameId]
-        );
-        
-        // 4. Mark player as winner
-        await client.query(
-            `UPDATE game_players SET has_bingo = true WHERE game_id = $1 AND user_id = $2`,
-            [gameId, userId]
-        );
-        
-        await client.query('COMMIT');
-        
-        // 5. Notify via Telegram
-        if (user.chatId) {
-            await sendTelegramMessage(user.chatId,
-                `🎊 *CONGRATULATIONS! YOU WON!*\n\n` +
-                `🏆 You got BINGO!\n` +
-                `💰 Prize: ${prize.toFixed(1)} ETB added to your balance!\n` +
-                `📊 New Balance: ${user.balance.toFixed(1)} ETB\n\n` +
-                `🎮 Play again to win more!`
-            );
-        }
-        
-        // 6. Record win in file-based games
-        games.push({
-            id: 'win_' + Date.now(),
+    // Send to server via WebSocket
+    if (gameSocket && gameSocket.readyState === WebSocket.OPEN) {
+        gameSocket.send(JSON.stringify({
+            type: 'mark_number',
+            gameId: currentGameId,
             userId: userId,
-            amount: prize,
-            date: new Date().toISOString(),
-            type: 'win',
-            gameId: gameId
-        });
-        saveGames();
-        
-        console.log(`🏆 User ${user.username} won ${prize} ETB in game ${gameId}`);
-        
-        return { success: true, prize: prize };
-        
-    } catch (error) {
-        await client.query('ROLLBACK');
-        console.error('Error declaring winner:', error);
-        return { success: false, error: error.message };
-    } finally {
-        client.release();
+            number: number
+        }));
+        console.log(`✅ Marked number ${number} (sent to server)`);
     }
 }
 
-// ==================== GAME LOGIC FUNCTIONS ====================
-function generateBingoBoard() {
-    const board = { B: [], I: [], N: [], G: [], O: [] };
-    
-    // B: 1-15, I: 16-30, N: 31-45, G: 46-60, O: 61-75
-    for (let i = 0; i < 5; i++) {
-        board.B.push(getUniqueNumber(board.B, 1, 15));
-        board.I.push(getUniqueNumber(board.I, 16, 30));
-        board.N.push(getUniqueNumber(board.N, 31, 45));
-        board.G.push(getUniqueNumber(board.G, 46, 60));
-        board.O.push(getUniqueNumber(board.O, 61, 75));
+
+        function startBoardSelection() {
+            gameState.gamePhase = 'selecting';
+            updateGameStatus();
+            
+            // Reset game state for new round
+            gameState.calledNumbers = [];
+            gameState.currentCall = null;
+            gameState.selectedBoards.clear();
+            gameState.activePlayers = [];
+            gameState.totalPrizePool = 0;
+            gameState.ownerCommission = 0;
+            gameState.winners = [];
+            gameState.currentBoardIndex = 0;
+
+            gameState.ownerCommissionTotal = 0;
+            gameState.commissionHistory = [];
+            gameState.withdrawalHistory = [];
+
+
+            
+            // Clear any existing intervals
+            if (gameState.callInterval) {
+                clearInterval(gameState.callInterval);
+                gameState.callInterval = null;
+            }
+            
+            // Open registration popup automatically
+            openRegistrationPopup();
+            
+            // Start selection timer
+            startSelectionTimer();
+        }
+
+       function startSelectionTimer() {
+    // If timer already set from server, use that
+    if (gameState.selectionTimer <= 0) {
+        gameState.selectionTimer = CONFIG.SELECTION_TIME;
     }
     
-    // Free space in center (N column, 3rd row)
-    board.N[2] = 'FREE';
+    updateTimerDisplay();
     
-    return board;
+    // Clear any existing interval
+    if (gameState.timerInterval) {
+        clearInterval(gameState.timerInterval);
+    }
+    
+    gameState.timerInterval = setInterval(() => {
+        gameState.selectionTimer--;
+        updateTimerDisplay();
+        
+        if (gameState.selectionTimer <= 0) {
+            clearInterval(gameState.timerInterval);
+            autoConfirmSelection();
+        }
+    }, 1000);
 }
 
-function getUniqueNumber(existing, min, max) {
-    let num;
-    do {
-        num = Math.floor(Math.random() * (max - min + 1)) + min;
-    } while (existing.includes(num));
-    return num;
+        function startShufflingPhase() {
+    gameState.gamePhase = 'shuffling';
+    updateGameStatus();
+    
+    // Server will handle: simulateOtherPlayersSelection() and calculatePrizePool()
+    
+    // Only display boards if current player is active
+    if (gameState.currentPlayer.isActive) {
+        displayCurrentPlayerBoards();
+    } else {
+        showSpectatorMessage();
+    }
+    
 }
 
-function checkBoardForBingo(boardData, markedNumbers, calledNumbers) {
-    // Convert called numbers to just numbers
-    const calledNums = calledNumbers.map(cn => {
-        const num = cn.replace(/[BINGO]/, '');
-        return parseInt(num);
+        // NEW: Function to get winning numbers list
+        function getWinningNumbersList(board, winningPattern) {
+            const winningCells = getWinningCells(board, winningPattern);
+            const winningNumbers = [];
+            
+            for (const cell of winningCells) {
+                const number = board.boardData[cell.row][cell.col];
+                if (number !== 'FREE') {
+                    // Convert to B-I-N-G-O format
+                    let letter = '';
+                    if (number <= 15) letter = 'B';
+                    else if (number <= 30) letter = 'I';
+                    else if (number <= 45) letter = 'N';
+                    else if (number <= 60) letter = 'G';
+                    else letter = 'O';
+                    
+                    winningNumbers.push(`${letter}-${number}`);
+                }
+            }
+            
+            // Remove duplicates and sort
+            const uniqueNumbers = [...new Set(winningNumbers)].sort((a, b) => {
+                const numA = parseInt(a.split('-')[1]);
+                const numB = parseInt(b.split('-')[1]);
+                return numA - numB;
+            });
+            
+            return uniqueNumbers.map(num => 
+                `<span style="background: #e74c3c; color: white; padding: 4px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: bold;">${num}</span>`
+            ).join('');
+        }
+
+        // NEW: Enhanced pattern detection with more details
+        function detectWinningPattern(board) {
+            // Check horizontal wins
+            for (let row = 0; row < 5; row++) {
+                let complete = true;
+                for (let col = 0; col < 5; col++) {
+                    const cellValue = board.boardData[row][col];
+                    if (cellValue !== '★' && !board.markedNumbers.has(cellValue)) {
+                        complete = false;
+                        break;
+                    }
+                }
+                if (complete) {
+                    return {
+                        name: `Row ${row + 1}`,
+                        description: `Complete horizontal line across row ${row + 1}`,
+                        type: 'horizontal',
+                        row: row
+                    };
+                }
+            }
+
+            // Check vertical wins
+            for (let col = 0; col < 5; col++) {
+                let complete = true;
+                for (let row = 0; row < 5; row++) {
+                    const cellValue = board.boardData[row][col];
+                    if (cellValue !== '★' && !board.markedNumbers.has(cellValue)) {
+                        complete = false;
+                        break;
+                    }
+                }
+                if (complete) {
+                    const columnNames = ['B', 'I', 'N', 'G', 'O'];
+                    return {
+                        name: `Column ${columnNames[col]}`,
+                        description: `Complete vertical line down column ${columnNames[col]}`,
+                        type: 'vertical',
+                        col: col
+                    };
+                }
+            }
+
+            // Check diagonal 1 (top-left to bottom-right)
+            let diag1Complete = true;
+            for (let i = 0; i < 5; i++) {
+                const cellValue = board.boardData[i][i];
+                if (cellValue !== '★' && !board.markedNumbers.has(cellValue)) {
+                    diag1Complete = false;
+                    break;
+                }
+            }
+            if (diag1Complete) {
+                return {
+                    name: "Diagonal ↘️",
+                    description: "Diagonal line from top-left to bottom-right",
+                    type: 'diagonal1'
+                };
+            }
+
+            // Check diagonal 2 (top-right to bottom-left)
+            let diag2Complete = true;
+            for (let i = 0; i < 5; i++) {
+                const cellValue = board.boardData[i][4 - i];
+                if (cellValue !== '★' && !board.markedNumbers.has(cellValue)) {
+                    diag2Complete = false;
+                    break;
+                }
+            }
+            if (diag2Complete) {
+                return {
+                    name: "Diagonal ↙️",
+                    description: "Diagonal line from top-right to bottom-left",
+                    type: 'diagonal2'
+                };
+            }
+
+            // Check four corners
+            const corners = [
+                board.boardData[0][0], // Top-left
+                board.boardData[0][4], // Top-right
+                board.boardData[4][0], // Bottom-left
+                board.boardData[4][4]  // Bottom-right
+            ];
+            const cornersComplete = corners.every(corner => 
+                corner === '★' || board.markedNumbers.has(corner)
+            );
+            if (cornersComplete) {
+                return {
+                    name: "Four Corners 🎯",
+                    description: "All four corners of the board marked",
+                    type: 'corners'
+                };
+            }
+
+            // Check X pattern (both diagonals)
+            if (diag1Complete && diag2Complete) {
+                return {
+                    name: "X Pattern ❌",
+                    description: "Both diagonal lines forming an X",
+                    type: 'xpattern'
+                };
+            }
+
+            // Check full house
+            let fullHouse = true;
+            for (let row = 0; row < 5; row++) {
+                for (let col = 0; col < 5; col++) {
+                    const cellValue = board.boardData[row][col];
+                    if (cellValue !== '★' && !board.markedNumbers.has(cellValue)) {
+                        fullHouse = false;
+                        break;
+                    }
+                }
+                if (!fullHouse) break;
+            }
+            if (fullHouse) {
+                return {
+                    name: "Full House 🏠",
+                    description: "Every number on the board marked",
+                    type: 'fullhouse'
+                };
+            }
+
+            return {
+                name: "Special Pattern",
+                description: "Unique winning combination",
+                type: 'special'
+            };
+        }
+
+        // UPDATED: Enhanced board display with better pattern highlighting
+ function displayWinningBoardWithPattern(board, winningPattern) {
+    const winningCells = getWinningCells(board, winningPattern);
+    
+    let tableHTML = `
+        <div style="display: inline-block; background: rgba(0,0,0,0.3); padding: 8px; border-radius: 8px; margin: 5px 0;">
+            <table style="border-collapse: collapse; font-size: 0.7rem; border: 1px solid var(--safari-gold); background: rgba(255,255,255,0.05);">
+    `;
+    
+    // Compact header with individual letter colors
+    tableHTML += '<tr>';
+    
+    // Individual letter colors matching BINGO columns
+    const headerStyles = [
+        'background: linear-gradient(135deg, #3498db 0%, #2980b9 100%); color: white;', // B - Blue
+        'background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%); color: white;', // I - Red/Orange
+        'background: linear-gradient(135deg, #2ecc71 0%, #27ae60 100%); color: white;', // N - Green
+        'background: linear-gradient(135deg, #f1c40f 0%, #f39c12 100%); color: #2c3e50;', // G - Gold/Yellow
+        'background: linear-gradient(135deg, #9b59b6 0%, #8e44ad 100%); color: white;'  // O - Purple
+    ];
+    
+    const letters = ['B', 'I', 'N', 'G', 'O'];
+    letters.forEach((letter, index) => {
+        tableHTML += `
+            <th style="
+                ${headerStyles[index]}
+                padding: 5px 3px;
+                font-weight: bold;
+                font-size: 0.65rem;
+                border-bottom: 2px solid rgba(0,0,0,0.2);
+                min-width: 25px;
+            ">${letter}</th>
+        `;
     });
     
+    tableHTML += '</tr>';
+    
+    // Compact board cells with column-based background tints
+    for (let row = 0; row < 5; row++) {
+        tableHTML += '<tr>';
+        for (let col = 0; col < 5; col++) {
+            const cellValue = board.boardData[row][col];
+            const isMarked = board.markedNumbers.has(cellValue) || cellValue === 'FREE';
+            const isWinningCell = winningCells.some(cell => cell.row === row && cell.col === col);
+            
+            // Column-based background tints
+            const columnTints = [
+                'rgba(52, 152, 219, 0.1)', // B - Blue tint
+                'rgba(231, 76, 60, 0.1)',   // I - Red tint
+                'rgba(46, 204, 113, 0.1)',  // N - Green tint
+                'rgba(241, 196, 15, 0.1)',  // G - Gold tint
+                'rgba(155, 89, 182, 0.1)'   // O - Purple tint
+            ];
+            
+            let cellStyle = '';
+            
+            if (isWinningCell) {
+                // Winning cell - gold/yellow highlight
+                cellStyle = `
+                    background: linear-gradient(135deg, var(--safari-gold) 0%, #e67e22 100%);
+                    color: var(--charcoal-dark);
+                    border: 2px solid #e67e22;
+                    font-weight: 800;
+                `;
+            } else if (isMarked) {
+                // Marked cell - green
+                cellStyle = `
+                    background: linear-gradient(135deg, #2ecc71 0%, #27ae60 100%);
+                    color: white;
+                    border: 1px solid #27ae60;
+                `;
+            } else {
+                // Regular cell - column tint
+                cellStyle = `
+                    background: ${columnTints[col]};
+                    color: #bdc3c7;
+                    border: 1px solid rgba(255,255,255,0.1);
+                `;
+            }
+            
+            // FIXED: Free space star now has green background
+            tableHTML += `
+                <td style="${cellStyle} padding: 4px 2px; text-align: center; font-weight: bold; min-width: 20px;">
+                    ${cellValue === '★' ? 
+                        '<div style="background: linear-gradient(135deg, #2ecc71, #27ae60); color: white; border-radius: 3px; padding: 2px; font-weight: 800; font-size: 0.6rem;">★</div>' : 
+                        cellValue}
+                </td>
+            `;
+        }
+        tableHTML += '</tr>';
+    }
+    
+    tableHTML += '</table>';
+    
+    // Compact pattern indicator
+    tableHTML += `
+        <div style="margin-top: 5px; color: var(--safari-gold); font-size: 0.65rem; text-align: center;">
+            ${winningPattern.name}
+        </div>
+    `;
+    
+    tableHTML += '</div>';
+    return tableHTML;
+}
+
+        // UPDATED: Get winning cells with pattern-specific logic
+        function getWinningCells(board, winningPattern) {
+            const winningCells = [];
+            
+            switch(winningPattern.type) {
+                case 'horizontal':
+                    const row = winningPattern.row;
+                    for (let col = 0; col < 5; col++) {
+                        winningCells.push({ row, col });
+                    }
+                    break;
+                    
+                case 'vertical':
+                    const col = winningPattern.col;
+                    for (let row = 0; row < 5; row++) {
+                        winningCells.push({ row, col });
+                    }
+                    break;
+                    
+                case 'diagonal1':
+                    for (let i = 0; i < 5; i++) {
+                        winningCells.push({ row: i, col: i });
+                    }
+                    break;
+                    
+                case 'diagonal2':
+                    for (let i = 0; i < 5; i++) {
+                        winningCells.push({ row: i, col: 4 - i });
+                    }
+                    break;
+                    
+                case 'corners':
+                    winningCells.push(
+                        { row: 0, col: 0 }, // Top-left
+                        { row: 0, col: 4 }, // Top-right
+                        { row: 4, col: 0 }, // Bottom-left
+                        { row: 4, col: 4 }  // Bottom-right
+                    );
+                    break;
+                    
+                case 'xpattern':
+                    for (let i = 0; i < 5; i++) {
+                        winningCells.push({ row: i, col: i }); // Main diagonal
+                        winningCells.push({ row: i, col: 4 - i }); // Anti-diagonal
+                    }
+                    break;
+                    
+                case 'fullhouse':
+                    // All cells are winning in full house
+                    for (let row = 0; row < 5; row++) {
+                        for (let col = 0; col < 5; col++) {
+                            winningCells.push({ row, col });
+                        }
+                    }
+                    break;
+                    
+                default:
+                    // For special patterns, find all marked cells
+                    for (let row = 0; row < 5; row++) {
+                        for (let col = 0; col < 5; col++) {
+                            const cellValue = board.boardData[row][col];
+                            if (cellValue === 'FREE' || board.markedNumbers.has(cellValue)) {
+                                winningCells.push({ row, col });
+                            }
+                        }
+                    }
+                    break;
+            }
+            
+            return winningCells;
+        }
+
+        // Winner notification
+        function showWinnersList(prizePerWinner, totalBoards, serverWinners = []) {
+    const winnersContainer = document.createElement('div');
+    winnersContainer.className = 'winners-list';
+    winnersContainer.style.cssText = `
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: rgba(0,0,0,0.95);
+        color: white;
+        padding: 25px;
+        border-radius: 15px;
+        z-index: 1000;
+        max-height: 80vh;
+        overflow-y: auto;
+        width: 90%;
+        max-width: 500px;
+        border: 3px solid var(--safari-gold);
+        box-shadow: 0 0 30px rgba(241, 196, 15, 0.5);
+        text-align: center;
+        font-family: 'Poppins', sans-serif;
+    `;
+    
+    const t = TRANSLATIONS[gameState.currentLanguage];
+    
+    // Use server data if available, otherwise use local
+    const winnersToShow = serverWinners.length > 0 ? serverWinners : gameState.winners;
+    
+    let winnersHTML = `
+        <h2 style="color: var(--safari-gold); margin-bottom: 10px; 
+        font-size: 1.8rem; font-weight: 700;"># BINGO WINNERS</h2>
+        
+        <div style="text-align: left; margin-bottom: 20px; background: 
+        rgba(255,255,255,0.1); padding: 15px; border-radius: 10px;">
+            <div style="margin-bottom: 8px;"><strong>Prize per Winner:</strong> ${prizePerWinner} ETB</div>
+        </div>
+    `;
+    
+    // Show current player's updated balance if they won
+    const currentPlayerWins = winnersToShow.filter(winner => winner.player.id === gameState.currentPlayer.id);
+    if (currentPlayerWins.length > 0) {
+        winnersHTML += `
+            <div style="background: rgba(46, 204, 113, 0.2); padding: 12px; border-radius: 8px; margin: 15px 0; border: 2px solid #2ecc71;">
+                <strong style="color: #2ecc71; font-size: 1.1rem;">Your New Balance: ${gameState.currentPlayer.balance} ETB</strong>
+            </div>
+        `;
+        
+        // Update balance on server (add this new function)
+        updateBalanceOnServer(gameState.currentPlayer.balance).then(success => {
+            if (success) {
+                console.log('✅ Balance updated on server');
+            }
+        });
+    }
+    
+    winnersHTML += `<div style="height: 2px; background: var(--safari-gold); margin: 20px 0;"></div>`;
+    
+    winnersToShow.forEach(winner => {
+        const isCurrentPlayer = winner.player.id === gameState.currentPlayer.id;
+        const winningPattern = detectWinningPattern(winner.board);
+        
+        winnersHTML += `
+            <div style="margin: 25px 0; padding: 20px; background: rgba(255,255,255,0.05); border-radius: 12px; border: 2px solid ${isCurrentPlayer ? 'var(--safari-gold)' : 'rgba(255,255,255,0.2)'};">
+                <div style="color: ${isCurrentPlayer ? 'var(--safari-gold)' : '#ccc'}; font-weight: bold; margin-bottom: 10px; font-size: 1.2rem;">
+                    ${winner.player.telegramName || winner.player.name} ${isCurrentPlayer ? t.you : ''}
+                </div>
+                <div style="color: #ccc; margin-bottom: 15px; font-size: 0.9rem;">
+                    Board #${winner.board.boardNumber}
+                </div>
+                
+                <!-- Prize Information -->
+                <div style="color: #2ecc71; font-weight: bold; margin-bottom: 15px; font-size: 1rem;">
+                    🏆 <strong>Prize:</strong> ${prizePerWinner} ETB
+                </div>
+                
+                <!-- Winning Pattern Information -->
+                <div style="margin: 15px 0;">
+                    <div style="color: var(--safari-gold); font-size: 0.9rem; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 1px;">
+                        🎯 Winning Pattern: ${winningPattern.name}
+                    </div>
+                    <div style="color: #ccc; font-size: 0.8rem; margin-bottom: 15px; font-style: italic;">
+                        ${winningPattern.description}
+                    </div>
+                </div>
+                
+                <!-- Show actual winning board with highlighted pattern -->
+                <div style="margin-top: 15px;">
+                    ${displayWinningBoardWithPattern(winner.board, winningPattern)}
+                </div>
+                
+                <!-- Show winning numbers list -->
+                <div style="margin-top: 15px;">
+                    <div style="color: var(--safari-gold); font-size: 0.8rem; margin-bottom: 8px;">
+                        📋 Winning Numbers:
+                    </div>
+                    <div style="display: flex; flex-wrap: wrap; gap: 5px; background: rgba(255,255,255,0.05); padding: 10px; border-radius: 8px;">
+                        ${getWinningNumbersList(winner.board, winningPattern)}
+                    </div>
+                </div>
+            </div>
+        `;
+    });
+    
+    winnersHTML += `
+        <div style="margin-top: 25px; color: #3498db; font-size: 0.9rem; font-style: italic;">
+            ${t.nextGame}
+        </div>
+    `;
+    
+    winnersContainer.innerHTML = winnersHTML;
+    document.body.appendChild(winnersContainer);
+    
+    setTimeout(() => {
+        if (winnersContainer.parentNode) {
+            winnersContainer.parentNode.removeChild(winnersContainer);
+        }
+    }, 10000);
+}
+// ADD THIS NEW FUNCTION:
+async function updateBalanceOnServer(newBalance) {
+    try {
+        const response = await fetch(`${API_BASE}/api/user/update-balance`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                userId: userId,
+                balance: newBalance
+            })
+        });
+        
+        const data = await response.json();
+        return data.success === true;
+    } catch (error) {
+        console.error('Error updating balance on server:', error);
+        return false;
+    }
+}
+
+// ==================== DEPOSIT FUNCTION ====================
+
+// Go to deposit (opens Telegram bot)
+function goToDeposit() {
+    const t = TRANSLATIONS[gameState.currentLanguage];
+    
+    if (window.Telegram && Telegram.WebApp) {
+        // In Telegram Web App - send data to bot
+        Telegram.WebApp.sendData(JSON.stringify({
+            action: 'deposit',
+            userId: userId,
+            amount: CONFIG.BET_AMOUNT,
+            timestamp: Date.now()
+        }));
+        
+        // Show message
+        alert(t('redirectingToDeposit') || 'Opening deposit page in Telegram...');
+        
+    } else if (userId && userId !== 'demo') {
+        // In browser - open Telegram bot with start parameter
+        window.location.href = `https://t.me/your_bot_username?start=${userId}_deposit`;
+        
+    } else {
+        // No user ID - show instructions
+        alert(t('openFromTelegram') || 'Please open this game from Telegram bot to deposit.');
+    }
+}
+
+        // Create main bingo board display
+       function createMainBingoBoard() {
+    console.log("=== Creating STATIC BINGO Grid (75 numbers) ===");
+    
+    const grid = document.getElementById('bingoGrid');
+    if (!grid) {
+        console.error("❌ #bingoGrid element not found!");
+        return;
+    }
+    
+    // Clear only if needed
+    if (grid.children.length === 0) {
+        const letters = ['B', 'I', 'N', 'G', 'O'];
+        
+        for (let row = 0; row < 15; row++) {
+            for (let col = 0; col < 5; col++) {
+                const cell = document.createElement('div');
+                cell.className = 'bingo-cell';
+                
+                const letter = letters[col];
+                const range = CONFIG.BINGO_NUMBERS[letter];
+                const number = range[row];
+                
+                cell.textContent = number;
+                cell.setAttribute('data-letter', letter);
+                cell.setAttribute('data-number', number);
+                
+                grid.appendChild(cell);
+            }
+        }
+        
+        console.log(`✅ Created static grid: 75 cells (15×5)`);
+    } else {
+        console.log(`✅ Grid already exists: ${grid.children.length} cells`);
+    }
+}
+        // Setup event listeners
+        function setupEventListeners() {
+            elements.confirmSelection.addEventListener('click', confirmSelection);
+        }
+
+      // B. Replace claimBingo() function (around line 1600)
+// Find this function and REPLACE it completely:
+function claimBingo() {
+    if (!gameState.currentPlayer.isActive || !currentGameId) {
+        alert(t('cannotClaimBingo'));
+        return;
+    }
+    
+    if (!gameSocket || gameSocket.readyState !== WebSocket.OPEN) {
+        alert('Not connected to game server');
+        return;
+    }
+    
+    console.log('🎯 Claiming BINGO...');
+    
+    // Send BINGO claim to server
+    gameSocket.send(JSON.stringify({
+        type: 'claim_bingo',
+        gameId: currentGameId,
+        userId: userId
+    }));
+    
+    // Show checking status
+    gameState.gamePhase = 'checking';
+    updateGameStatus();
+    
+    showGameMessage('🎯 BINGO claimed! Waiting for server validation...', 'info');
+}
+
+
+function getAllWinningPatterns(board) {
+    const patterns = [];
+    
     // Check rows
-    for (let i = 0; i < 5; i++) {
-        let rowComplete = true;
-        const columns = ['B', 'I', 'N', 'G', 'O'];
-        for (const col of columns) {
-            const cell = boardData[col][i];
-            if (cell === 'FREE') continue;
-            if (!calledNums.includes(cell)) {
-                rowComplete = false;
+    for (let row = 0; row < 5; row++) {
+        let complete = true;
+        for (let col = 0; col < 5; col++) {
+            const cellValue = board.boardData[row][col];
+            if (cellValue !== '★' && !board.markedNumbers.has(cellValue)) {
+                complete = false;
                 break;
             }
         }
-        if (rowComplete) return true;
+        if (complete) patterns.push({ type: 'row', index: row });
     }
     
     // Check columns
-    const columns = ['B', 'I', 'N', 'G', 'O'];
-    for (const col of columns) {
-        let colComplete = true;
-        for (let i = 0; i < 5; i++) {
-            const cell = boardData[col][i];
-            if (cell === 'FREE') continue;
-            if (!calledNums.includes(cell)) {
-                colComplete = false;
+    for (let col = 0; col < 5; col++) {
+        let complete = true;
+        for (let row = 0; row < 5; row++) {
+            const cellValue = board.boardData[row][col];
+            if (cellValue !== '★' && !board.markedNumbers.has(cellValue)) {
+                complete = false;
                 break;
             }
         }
-        if (colComplete) return true;
+        if (complete) patterns.push({ type: 'column', index: col });
     }
     
     // Check diagonals
     let diag1Complete = true;
     let diag2Complete = true;
     for (let i = 0; i < 5; i++) {
-        // Top-left to bottom-right
-        const cell1 = boardData[columns[i]][i];
-        if (cell1 !== 'FREE' && !calledNums.includes(cell1)) {
+        const cell1 = board.boardData[i][i];
+        const cell2 = board.boardData[i][4 - i];
+        
+        if (cell1 !== '★' && !board.markedNumbers.has(cell1)) {
             diag1Complete = false;
         }
-        // Top-right to bottom-left
-        const cell2 = boardData[columns[4-i]][i];
-        if (cell2 !== 'FREE' && !calledNums.includes(cell2)) {
+        if (cell2 !== '★' && !board.markedNumbers.has(cell2)) {
             diag2Complete = false;
         }
     }
+    if (diag1Complete) patterns.push({ type: 'diagonal', name: 'main' });
+    if (diag2Complete) patterns.push({ type: 'diagonal', name: 'anti' });
     
-    return diag1Complete || diag2Complete;
-}
-// ==================== GAME CYCLE MANAGEMENT ====================
-async function startGameCycle() {
-    console.log('🔄 Starting OPTIMIZED 24/7 game cycle...');
+    // Check four corners
+    const corners = [
+        board.boardData[0][0],
+        board.boardData[0][4],
+        board.boardData[4][0],
+        board.boardData[4][4]
+    ];
+    const cornersComplete = corners.every(corner => 
+        corner === '★' || board.markedNumbers.has(corner)
+    );
+    if (cornersComplete) patterns.push({ type: 'corners' });
     
-    // Clear any existing intervals first (prevent duplicates)
-    if (global.gameCycleInterval) {
-        clearInterval(global.gameCycleInterval);
-        console.log('🧹 Cleared previous game cycle interval');
-    }
-    
-    // Clean up any old games first
-    await cleanupOldGames();
-    
-    // Create first game immediately
-    await createMultiplayerGame();
-    console.log('🆕 First game created');
-    
-    // Check for games every 30 seconds (NOT 10 seconds!)
-    global.gameCycleInterval = setInterval(async () => {
-        try {
-            console.log('🔄 Game cycle check running...');
-            
-            // 1. First, clean up completed/cancelled games
-            await cleanupOldGames();
-            
-            // 2. Count how many selection games are active (last 5 minutes only)
-            const selectingGames = await pool.query(`
-                SELECT COUNT(*) as count FROM multiplayer_games 
-                WHERE status = 'selecting'
-                AND created_at > NOW() - INTERVAL '5 minutes'
-                AND selection_end_time > NOW() + INTERVAL '5 seconds'  -- At least 5 seconds left
-            `);
-            
-            const selectingCount = parseInt(selectingGames.rows[0].count);
-            console.log(`📊 Currently ${selectingCount} game(s) in selection phase`);
-            
-            // 3. Only create new game if we have FEWER than 2 selection games
-            if (selectingCount < 2) {
-                console.log(`📝 Need more games, creating new one...`);
-                await createMultiplayerGame();
+    // Check full house (all numbers marked)
+    let fullHouse = true;
+    for (let row = 0; row < 5; row++) {
+        for (let col = 0; col < 5; col++) {
+            const cellValue = board.boardData[row][col];
+            if (cellValue !== '★' && !board.markedNumbers.has(cellValue)) {
+                fullHouse = false;
+                break;
             }
-            
-            // 4. Check for games that need to start
-            const gamesToStart = await pool.query(`
-                SELECT * FROM multiplayer_games 
-                WHERE status = 'selecting' 
-                AND selection_end_time <= NOW()
-                AND status != 'cancelled'
-                LIMIT 2
-            `);
-            
-            for (const game of gamesToStart.rows) {
-                console.log(`⏰ Game ${game.id} selection time ended, checking players...`);
-                await checkAndStartGame(game.id);
-            }
-            
-        } catch (error) {
-            console.error('❌ Error in game cycle:', error.message);
         }
-    }, 30000); // Check every 30 seconds (NOT 10!)
+        if (!fullHouse) break;
+    }
+    if (fullHouse) patterns.push({ type: 'fullhouse' });
+    
+    return patterns;
 }
 
-// Add this cleanup function (place it right after startGameCycle)
-async function cleanupOldGames() {
-    try {
-        // Clean up games older than 10 minutes (except active ones)
-        const result = await pool.query(`
-            DELETE FROM multiplayer_games 
-            WHERE created_at < NOW() - INTERVAL '10 minutes'
-            AND status IN ('cancelled', 'completed')
-            RETURNING id
-        `);
-        
-        if (result.rows.length > 0) {
-            console.log(`🧹 Cleaned up ${result.rows.length} old games`);
+function checkUncalledMarks(board) {
+    const uncalled = [];
+    
+    board.markedNumbers.forEach(markedNumber => {
+        if (!gameState.calledNumbers.includes(markedNumber)) {
+            uncalled.push(markedNumber);
         }
-        
-        // Also clean up any selecting games with 0 players for a while
-        const zeroPlayerGames = await pool.query(`
-            DELETE FROM multiplayer_games 
-            WHERE status = 'selecting'
-            AND created_at < NOW() - INTERVAL '2 minutes'
-            AND id NOT IN (
-                SELECT DISTINCT game_id FROM game_players
-            )
-            RETURNING id
-        `);
-        
-        if (zeroPlayerGames.rows.length > 0) {
-            console.log(`🧹 Cleaned up ${zeroPlayerGames.rows.length} empty games with no players`);
-        }
-    } catch (error) {
-        console.error('Error cleaning up old games:', error.message);
-    }
+    });
+    
+    return uncalled;
 }
 
-async function startGamePlay(gameId) {
-    try {
-        console.log(`🚀 Starting game play for ${gameId}`);
+function checkForFraud(board) {
+    // Only check fraud if there's NO winning pattern
+    
+    let fraudDetected = false;
+    const uncalledMarks = checkUncalledMarks(board);
+    
+    if (uncalledMarks.length > 0) {
+        // Check if uncalled marks are part of a winning pattern
+        // If they're NOT part of any pattern, it's fraud
         
-        // 1. SHUFFLING PHASE (30 seconds countdown)
-        await pool.query(
-            `UPDATE multiplayer_games 
-             SET status = 'shuffling', start_time = $1
-             WHERE id = $2`,
-            [new Date().toISOString(), gameId]
-        );
+        const patternsWon = getAllWinningPatterns(board);
         
-        broadcastToGame(gameId, {
-            type: 'game_status',
-            status: 'shuffling',
-            message: '🎮 GAME STARTING! Shuffling numbers...',
-            countdown: GAME_CONFIG.SHUFFLE_TIME
-        });
-        
-        console.log(`🔢 Game ${gameId}: 30-second shuffle countdown started`);
-        
-        // Send countdown updates every second
-        let shuffleCount = GAME_CONFIG.SHUFFLE_TIME;
-        const shuffleInterval = setInterval(() => {
-            shuffleCount--;
-            broadcastToGame(gameId, {
-                type: 'countdown',
-                status: 'shuffling',
-                seconds: shuffleCount,
-                message: `Starting in ${shuffleCount} seconds...`
+        if (patternsWon.length === 0) {
+            // No winning patterns but has uncalled marks = FRAUD
+            fraudDetected = true;
+            console.log(`🚨 FRAUD DETECTED: ${uncalledMarks.length} uncalled marks with no winning pattern`);
+        } else {
+            // Has winning pattern(s) - uncalled marks are forgiven
+            console.log(`⚠️ ${uncalledMarks.length} uncalled marks forgiven (winning pattern exists)`);
+            fraudDetected = false;
+        }
+    }
+    
+    return fraudDetected;
+}
+
+
+     function showEliminationMessage(message) {
+    const eliminationMsg = document.createElement('div');
+    eliminationMsg.style.cssText = `
+        position: fixed;
+        top: 20%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: rgba(231, 76, 60, 0.95);
+        color: white;
+        padding: 20px;
+        border-radius: 10px;
+        z-index: 1000;
+        text-align: center;
+        border: 2px solid #c0392b;
+        font-weight: bold;
+        font-size: 1.1rem;
+        max-width: 90%;
+        word-wrap: break-word;
+    `;
+    eliminationMsg.innerHTML = `<strong>${message}</strong>`;
+    document.body.appendChild(eliminationMsg);
+    
+    setTimeout(() => {
+        if (eliminationMsg.parentNode) {
+            eliminationMsg.parentNode.removeChild(eliminationMsg);
+        }
+    }, 5000);
+}
+  
+
+ // ✅ Update game status display (REAL MULTIPLAYER SAFE)
+function updateGameStatus() {
+    if (!elements.gameStatus || !gameState) return;
+
+    const statusTexts = {
+        waiting: t('waiting'),
+        selecting: t('selecting'),
+        shuffling: t('shuffling'),
+        started: t('started'),
+        checking: t('checking'),
+        finished: t('finished')
+    };
+
+    const phase = gameState.gamePhase || 'waiting';
+
+    elements.gameStatus.textContent = statusTexts[phase] || t('waiting');
+    elements.gameStatus.className = 'status-badge game-' + phase;
+}
+
+
+        // Update all game statistics with proper balance display
+        function updateGameStats() {
+            // Update balance display immediately
+            elements.balanceValue.textContent = gameState.currentPlayer.balance;
+            elements.prizeValue.textContent = gameState.totalPrizePool;
+            
+            let totalBoards = 0;
+            gameState.activePlayers.forEach(player => {
+                totalBoards += player.boards.length;
             });
+            elements.playersValue.textContent = totalBoards;
             
-            if (shuffleCount <= 0) {
-                clearInterval(shuffleInterval);
+            elements.calledCount.textContent = gameState.calledNumbers.length;
+            
+            console.log(`📊 Stats Update: Balance: $${gameState.currentPlayer.balance}, Total Boards: ${totalBoards}, Prize: ${gameState.totalPrizePool}`);
+        }
+
+        
+        function openRegistrationPopup() {
+    console.log("🎮 MULTIPLAYER: Opening registration popup...");
+    
+    // 1. SAFETY CHECK: Get popup directly (Android fix)
+    const popup = document.getElementById('registrationPopup');
+    if (!popup) {
+        console.error("❌ MULTIPLAYER ERROR: registrationPopup element not found!");
+        return;
+    }
+    
+    // 2. SHOW POPUP (Multiple methods for cross-device)
+    popup.style.display = 'flex';
+    elements.registrationPopup.style.display = 'flex'; // Keep both for compatibility
+    
+    console.log("✅ Popup displayed");
+    
+    // 3. MULTIPLAYER: Generate boards from server data, not locally
+    if (typeof generateBoardOptions === 'function') {
+        generateBoardOptions(); // This should use gameState.availableBoards from server
+    } else {
+        console.warn("⚠️ generateBoardOptions function not found");
+    }
+    
+    // 4. MULTIPLAYER: Update UI with current selection
+    updateSelectionInfo();
+    
+    // 5. MULTIPLAYER: Clear any existing timer
+    if (gameState.timerInterval) {
+        clearInterval(gameState.timerInterval);
+        gameState.timerInterval = null;
+        console.log("🧹 Cleared previous timer");
+    }
+    
+    // 6. MULTIPLAYER TIMER LOGIC (Server-driven)
+    const hasServerTimer = gameState.selectionTimer && gameState.selectionTimer > 0;
+    
+    if (hasServerTimer) {
+        // MULTIPLAYER MODE: Use server timer
+        console.log(`⏰ MULTIPLAYER: Server timer = ${gameState.selectionTimer} seconds`);
+        console.log(`👥 Game ID: ${currentGameId || 'not set'}`);
+        
+        updateTimerDisplay();
+        
+        // Start server-synchronized countdown
+        gameState.timerInterval = setInterval(() => {
+            gameState.selectionTimer--;
+            updateTimerDisplay();
+            
+            // MULTIPLAYER: When timer hits 0, server will auto-start game
+            if (gameState.selectionTimer <= 0) {
+                clearInterval(gameState.timerInterval);
+                console.log("⏰ MULTIPLAYER: Selection time ended (server will handle)");
+                
+                // Don't auto-confirm - server handles this in multiplayer
+                // autoConfirmSelection(); // ❌ REMOVE in multiplayer
             }
         }, 1000);
         
-        // Wait for shuffle time
-        setTimeout(async () => {
-            clearInterval(shuffleInterval);
-            
-            // 2. ACTIVE PHASE
-            const gameEndTime = new Date(Date.now() + GAME_CONFIG.GAME_DURATION);
-            await pool.query(
-                `UPDATE multiplayer_games 
-                 SET status = 'active', end_time = $1, called_numbers = '[]'
-                 WHERE id = $2`,
-                [gameEndTime.toISOString(), gameId]
-            );
-            
-            broadcastToGame(gameId, {
-                type: 'game_status',
-                status: 'active',
-                message: '🎮 GAME ACTIVE! Numbers will be called every 5 seconds! 🍀',
-                gameDuration: GAME_CONFIG.GAME_DURATION,
-                endTime: gameEndTime.toISOString()
-            });
-            
-            console.log(`🎮 Game ${gameId} now ACTIVE for 5 minutes (until ${gameEndTime.toLocaleTimeString()})`);
-            
-            // 3. Start calling numbers every 5 seconds
-            callGameNumbers(gameId);
-            
-            // 4. Auto-end timer exactly after 5 minutes
-            setTimeout(async () => {
-                const gameResult = await pool.query(
-                    `SELECT status, winner_id FROM multiplayer_games WHERE id = $1`,
-                    [gameId]
-                );
-                
-                const game = gameResult.rows[0];
-                if (game.status === 'active' && !game.winner_id) {
-                    console.log(`⏰ Game ${gameId} completed 5 minutes with no winner`);
-                    await endGameNoWinner(gameId);
-                }
-            }, GAME_CONFIG.GAME_DURATION);
-            
-            // 5. Send game timer updates
-            let minutesLeft = 4;
-            let secondsLeft = 59;
-            const gameTimer = setInterval(() => {
-                secondsLeft--;
-                if (secondsLeft < 0) {
-                    minutesLeft--;
-                    secondsLeft = 59;
-                }
-                
-                if (minutesLeft >= 0) {
-                    broadcastToGame(gameId, {
-                        type: 'game_timer',
-                        minutes: minutesLeft,
-                        seconds: secondsLeft,
-                        message: `Time remaining: ${minutesLeft}:${secondsLeft.toString().padStart(2, '0')}`
-                    });
-                }
-                
-                if (minutesLeft <= 0 && secondsLeft <= 0) {
-                    clearInterval(gameTimer);
-                }
-            }, 1000);
-            
-            // Store for cleanup
-            gameIntervals[gameId] = gameTimer;
-            
-        }, GAME_CONFIG.SHUFFLE_TIME * 1000); // 30 seconds
+    } else {
+        // SINGLE PLAYER/FALLBACK MODE: Use local timer
+        console.log('⏰ SINGLE PLAYER: Default timer = 25 seconds');
+        gameState.selectionTimer = CONFIG.SELECTION_TIME;
+        updateTimerDisplay();
         
-    } catch (error) {
-        console.error('❌ Error starting game play:', error);
+        gameState.timerInterval = setInterval(() => {
+            gameState.selectionTimer--;
+            updateTimerDisplay();
+            
+            if (gameState.selectionTimer <= 0) {
+                clearInterval(gameState.timerInterval);
+                autoConfirmSelection(); // Single player fallback
+            }
+        }, 1000);
     }
+    
+    // 7. MULTIPLAYER: Log current state
+    console.log("📊 MULTIPLAYER STATE:", {
+        selectedBoards: gameState.selectedBoards.size,
+        availableBoards: gameState.availableBoards.length,
+        hasServerTimer: hasServerTimer,
+        gamePhase: gameState.gamePhase
+    });
+}
+        function closeRegistrationPopup() {
+            elements.registrationPopup.style.display = 'none';
+            clearInterval(gameState.timerInterval);
+        }
+
+        function updateTimerDisplay() {
+            elements.selectionTimer.textContent = `${gameState.selectionTimer} ${t('seconds') || 'seconds'}`;
+            
+            if (gameState.selectionTimer <= 10) {
+                elements.selectionTimer.style.color = '#e74c3c';
+                elements.selectionTimer.classList.add('timer-warning');
+            } else {
+                elements.selectionTimer.style.color = '';
+                elements.selectionTimer.classList.remove('timer-warning');
+            }
+        }
+
+        function generateBoardOptions() {
+    elements.boardsGrid.innerHTML = '';
+    
+    gameState.availableBoards.forEach(boardNumber => {
+        const boardElement = document.createElement('div');
+        boardElement.className = 'board-option';
+        boardElement.innerHTML = `<div class="board-number">${boardNumber}</div>`;
+        
+        // Check if board is taken by OTHER players (not current player)
+        const isTaken = isBoardTaken(boardNumber);
+        
+        if (isTaken) {
+            boardElement.classList.add('taken');
+            boardElement.style.background = 'linear-gradient(135deg, #e74c3c, #c0392b)'; // Red gradient
+            boardElement.style.color = 'white';
+            boardElement.style.cursor = 'not-allowed';
+            boardElement.style.opacity = '0.7';
+            boardElement.style.border = '2px solid #e74c3c';
+            
+            // Add a taken indicator
+            const takenIndicator = document.createElement('div');
+            takenIndicator.className = 'taken-indicator';
+            takenIndicator.innerHTML = '✗';
+            takenIndicator.style.cssText = `
+                position: absolute;
+                top: 2px;
+                right: 2px;
+                color: white;
+                font-size: 10px;
+                background: rgba(0,0,0,0.5);
+                border-radius: 50%;
+                width: 15px;
+                height: 15px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            `;
+            boardElement.style.position = 'relative';
+            boardElement.appendChild(takenIndicator);
+        }
+        
+        boardElement.addEventListener('click', () => toggleBoardSelection(boardNumber, boardElement));
+        elements.boardsGrid.appendChild(boardElement);
+    });
 }
 
-async function callGameNumbers(gameId) {
-    try {
-        // Get game status
-        const gameResult = await pool.query(
-            `SELECT called_numbers, status, winner_id FROM multiplayer_games WHERE id = $1`,
-            [gameId]
-        );
-        
-        if (gameResult.rows.length === 0) {
-            console.log(`❌ Game ${gameId} not found, stopping number calls`);
-            return;
-        }
-        
-        const game = gameResult.rows[0];
-        
-        // Stop if game is no longer active or already has a winner
-        if (game.status !== 'active') {
-            console.log(`⏹️ Game ${gameId} is ${game.status}, stopping number calls`);
-            return;
-        }
-        
-        if (game.winner_id) {
-            console.log(`🏆 Game ${gameId} already has a winner, stopping number calls`);
-            return;
-        }
-        
-        let calledNumbers = game.called_numbers ? JSON.parse(game.called_numbers) : [];
-        
-        // Check if we've called all numbers
-        if (calledNumbers.length >= GAME_CONFIG.MAX_CALLS) {
-            console.log(`🎯 Game ${gameId}: Called all ${GAME_CONFIG.MAX_CALLS} numbers`);
-            
-            // Check if there's a winner before ending
-            const hasWinner = await checkForWinners(gameId);
-            
-            if (!hasWinner) {
-                console.log(`⏰ No winner after ${GAME_CONFIG.MAX_CALLS} numbers, ending game`);
-                await endGameNoWinner(gameId);
-            }
-            return;
-        }
-        
-        // Generate new number
-        const newNumber = generateUniqueNumber(calledNumbers);
-        calledNumbers.push(newNumber);
-        
-        // Update database
-        await pool.query(
-            `UPDATE multiplayer_games 
-             SET called_numbers = $1, current_call = $2, last_call_time = NOW()
-             WHERE id = $3`,
-            [JSON.stringify(calledNumbers), newNumber, gameId]
-        );
-        
-        // Broadcast to all players
-        broadcastToGame(gameId, {
-            type: 'number_called',
-            number: newNumber,
-            calledNumbers: calledNumbers,
-            numberIndex: calledNumbers.length,
-            totalNumbers: GAME_CONFIG.MAX_CALLS,
-            nextCallIn: GAME_CONFIG.CALL_INTERVAL / 1000
-        });
-        
-        console.log(`🔔 Game ${gameId}: Called ${newNumber} (${calledNumbers.length}/${GAME_CONFIG.MAX_CALLS})`);
-        
-        // Check for winners AFTER calling the number
-        const hasWinner = await checkForWinners(gameId);
-        
-        // If there's a winner, stop calling numbers
-        if (hasWinner) {
-            console.log(`🏆 Game ${gameId} has a winner! Stopping number calls.`);
-            return;
-        }
-        
-        // Schedule next call
-        setTimeout(() => callGameNumbers(gameId), GAME_CONFIG.CALL_INTERVAL);
-        
-    } catch (error) {
-        console.error('❌ Error calling game numbers:', error);
-    }
-}
-
-// ==================== ENHANCED FUNCTIONS ====================
-
-function generateUniqueNumber(calledNumbers) {
-    // If all numbers are called, return null
-    if (calledNumbers.length >= 75) {
-        console.log('⚠️ All 75 numbers have been called!');
-        return null;
-    }
-    
-    const letters = ['B', 'I', 'N', 'G', 'O'];
-    let attempts = 0;
-    let newNumber = null;
-    const maxAttempts = 100;
-    
-    while (attempts < maxAttempts && !newNumber) {
-        const letterIndex = Math.floor(Math.random() * 5);
-        const letter = letters[letterIndex];
-        
-        let min, max;
-        switch(letter) {
-            case 'B': min = 1; max = 15; break;
-            case 'I': min = 16; max = 30; break;
-            case 'N': min = 31; max = 45; break;
-            case 'G': min = 46; max = 60; break;
-            case 'O': min = 61; max = 75; break;
-        }
-        
-        const number = Math.floor(Math.random() * (max - min + 1)) + min;
-        const candidate = letter + number;
-        
-        if (!calledNumbers.includes(candidate)) {
-            newNumber = candidate;
-            break;
-        }
-        attempts++;
-    }
-    
-    // Fallback: find any unused number by scanning
-    if (!newNumber) {
-        for (const letter of letters) {
-            let min, max;
-            switch(letter) {
-                case 'B': min = 1; max = 15; break;
-                case 'I': min = 16; max = 30; break;
-                case 'N': min = 31; max = 45; break;
-                case 'G': min = 46; max = 60; break;
-                case 'O': min = 61; max = 75; break;
-            }
-            for (let num = min; num <= max; num++) {
-                const candidate = letter + num;
-                if (!calledNumbers.includes(candidate)) {
-                    newNumber = candidate;
-                    break;
-                }
-            }
-            if (newNumber) break;
-        }
-    }
-    
-    return newNumber;
-}
-
-async function checkForWinners(gameId) {
-    try {
-        // Get all players who haven't won yet
-        const playersResult = await pool.query(
-            `SELECT user_id, boards, marked_numbers, username 
-             FROM game_players 
-             WHERE game_id = $1 AND has_bingo = false`,
-            [gameId]
-        );
-        
-        if (playersResult.rows.length === 0) {
-            return false;
-        }
-        
-        // Get called numbers
-        const gameResult = await pool.query(
-            `SELECT called_numbers, prize_pool FROM multiplayer_games WHERE id = $1`,
-            [gameId]
-        );
-        
-        if (gameResult.rows.length === 0) return false;
-        
-        const calledNumbers = gameResult.rows[0].called_numbers ? 
-            JSON.parse(gameResult.rows[0].called_numbers) : [];
-        const prizePool = parseFloat(gameResult.rows[0].prize_pool) || 0;
-        
-        const winners = [];
-        
-        // Check each player for BINGO
-        for (const player of playersResult.rows) {
-            const boards = JSON.parse(player.boards);
-            const markedNumbers = player.marked_numbers ? 
-                JSON.parse(player.marked_numbers) : [];
-            
-            for (const board of boards) {
-                if (checkBoardForBingo(board.boardData, markedNumbers, calledNumbers)) {
-                    winners.push({
-                        userId: player.user_id,
-                        username: player.username,
-                        boardNumber: board.boardNumber,
-                        boardId: board.boardId
-                    });
-                    break; // Player only needs one winning board
-                }
-            }
-        }
-        
-        if (winners.length > 0) {
-            console.log(`🏆 Found ${winners.length} winner(s) in game ${gameId}`);
-            await declareWinners(gameId, winners, prizePool);
+       function isBoardTaken(boardNumber) {
+    // Check if taken by any active player
+    for (let player of gameState.activePlayers) {
+        if (player.boards.some(board => board.boardNumber === boardNumber)) {
             return true;
         }
-        
-        return false;
-        
-    } catch (error) {
-        console.error('Error checking for winners:', error);
-        return false;
     }
+    
+    // Also check if current player has already selected this board
+    if (gameState.selectedBoards.has(boardNumber)) {
+        return false; // Not "taken" since it's selected by current player
+    }
+    
+    return false;
 }
 
-async function declareWinners(gameId, winners, prizePool) {
-    const client = await pool.connect();
-    
-    try {
-        await client.query('BEGIN');
-        
-        // Calculate prize per winner
-        const prizePerWinner = Math.floor(prizePool / winners.length);
-        
-        // Update game status
-        await client.query(
-            `UPDATE multiplayer_games 
-             SET status = 'completed', 
-                 winner_id = $1,
-                 winners = $2,
-                 prize_distribution = $3,
-                 end_time = NOW()
-             WHERE id = $4`,
-            [winners[0].userId, JSON.stringify(winners), JSON.stringify({ prizePerWinner, totalWinners: winners.length }), gameId]
-        );
-        
-        // Award prizes to each winner
-        for (const winner of winners) {
-            const user = users[winner.userId];
-            if (user) {
-                const oldBalance = user.balance;
-                user.balance += prizePerWinner;
-                user.totalWon = (user.totalWon || 0) + prizePerWinner;
-                
-                console.log(`💰 ${user.username}: ${oldBalance} → ${user.balance} ETB (+${prizePerWinner})`);
-                
-                // Mark player as winner in database
-                await client.query(
-                    `UPDATE game_players SET has_bingo = true WHERE game_id = $1 AND user_id = $2`,
-                    [gameId, winner.userId]
-                );
-                
-                // Record win transaction
-                const winId = 'win_' + Date.now();
-                games.push({
-                    id: winId,
-                    userId: winner.userId,
-                    amount: prizePerWinner,
-                    date: new Date().toISOString(),
-                    type: 'win',
-                    gameId: gameId,
-                    boardNumber: winner.boardNumber
-                });
-                saveGames();
-                
-                // Notify winner via Telegram
-                if (user.chatId) {
-                    const prizeMessage = winners.length > 1 ?
-                        `🏆 You won ${prizePerWinner} ETB (shared prize with ${winners.length} winners!)` :
-                        `🏆 You won ${prizePerWinner} ETB!`;
-                    
-                    await sendTelegramMessage(user.chatId,
-                        `🎉 *BINGO! YOU WON!* 🎉\n\n` +
-                        `${prizeMessage}\n` +
-                        `🔢 Board: #${winner.boardNumber}\n` +
-                        `💰 New Balance: *${user.balance} ETB*\n\n` +
-                        `🎮 Play again to win more!`
-                    );
-                }
-            }
-        }
-        
-        await client.query('COMMIT');
-        saveUsers();
-        
-        // Broadcast winners to all players
-        const winnerAnnouncement = winners.length > 1 ?
-            `🎉 *${winners.length} WINNERS!*\n\n` +
-            winners.map((w, i) => `${i+1}. ${w.username} - ${prizePerWinner} ETB`).join('\n') :
-            `🎉 *WINNER: ${winners[0].username}*\n💰 Prize: ${prizePerWinner} ETB`;
-        
-        broadcastToGame(gameId, {
-            type: 'game_completed',
-            winners: winners,
-            prizePerWinner: prizePerWinner,
-            totalWinners: winners.length,
-            message: winnerAnnouncement
-        });
-        
-        console.log(`✅ Game ${gameId} completed. ${winners.length} winner(s) awarded ${prizePerWinner} ETB each.`);
-        
-        // Clean up after 30 seconds
+       function toggleBoardSelection(boardNumber, element) {
+    // Check if board is taken by OTHER players
+    if (isBoardTaken(boardNumber) && !gameState.selectedBoards.has(boardNumber)) {
+        // Show alert AND visual feedback
+        element.style.animation = 'shake 0.5s ease';
         setTimeout(() => {
-            cleanupGame(gameId);
-        }, 30000);
+            element.style.animation = '';
+        }, 500);
         
-    } catch (error) {
-        await client.query('ROLLBACK');
-        console.error('Error declaring winners:', error);
-    } finally {
-        client.release();
-    }
-}
-
-async function endGameNoWinner(gameId) {
-    try {
-        console.log(`⏰ Game ${gameId} ended with no winner`);
-        
-        // Get game info before updating
-        const gameResult = await pool.query(
-            `SELECT prize_pool FROM multiplayer_games WHERE id = $1`,
-            [gameId]
-        );
-        
-        const prizePool = gameResult.rows[0]?.prize_pool || 0;
-        
-        // Update game status
-        await pool.query(
-            `UPDATE multiplayer_games 
-             SET status = 'completed_no_winner', end_time = NOW()
-             WHERE id = $1`,
-            [gameId]
-        );
-        
-        // Refund 80% of bets to players (like Joy Bingo)
-        const playersResult = await pool.query(
-            `SELECT user_id, boards FROM game_players WHERE game_id = $1`,
-            [gameId]
-        );
-        
-        const refundRate = 0.8; // 80% refund
-        let totalRefund = 0;
-        
-        for (const player of playersResult.rows) {
-            const boards = JSON.parse(player.boards);
-            const betAmount = boards.length * GAME_CONFIG.BOARD_PRICE;
-            const refundAmount = betAmount * refundRate;
-            
-            const user = users[player.user_id];
-            if (user) {
-                user.balance += refundAmount;
-                totalRefund += refundAmount;
-                
-                console.log(`💰 Refunded ${refundAmount} ETB to ${user.username}`);
-                
-                // Notify user
-                if (user.chatId) {
-                    await sendTelegramMessage(user.chatId,
-                        `🤷 *GAME ENDED - NO WINNER*\n\n` +
-                        `⏰ Time limit reached with no BINGO.\n` +
-                        `💰 80% Refund: *${refundAmount.toFixed(1)} ETB*\n` +
-                        `📊 New Balance: *${user.balance.toFixed(1)} ETB*\n\n` +
-                        `🎮 Join another game!`
-                    );
-                }
-            }
-        }
-        
-        saveUsers();
-        
-        // Broadcast to remaining players
-        broadcastToGame(gameId, {
-            type: 'game_ended',
-            message: `🤷 *GAME ENDED - NO WINNER*\n💰 80% refund issued to all players.`
-        });
-        
-        console.log(`✅ Game ${gameId} ended. Total refund: ${totalRefund} ETB`);
-        
-        // Clean up connections
-        cleanupGameConnections(gameId);
-        
-        // Create next game after delay
-        setTimeout(async () => {
-            console.log(`🔄 Creating next game...`);
-            await createMultiplayerGame();
-        }, GAME_CONFIG.NEXT_GAME_DELAY);
-        
-    } catch (error) {
-        console.error('Error ending game:', error);
-    }
-}
-
-// Cancel a game (refund players)
-async function cancelGame(gameId) {
-    const client = await pool.connect();
-    
-    try {
-        await client.query('BEGIN');
-        
-        // Get all players in this game
-        const playersResult = await client.query(
-            `SELECT user_id, boards FROM game_players WHERE game_id = $1`,
-            [gameId]
-        );
-        
-        // Refund each player
-        for (const row of playersResult.rows) {
-            const boards = JSON.parse(row.boards);
-            const refundAmount = boards.length * GAME_CONFIG.BOARD_PRICE;
-            
-            const user = users[row.user_id];
-            if (user) {
-                user.balance += refundAmount;
-                
-                // Notify user via Telegram
-                if (user.chatId) {
-                    await sendTelegramMessage(user.chatId,
-                        `🔄 *Game Cancelled*\n\n` +
-                        `Not enough players joined.\n` +
-                        `💰 Refund: *${refundAmount} ETB*\n` +
-                        `📊 New Balance: *${user.balance} ETB*`
-                    );
-                }
-            }
-        }
-        
-        // Update game status
-        await client.query(
-            `UPDATE multiplayer_games SET status = 'cancelled', end_time = NOW() WHERE id = $1`,
-            [gameId]
-        );
-        
-        await client.query('COMMIT');
-        saveUsers();
-        
-        console.log(`✅ Game ${gameId} cancelled, players refunded`);
-        
-    } catch (error) {
-        await client.query('ROLLBACK');
-        console.error('Error cancelling game:', error);
-    } finally {
-        client.release();
-    }
-}
-
-// Clean up game connections and timers
-function cleanupGame(gameId) {
-    // Close WebSocket connections
-    const connections = gameConnections.get(gameId);
-    if (connections) {
-        connections.forEach(ws => {
-            if (ws.readyState === WebSocket.OPEN) {
-                ws.close(1001, 'Game ended');
-            }
-        });
-        gameConnections.delete(gameId);
+        alert(t('boardTaken'));
+        return;
     }
     
-    // Clear timers if any
-    if (gameTimers[gameId]) {
-        clearTimeout(gameTimers[gameId]);
-        delete gameTimers[gameId];
+    if (element.classList.contains('taken')) {
+        return;
     }
     
-    if (gameIntervals[gameId]) {
-        clearInterval(gameIntervals[gameId]);
-        delete gameIntervals[gameId];
-    }
+    // 🚨 NEW: Check balance BEFORE allowing selection
+    const currentSelectedCount = gameState.selectedBoards.size;
+    const wouldBeNewCount = gameState.selectedBoards.has(boardNumber) ? 
+                           currentSelectedCount : currentSelectedCount + 1;
+    const totalCostIfSelected = wouldBeNewCount * CONFIG.BET_AMOUNT;
     
-    console.log(`🧹 Game ${gameId} cleaned up`);
-}
-
-// ==================== TELEGRAM FUNCTIONS ====================
-async function setupTelegramWebhook() {
-    try {
-        if (!BOT_TOKEN || BOT_TOKEN === 'YOUR_TELEGRAM_BOT_TOKEN') {
-            console.error('❌ BOT_TOKEN not set!');
-            return;
-        }
+    // If trying to SELECT (not deselect) and insufficient balance
+    if (!gameState.selectedBoards.has(boardNumber) && totalCostIfSelected > gameState.currentPlayer.balance) {
+        // Visual feedback - red flash
+        element.style.animation = 'shake 0.5s ease';
+        element.style.background = 'rgba(239, 68, 68, 0.3)';
+        element.style.border = '2px solid #ef4444';
         
-        const webhookUrl = `${RENDER_URL}/telegram-webhook`;
-        
-        console.log('='.repeat(60));
-        console.log('🔧 SETTING UP TELEGRAM BOT');
-        console.log('='.repeat(60));
-        console.log(`🤖 Bot Token: ${BOT_TOKEN.substring(0, 10)}...`);
-        console.log(`🌐 Webhook URL: ${webhookUrl}`);
-        
-        // Delete any existing webhook
-        await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/deleteWebhook`);
-        console.log('✅ Old webhook deleted');
-        
-        // Set webhook
-        const response = await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/setWebhook`, {
-            url: webhookUrl,
-            allowed_updates: ["message", "callback_query"]
-        });
-        
-        console.log('✅ Webhook set successfully');
-        
-        // Set bot commands
-        await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/setMyCommands`, {
-            commands: [
-                { command: "start", description: "🚀 Start bot" },
-                { command: "play", description: "🎮 Play game" },
-                { command: "deposit", description: "💰 Deposit money (INSTANT)" },
-                { command: "balance", description: "📊 Check balance" },
-                { command: "help", description: "❓ Get help" }
-            ]
-        });
-        
-        console.log('✅ Bot commands set');
-        console.log('='.repeat(60));
-        
-    } catch (error) {
-        console.error('❌ Error setting webhook:', error.message);
-    }
-}
-
-async function sendTelegramMessage(chatId, text, replyMarkup = null) {
-    try {
-        const payload = {
-            chat_id: chatId,
-            text: text,
-            parse_mode: 'Markdown'
-        };
-        
-        if (replyMarkup) {
-            payload.reply_markup = replyMarkup;
-        }
-        
-        await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, payload);
-        console.log(`📤 Message sent to ${chatId}`);
-    } catch (error) {
-        console.error('Telegram send error:', error.message);
-    }
-}
-
-function getMainMenuKeyboard(userId) {
-    return {
-        inline_keyboard: [
-            [{ 
-                text: "🎮 PLAY SHEBA BINGO", 
-                web_app: { url: `${RENDER_URL}/?user=${userId}&tgWebApp=true` }
-            }],
-            [
-                { text: "💰 DEPOSIT (INSTANT)", callback_data: "deposit" },
-                { text: "📤 WITHDRAW", callback_data: "withdraw" }
-            ],
-            [
-                { text: "📤 TRANSFER", callback_data: "transfer" },
-                { text: "💰 BALANCE", callback_data: "balance" }
-            ],
-            [
-                { text: "📖 INSTRUCTIONS", callback_data: "instructions" },
-                { text: "📞 SUPPORT", callback_data: "support" }
-            ],
-            [
-                { text: "👥 INVITE", callback_data: "invite" },
-                { text: "👑 AGENT", callback_data: "agent" }
-            ],
-            [
-                { text: "🤝 SUB-AGENT", callback_data: "subagent" },
-                { text: "💰 SALE", callback_data: "sale" }
-            ]
-        ]
-    };
-}
-
-async function showMainMenu(chatId, user) {
-    await sendTelegramMessage(chatId,
-        `🎮 *SHEBA BINGO MENU*\n\n` +
-        `💰 Balance: *${user.balance} ETB*\n` +
-        `👤 Status: ${user.registered ? 'Registered ✅' : 'Not Registered'}\n\n` +
-        `Choose option:`,
-        getMainMenuKeyboard(user.id)
-    );
-}
-
-// ==================== TELEGRAM WEBHOOK HANDLER ====================
-app.post('/telegram-webhook', async (req, res) => {
-    res.status(200).send('OK');
-    
-    try {
-        const update = req.body;
-        
-        // Handle button clicks
-        if (update.callback_query) {
-            await handleCallbackQuery(update.callback_query);
-            return;
-        }
-        
-        // Handle messages
-        if (update.message) {
-            const chatId = update.message.chat.id;
-            const text = update.message.text || '';
-            const userId = update.message.from.id;
-            const username = update.message.from.username || update.message.from.first_name;
-            
-            // Initialize user if new
-            if (!users[userId]) {
-                users[userId] = {
-                    id: userId,
-                    username: username,
-                    chatId: chatId,
-                    balance: 0,
-                    registered: false,
-                    isAgent: false,
-                    agentCode: 'AG' + userId.toString().slice(-6),
-                    joinDate: new Date().toISOString(),
-                    lastActive: new Date().toISOString(),
-                    totalDeposited: 0,
-                    totalWon: 0
-                };
-                saveUsers();
-                console.log(`👤 New user registered: ${username} (${userId})`);
+        setTimeout(() => {
+            element.style.animation = '';
+            if (!element.classList.contains('selected') && !element.classList.contains('taken')) {
+                element.style.background = '';
+                element.style.border = '';
             }
-            
-            // Update last active time
-            users[userId].lastActive = new Date().toISOString();
-            const user = users[userId];
-            
-            // Handle /start command  
-if (text === '/start') {
-    if (!user.registered) {
-        // NEW USER - Show register button
-        await sendTelegramMessage(chatId, 
-            `🎮 *Welcome to SHEBA BINGO!* 🎰\n\n` +
-            `🔥 *GET 10 ETB FREE BONUS INSTANTLY!*\n\n` +
-            `✅ Register with 1 click\n` +
-            `✅ Play instantly\n` +
-            `✅ Win real money\n\n` +
-            `Click REGISTER to start:`,
-            {
-                inline_keyboard: [[
-                    { text: "📝 REGISTER NOW", callback_data: "register" }
-                ]]
-            }
-        );
+        }, 1000);
+        
+        // Show alert with balance info
+        alert(`❌ Insufficient Balance!\n\n` +
+              `Required: ${totalCostIfSelected} ETB\n` +
+              `Your Balance: ${gameState.currentPlayer.balance} ETB\n\n` +
+              `💰 Please deposit to continue.`);
+        return;
+    }
+    
+    if (gameState.selectedBoards.has(boardNumber)) {
+        // Deselect the board
+        gameState.selectedBoards.delete(boardNumber);
+        element.classList.remove('selected');
+        element.style.background = '';
+        element.style.color = '';
+        element.style.border = '';
+    } else if (gameState.selectedBoards.size < CONFIG.MAX_BOARDS_PER_PLAYER) {
+        // Select the board
+        gameState.selectedBoards.add(boardNumber);
+        element.classList.add('selected');
+        element.style.background = 'linear-gradient(135deg, #2ecc71, #27ae60)';
+        element.style.color = 'white';
+        element.style.border = '2px solid #27ae60';
     } else {
-        // ALREADY REGISTERED - Show main menu with PLAY button
-        await sendTelegramMessage(chatId,
-            `🎮 *Welcome back to SHEBA BINGO!* 🎰\n\n` +
-            `💰 *Your Balance: ${user.balance} ETB*\n\n` +
-            `⚡ Quick Actions:`,
-            {
-                inline_keyboard: [
-                    [{ 
-                        text: `🎮 PLAY NOW (${user.balance} ETB)`, 
-                        web_app: { url: `${RENDER_URL}/?user=${userId}` }
-                    }],
-                    [
-                        { text: "💰 DEPOSIT", callback_data: "deposit" },
-                        { text: "📊 BALANCE", callback_data: "balance" }
-                    ],
-                    [
-                        { text: "📖 INSTRUCTION", callback_data: "instruction" },
-                        { text: "👥 INVITE", callback_data: "invite" }
-                    ]
-                ]
-            }
-        );
+        // Maximum boards reached
+        element.style.animation = 'shake 0.5s ease';
+        setTimeout(() => {
+            element.style.animation = '';
+        }, 500);
+        
+        alert(t('maxBoardsReached'));
+        return;
+    }
+    
+    updateSelectionInfo();
+    validateForm();
+}
+
+function updateSelectionInfo() {
+    const selectedCount = gameState.selectedBoards.size;
+    const totalCost = selectedCount * CONFIG.BET_AMOUNT;
+    
+    elements.selectedCount.textContent = selectedCount;
+    elements.totalCost.textContent = totalCost;
+    
+    // 🚨 NEW: Show balance warning in the selection info
+    let warningElement = document.getElementById('balanceWarning');
+    if (!warningElement) {
+        warningElement = document.createElement('div');
+        warningElement.id = 'balanceWarning';
+        warningElement.style.cssText = `
+            color: #ef4444;
+            font-size: 0.8rem;
+            margin-top: 8px;
+            text-align: center;
+            font-weight: 600;
+            padding: 5px;
+            border-radius: 5px;
+            background: rgba(239, 68, 68, 0.1);
+            display: none;
+        `;
+        
+        // Insert after total cost
+        const summaryDiv = elements.totalCost.closest('.selection-summary') || 
+                          elements.totalCost.parentNode;
+        summaryDiv.appendChild(warningElement);
+    }
+    
+    if (selectedCount > 0 && totalCost > gameState.currentPlayer.balance) {
+        warningElement.textContent = `❌ Insufficient Balance! Need ${totalCost} ETB, you have ${gameState.currentPlayer.balance} ETB`;
+        warningElement.style.display = 'block';
+        
+        // Also highlight the total cost in red
+        elements.totalCost.style.color = '#ef4444';
+        elements.totalCost.style.fontWeight = 'bold';
+    } else {
+        warningElement.style.display = 'none';
+        elements.totalCost.style.color = ''; // Reset to default
     }
 }
-            // Handle photo messages (screenshots for manual deposit)
-            else if (update.message.photo) {
-                const photo = update.message.photo[update.message.photo.length - 1];
-                
-                // Store manual deposit
-                const depositId = 'manual_' + Date.now().toString();
-                deposits.push({
-                    id: depositId,
-                    userId: userId,
-                    username: user.username,
-                    chatId: chatId,
-                    fileId: photo.file_id,
-                    status: 'pending_manual',
-                    date: new Date().toISOString(),
-                    method: '_manual',
-                    type: 'manual_screenshot'
+
+function validateForm() {
+    const boardsValid = gameState.selectedBoards.size > 0;
+    const totalCost = gameState.selectedBoards.size * CONFIG.BET_AMOUNT;
+    const hasEnoughBalance = totalCost <= gameState.currentPlayer.balance;
+    
+    // Disable confirm button if no boards OR insufficient balance
+    elements.confirmSelection.disabled = !(boardsValid && hasEnoughBalance);
+    
+    // Update button appearance based on balance
+    if (boardsValid && !hasEnoughBalance) {
+        elements.confirmSelection.style.opacity = '0.5';
+        elements.confirmSelection.style.cursor = 'not-allowed';
+        elements.confirmSelection.title = `Insufficient balance. Need ${totalCost} ETB`;
+    } else {
+        elements.confirmSelection.style.opacity = '';
+        elements.confirmSelection.style.cursor = '';
+        elements.confirmSelection.title = '';
+    }
+}
+        function autoConfirmSelection() {
+    // Player didn't select any boards - show wait message
+    closeRegistrationPopup();
+    
+    if (gameState.selectedBoards.size === 0) {
+        showWaitForNextGame('No boards selected. Waiting for next game...');
+    } else {
+        // Player selected boards, confirm selection
+        confirmSelection();
+    }
+    
+    // Continue with other players who might have selected boards
+    setTimeout(() => {
+        if (gameState.activePlayers.length > 0) {
+            // Other players selected boards, continue the game
+            startShufflingPhase();
+        } else {
+            // No players at all selected boards
+            console.log('⏳ No players selected boards');
+        }
+    }, 1000);
+}
+
+        // Show wait message
+        function showWaitForNextGame(message = 'Waiting for Next Game') {
+    elements.gamePlaySection.style.display = 'block';
+    elements.boardsCarousel.innerHTML = '';
+    elements.currentBoard.innerHTML = '';
+    
+    const waitMessage = document.createElement('div');
+    waitMessage.className = 'wait-message';
+    waitMessage.style.cssText = `
+        text-align: center;
+        padding: 30px 20px;
+        color: var(--deep-purple);
+        font-size: 1.2rem;
+        font-weight: bold;
+        background: white;
+        border-radius: 10px;
+        margin: 15px 0;
+        border: 2px solid var(--deep-purple);
+        box-shadow: 0 4px 12px rgba(139, 61, 232, 0.2);
+    `;
+    
+    const t = TRANSLATIONS[gameState.currentLanguage];
+    waitMessage.innerHTML = `
+        <div style="margin-bottom: 15px; font-size: 1.4rem;">⏳</div>
+        <div style="color: var(--deep-purple); margin-bottom: 10px;">
+            ${message}
+        </div>
+        
+        <div style="font-size: 0.9rem; color: #666; margin-top: 15px;">
+            ${t.waiting || 'Please wait...'}
+        </div>
+        
+        <button onclick="checkForActiveGames()" style="
+            margin-top: 15px;
+            padding: 8px 16px;
+            background: var(--safari-gold);
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-weight: bold;
+            cursor: pointer;
+            font-size: 0.9rem;
+        ">
+            Refresh
+        </button>
+    `;
+    
+    elements.currentBoard.appendChild(waitMessage);
+    
+    // Update game status to show player is not active
+    gameState.currentPlayer.isActive = false;
+    updateGameStatus();
+    
+    console.log(`⏳ ${message}`);
+}
+
+        // Show spectator message
+function showSpectatorMessage(message = 'Watching Game') {
+    elements.gamePlaySection.style.display = 'block';
+    elements.boardsCarousel.innerHTML = '';
+    elements.currentBoard.innerHTML = '';
+    
+    const waitMessage = document.createElement('div');
+    waitMessage.className = 'wait-message';
+    waitMessage.style.cssText = `
+        text-align: center;
+        padding: 30px 20px;
+        color: var(--deep-purple);
+        font-size: 1.2rem;
+        font-weight: bold;
+        background: white;
+        border-radius: 10px;
+        margin: 15px 0;
+        border: 2px solid #3498db;
+        box-shadow: 0 4px 12px rgba(52, 152, 219, 0.2);
+    `;
+    
+    const t = TRANSLATIONS[gameState.currentLanguage];
+    waitMessage.innerHTML = `
+        <div style="margin-bottom: 15px; font-size: 1.4rem;">👀</div>
+        <div style="color: #3498db; margin-bottom: 10px; font-weight: bold;">
+            ${message}
+        </div>
+       
+        <div style="font-size: 0.9rem; color: #666; margin-top: 15px;">
+            Game is in progress. Join the next one!
+        </div>
+        
+        <button onclick="checkForActiveGames()" style="
+            margin-top: 15px;
+            padding: 8px 16px;
+            background: #3498db;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-weight: bold;
+            cursor: pointer;
+            font-size: 0.9rem;
+        ">
+            Check for New Game
+        </button>
+    `;
+    
+    elements.currentBoard.appendChild(waitMessage);
+    
+    // Update game status
+    gameState.currentPlayer.isActive = false;
+    gameState.gamePhase = 'waiting';
+    updateGameStatus();
+    
+    console.log(`👀 ${message}`);
+}
+
+
+        // Balance deduction when buying boards - PURE MULTIPLAYER VERSION
+async function confirmSelection() {
+    if (gameState.selectedBoards.size === 0) {
+        alert(t('selectOneBoard'));
+        return;
+    }
+    
+    const totalCost = gameState.selectedBoards.size * CONFIG.BET_AMOUNT;
+    if (totalCost > gameState.currentPlayer.balance) {
+        alert(t('insufficientBalance'));
+        return;
+    }
+    
+    // Show loading state
+    const confirmBtn = document.getElementById('confirmSelection');
+    const originalText = confirmBtn.textContent;
+    confirmBtn.textContent = '⏳ Joining game...';
+    confirmBtn.disabled = true;
+    
+    try {
+        // Send join request to MULTIPLAYER server
+        const response = await fetch('/api/multiplayer/join', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                userId: gameState.currentPlayer.id,
+                boardCount: gameState.selectedBoards.size,
+                boardNumbers: Array.from(gameState.selectedBoards)
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            console.log('✅ Successfully joined multiplayer game:', data.gameId);
+            
+            // Store game ID for polling
+            window.currentGameId = data.gameId;
+            
+            // Update local state with server data
+            gameState.currentPlayer.balance -= totalCost;
+            gameState.currentPlayer.isActive = true;
+            gameState.currentPlayer.boards = data.boards.map(board => ({
+                boardNumber: board.boardNumber,
+                boardData: board.boardData,
+                markedNumbers: new Set(board.markedNumbers || []),
+                isWinner: false,
+                isEliminated: false
+            }));
+            gameState.currentPlayer.totalPaid = totalCost;
+            
+            // Update UI
+            updateGameStats();
+            closeRegistrationPopup();
+            elements.gamePlaySection.style.display = 'block';
+            displayCurrentPlayerBoards(0);
+            
+            // Show waiting screen
+            showWaitingForPlayers(data.playerCount, data.selectionTimeLeft || 25);
+            
+            // Start polling for game state
+            startGamePolling(data.gameId);
+            
+        } else {
+            // Server error - show message and retry
+            console.error('Join failed:', data.error);
+            alert(data.error || 'Failed to join game. Please try again.');
+            confirmBtn.textContent = originalText;
+            confirmBtn.disabled = false;
+        }
+        
+    } catch (error) {
+        console.error('Network error:', error);
+        alert('Network error. Please check your connection and try again.');
+        confirmBtn.textContent = originalText;
+        confirmBtn.disabled = false;
+    }
+}
+
+// Show waiting for players screen
+function showWaitingForPlayers(playerCount, timeLeft) {
+    const waitingHTML = `
+        <div class="waiting-screen">
+            <div class="waiting-spinner">⏳</div>
+            <h3>⏳ WAITING FOR GAME</h3>
+            <div class="player-count">👥 ${playerCount} players joined</div>
+            <div class="countdown-timer">⏰ Game starts in ${timeLeft} seconds...</div>
+            <div class="boards-summary">
+                Your boards: ${gameState.currentPlayer.boards.map(b => `#${b.boardNumber}`).join(', ')}
+            </div>
+            <div class="waiting-tip">💡 Share the game link to invite friends!</div>
+        </div>
+    `;
+    
+    elements.currentBoard.innerHTML = waitingHTML;
+}
+
+
+
+
+
+
+        function createPlayerBoards() {
+            const playerBoards = [];
+            gameState.selectedBoards.forEach(boardNumber => {
+                playerBoards.push({
+                    boardNumber: boardNumber,
+                    boardData: generateBingoBoard(),
+                    markedNumbers: new Set(),
+                    isWinner: false,
+                    isEliminated: false
                 });
-                saveDeposits();
-                
-                await sendTelegramMessage(chatId,
-                    `📸 *Manual Screenshot Received*\n\n` +
-                    `✅ Admin will review and add balance.\n` +
-                    `⏰ Processing time: 5-10 minutes\n\n` +
-                    `💡 *For INSTANT processing* (under 1 minute):\n` +
-                    `1. Use /deposit command\n` +
-                    `2. Select TeleBirr or CBE\n` +
-                    `3. Copy the confirmation SMS\n` +
-                    `4. Paste the SMS text here\n\n` +
-                    `💰 Your current balance: *${user.balance} ETB*`
-                );
-                
-                console.log(`📸 Manual deposit from ${user.username}`);
-                
-                // Notify admin
-                await sendTelegramMessage(ADMIN_CHAT_ID,
-                    `📥 *MANUAL DEPOSIT SCREENSHOT*\n\n` +
-                    `👤 User: ${user.username} (${userId})\n` +
-                    `💰 Current Balance: ${user.balance} ETB\n` +
-                    `🕐 Time: ${new Date().toLocaleString()}\n\n` +
-                    `⚡ Review in admin panel:\n` +
-                    `${RENDER_URL}/admin.html`
-                );
-            }
-            // Handle text messages
-            else if (text) {
-                // Check if message looks like a transaction SMS
-                const isTransactionSMS = (
-                    (text.includes('transferred') || text.includes('sent') || text.includes('You have transferred')) &&
-                    (text.includes('ETB') || text.includes('birr') || text.includes('ETB')) &&
-                    (text.includes('TeleBirr') || text.includes('CBE') || text.includes('transaction') || text.includes('Dear'))
-                );
-                
-                if (isTransactionSMS && !text.startsWith('/')) {
-                    console.log(`📨 Detected transaction SMS from ${user.username}`);
-                    await processInstantDeposit(userId, chatId, text);
-                    return;
-                }
-                
-                // Handle commands
-                if (text.startsWith('/')) {
-                    switch(text) {
-                        case '/deposit':
-    await sendTelegramMessage(chatId,
-        `💰 *CHOOSE PAYMENT METHOD - INSTANT DEPOSIT* 💰\n\n` +
-        `*FOR INSTANT CREDIT (UNDER 1 MINUTE):*\n` +
-        `1. Select your payment method below.\n` +
-        `2. Complete the transfer.\n` +
-        `3. **You will receive an SMS from 127 (Telebirr)**.\n` +
-        `4. **COPY the ENTIRE SMS text** you receive.\n` +
-        `5. **PASTE that SMS text directly here** in this chat.\n\n` +
-        `✅ *Automatic processing!*\n` +
-        `❌ Do NOT send screenshots for instant processing.`,
-        {
-            inline_keyboard: [
-                [{ text: "📱 TeleBirr (INSTANT)", callback_data: "telebirr_instant" }],
-                [{ text: "🏦 CBE Birr (INSTANT)", callback_data: "cbe_instant" }],
-                [{ text: "🏛️ Bank of Abyssinia", callback_data: "boa_instant" }]
-                
-            ]
+            });
+            return playerBoards;
         }
-    );
-    break;
-                            
-                        case '/balance':
-                            await sendTelegramMessage(chatId,
-                                `💰 *YOUR BALANCE*\n\n` +
-                                `💵 Available: *${user.balance} ETB*\n\n` +
-                                `🎮 To play: Click PLAY button`,
-                                {
-                                    inline_keyboard: [[
-                                        { 
-                                            text: `🎮 PLAY (${user.balance} ETB)`, 
-                                            web_app: { url: `${RENDER_URL}/?user=${userId}` }
-                                        },
-                                        { text: "💰 DEPOSIT (INSTANT)", callback_data: "deposit" }
-                                    ]]
-                                }
-                            );
-                            break;
-                            
-                        case '/play':
-                            if (user.balance < GAME_CONFIG.BOARD_PRICE) {
-                                await sendTelegramMessage(chatId,
-                                    `❌ *INSUFFICIENT BALANCE*\n\n` +
-                                    `💰 Required: *${GAME_CONFIG.BOARD_PRICE} ETB*\n` +
-                                    `💵 Your balance: *${user.balance} ETB*\n\n` +
-                                    `💡 Use /deposit to add funds instantly!`,
-                                    {
-                                        inline_keyboard: [[
-                                            { text: "💰 DEPOSIT NOW", callback_data: "deposit" }
-                                        ]]
-                                    }
-                                );
-                                break;
-                            }
-                            
-                            await sendTelegramMessage(chatId,
-                                `🎮 *JOIN MULTIPLAYER BINGO*\n\n` +
-                                `💰 Entry Fee: *${GAME_CONFIG.BOARD_PRICE} ETB*\n` +
-                                `🏆 Prize Pool: 80% of all bets\n` +
-                                `👥 Min Players: ${GAME_CONFIG.MIN_PLAYERS}\n\n` +
-                                `Click below to join a game:`,
-                                {
-                                    inline_keyboard: [[
-                                        { 
-                                            text: `🎮 JOIN GAME (${user.balance} ETB)`,
-                                            web_app: {url: `${RENDER_URL}/?user=${userId}&from=play_command`}
-                                        }
-                                    ]]
-                                }
-                            );
-                            break;
-                            
-                        case '/help':
-                            await sendTelegramMessage(chatId,
-                                `📞 *SUPPORT & INSTANT DEPOSIT HELP*\n\n` +
-                                `👤 Admin: @ShebaBingoAdmin\n` +
-                                `📱 Phone: +251945343143\n` +
-                                `⏰ 24/7 Support\n\n` +
-                                `💡 *For INSTANT deposits:*\n` +
-                                `• Use TeleBirr or CBE Birr\n` +
-                                `• Copy & paste SMS confirmation\n` +
-                                `• Balance updates in under 1 minute\n\n` +
-                                `📧 Contact for:\n` +
-                                `• Deposit issues\n` +
-                                `• Withdrawal help\n` +
-                                `• Game problems`
-                            );
-                            break;
-                            
-                        case '/agent_register':
-                            user.isAgent = true;
-                            saveUsers();
-                            await sendTelegramMessage(chatId,
-                                `✅ *AGENT REGISTRATION COMPLETE!*\n\n` +
-                                `Your Agent Code: *${user.agentCode}*\n` +
-                                `Commission: 10%\n\n` +
-                                `Share your code to earn commissions!`
-                            );
-                            break;
-                            
-                        default:
-                            await sendTelegramMessage(chatId,
-                                `📝 I received: ${text}\n\n` +
-                                `Use these commands:\n` +
-                                `/start - Show menu\n` +
-                                `/play - Start game\n` +
-                                `/deposit - Add funds INSTANTLY\n` +
-                                `/balance - Check balance\n` +
-                                `/help - Get help`
-                            );
-                    }
-                } else {
-                    // Regular text message
-                    if (text.toLowerCase().includes('screenshot') || text.includes('paid') || text.includes('sent money')) {
-                        await sendTelegramMessage(chatId,
-                            `📸 *For manual screenshot review:*\n\n` +
-                            `Please send the screenshot directly as a photo (not text).\n` +
-                            `Admin review time: 5-10 minutes.\n\n` +
-                            `💡 *For INSTANT processing (under 1 minute):*\n` +
-                            `1. Use /deposit command\n` +
-                            `2. Select TeleBirr or CBE\n` +
-                            `3. Copy & paste the SMS confirmation\n`
-                        );
-                    } else {
-                        await sendTelegramMessage(chatId,
-                            `📝 I received your message\n\n` +
-                            `Use /help to see available commands.\n` +
-                            `For instant deposits, use /deposit`
-                        );
-                    }
-                }
-            }
+
+       
+function updateBoardDisplay() {
+    const boardElements = document.querySelectorAll('.board-option');
+    
+    boardElements.forEach(element => {
+        const boardNumber = parseInt(element.querySelector('.board-number').textContent);
+        const isTaken = isBoardTaken(boardNumber);
+        const isSelected = gameState.selectedBoards.has(boardNumber);
+        
+        // Reset styles
+        element.classList.remove('taken', 'selected');
+        element.style.background = '';
+        element.style.color = '';
+        element.style.cursor = '';
+        element.style.opacity = '';
+        element.style.border = '';
+        
+        // Remove existing taken indicator
+        const existingIndicator = element.querySelector('.taken-indicator');
+        if (existingIndicator) {
+            existingIndicator.remove();
         }
         
-    } catch (error) {
-        console.error('Webhook error:', error.message);
+        if (isTaken && !isSelected) {
+            // Board taken by other player
+            element.classList.add('taken');
+            element.style.background = 'linear-gradient(135deg, #e74c3c, #c0392b)';
+            element.style.color = 'white';
+            element.style.cursor = 'not-allowed';
+            element.style.opacity = '0.7';
+            element.style.border = '2px solid #e74c3c';
+            
+            const takenIndicator = document.createElement('div');
+            takenIndicator.className = 'taken-indicator';
+            takenIndicator.innerHTML = '✗';
+            element.style.position = 'relative';
+            element.appendChild(takenIndicator);
+            
+        } else if (isSelected) {
+            // Board selected by current player
+            element.classList.add('selected');
+            element.style.background = 'linear-gradient(135deg, #2ecc71, #27ae60)';
+            element.style.color = 'white';
+            element.style.border = '2px solid #27ae60';
+        }
+    });
+}
+       
+        // Bingo Board Generation
+        function generateBingoBoard() {
+            const B = shuffleArray([...CONFIG.BINGO_NUMBERS['B']]).slice(0, 5).sort((a, b) => a - b);
+            const I = shuffleArray([...CONFIG.BINGO_NUMBERS['I']]).slice(0, 5).sort((a, b) => a - b);
+            const N = shuffleArray([...CONFIG.BINGO_NUMBERS['N']]).slice(0, 4).sort((a, b) => a - b);
+            const G = shuffleArray([...CONFIG.BINGO_NUMBERS['G']]).slice(0, 5).sort((a, b) => a - b);
+            const O = shuffleArray([...CONFIG.BINGO_NUMBERS['O']]).slice(0, 5).sort((a, b) => a - b);
+            
+            const board = [];
+            let nIndex = 0;
+            
+            for (let row = 0; row < 5; row++) {
+                const rowData = [
+                    B[row],
+                    I[row],
+                    row === 2 ? '★' : N[nIndex++],
+                    G[row],
+                    O[row]
+                ];
+                board.push(rowData);
+            }
+            
+            return board;
+        }
+
+
+        function shuffleArray(array) {
+            return array.sort(() => Math.random() - 0.5);
+        }
+
+        function updateGameDisplay() {
+            if (gameState.currentCall) {
+                elements.currentLetter.textContent = gameState.currentCall.letter;
+                elements.currentNumber.textContent = gameState.currentCall.number;
+            }
+            
+            updateCalledNumbersList();
+            updateMainBoardColors();
+            updateGameStats();
+        }
+// 2. TABLE LAYOUT FIX FUNCTION (place it here)
+function ensureTableLayout() {
+    const containers = document.querySelectorAll('.bingo-table-container');
+    
+    containers.forEach(container => {
+        // Force right padding
+        container.style.paddingLeft = '0';
+        container.style.paddingRight = '10px';
+        
+        // Ensure container width is correct
+        const parentWidth = container.parentElement.offsetWidth;
+        container.style.width = '100%';
+        container.style.maxWidth = '100%';
+        
+        // Check table width
+        const table = container.querySelector('.bingo-table');
+        if (table) {
+            // Ensure table fills container
+            table.style.width = '100%';
+            table.style.minWidth = '100%';
+            
+            // Calculate column widths for 5 columns
+            const containerWidth = container.offsetWidth - 10; // Subtract right padding
+            const colWidth = (containerWidth / 5) + 'px';
+            
+            // Apply equal width to all headers and cells
+            const headers = table.querySelectorAll('th');
+            const cells = table.querySelectorAll('td');
+            
+            headers.forEach(header => {
+                header.style.minWidth = colWidth;
+                header.style.maxWidth = colWidth;
+            });
+            
+            // First row cells
+            const firstRowCells = table.querySelectorAll('tr:first-child td');
+            firstRowCells.forEach(cell => {
+                cell.style.minWidth = colWidth;
+                cell.style.maxWidth = colWidth;
+            });
+        }
+    });
+}
+// 3. OTHER GAME FUNCTIONS (after table fix)
+
+function updateCalledNumbersList() {
+    const container = elements.calledNumbersList;
+    container.innerHTML = '';
+    
+    // Get ONLY last 5 called numbers
+    const recentCalls = gameState.calledNumbers.slice(-5);
+    
+    if (recentCalls.length === 0) {
+        container.innerHTML = '<div style="color:#aaa;font-size:0.55rem;text-align:center;padding:4px;">- - -</div>';
+        return;
     }
-
-});
-
-// ==================== CALLBACK QUERY HANDLER ====================
-async function handleCallbackQuery(callback) {
-    try {
-        const chatId = callback.message.chat.id;
-        const userId = callback.from.id;
-        const data = callback.data;
-        const user = users[userId];
+    
+    // Check if mobile
+    const isMobile = window.innerWidth <= 500;
+    const isVerySmall = window.innerWidth <= 360; // Extra small phones
+    
+    // NO REVERSING - Keep natural order (oldest to newest)
+    recentCalls.forEach((number, index) => {
+        let letter = '';
+        let color = '';
+        let textColor = 'white';
         
-        if (!user) {
-            console.error(`User ${userId} not found in callback`);
-            return;
+        // Simple color mapping
+        if (number <= 15) {
+            letter = 'B';
+            color = '#3498db'; // Blue
+        } else if (number <= 30) {
+            letter = 'I';
+            color = '#e74c3c'; // Red
+        } else if (number <= 45) {
+            letter = 'N';
+            color = '#2ecc71'; // Green
+        } else if (number <= 60) {
+            letter = 'G';
+            color = '#f1c40f'; // Yellow
+            textColor = '#2c3e50'; // Dark text for yellow
+        } else {
+            letter = 'O';
+            color = '#9b59b6'; // Purple
+        }
+
+        const callElement = document.createElement('div');
+        callElement.className = 'called-number-item';
+        callElement.dataset.index = index;
+        
+        // Check if this is the most recent (last in array)
+        const isMostRecent = index === recentCalls.length - 1;
+        
+        // DETERMINE SIZES BASED ON SCREEN
+        let fontSize, itemWidth, itemHeight, padding, borderRadius;
+        
+        if (isVerySmall) {
+            // EXTRA SMALL PHONES (≤360px)
+            fontSize = '0.5rem';
+            itemWidth = '28px';
+            itemHeight = '18px';
+            padding = '1px';
+            borderRadius = '2px';
+        } else if (isMobile) {
+            // REGULAR MOBILE (≤500px)
+            fontSize = '0.55rem';
+            itemWidth = '30px';
+            itemHeight = '20px';
+            padding = '1px 2px';
+            borderRadius = '2px';
+        } else {
+            // DESKTOP (>500px)
+            fontSize = '0.65rem';
+            itemWidth = '36px';
+            itemHeight = '24px';
+            padding = '2px 3px';
+            borderRadius = '3px';
         }
         
-        // Answer callback query
-        await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/answerCallbackQuery`, {
-            callback_query_id: callback.id
+        // Apply styles
+        callElement.style.cssText = `
+            background: ${color};
+            color: ${textColor};
+            border-radius: ${borderRadius};
+            padding: ${padding};
+            font-size: ${fontSize};
+            width: ${itemWidth};
+            height: ${itemHeight};
+            text-align: center;
+            cursor: pointer;
+            font-weight: 700;
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: ${isMostRecent ? '0 0 0 1px white, 0 1px 3px rgba(0,0,0,0.3)' : '0 1px 2px rgba(0,0,0,0.2)'};
+            position: relative;
+            overflow: hidden;
+            margin: 0 ${isVerySmall ? '1px' : (isMobile ? '1.5px' : '2px')} 0 0;
+            line-height: 1;
+            transform: ${isMostRecent ? 'scale(1.05)' : 'scale(1)'};
+            z-index: ${isMostRecent ? '5' : '1'};
+            animation: ${isMostRecent ? 'slideInFromRight 0.2s ease-out' : 'none'};
+            transition: all 0.2s ease;
+        `;
+        
+        // Create inner HTML with appropriate font sizes
+        const letterSize = isVerySmall ? '0.6rem' : (isMobile ? '0.65rem' : '0.7rem');
+        const hyphenSize = isVerySmall ? '0.5rem' : (isMobile ? '0.55rem' : '0.6rem');
+        const numberSize = isVerySmall ? '0.7rem' : (isMobile ? '0.75rem' : '0.8rem');
+        
+        callElement.innerHTML = `
+            <span style="font-weight:600; font-size:${letterSize};">${letter}</span>
+            <span style="margin: 0 0.5px; font-size:${hyphenSize};">-</span>
+            <span style="font-weight:800; font-size:${numberSize};">${number}</span>
+        `;
+        
+        // Check marking status
+        let isMarkedOnAny = false;
+        let isUnmarkedOnAny = false;
+        
+        if (gameState.currentPlayer.isActive) {
+            gameState.currentPlayer.boards.forEach(board => {
+                if (!board.isEliminated && board.markedNumbers.has(number)) {
+                    isMarkedOnAny = true;
+                } else if (!board.isEliminated) {
+                    isUnmarkedOnAny = true;
+                }
+            });
+        }
+        
+        // Add marking indicator (very small)
+        if (isMarkedOnAny && !isUnmarkedOnAny) {
+            const indicator = document.createElement('div');
+            const dotSize = isVerySmall ? '4px' : (isMobile ? '5px' : '6px');
+            indicator.style.cssText = `
+                position: absolute;
+                top: 1px;
+                right: 1px;
+                width: ${dotSize};
+                height: ${dotSize};
+                background: #27ae60;
+                border-radius: 50%;
+                border: 1px solid white;
+                z-index: 1;
+            `;
+            callElement.appendChild(indicator);
+        }
+        
+        // Add click handler
+        callElement.addEventListener('click', function() {
+            markNumberOnPlayerBoards(number, this);
+            
+            // Quick feedback
+            this.style.opacity = '0.7';
+            this.style.transform = 'scale(0.95)';
+            setTimeout(() => {
+                this.style.opacity = '1';
+                this.style.transform = isMostRecent ? 'scale(1.05)' : 'scale(1)';
+            }, 150);
         });
         
-        console.log(`🔘 Callback received: ${data} from ${user.username}`);
-        
-        switch(data) {
-          case 'register':
-    if (!user.registered) {
-        user.registered = true;
-        user.balance += 10; // Welcome bonus
-        saveUsers();
-        
-        await sendTelegramMessage(chatId,
-            `✅ *REGISTRATION SUCCESSFUL!* 🎉\n\n` +
-            `🎁 Welcome Bonus: *10 ETB*\n` +
-            `💰 Current Balance: *${user.balance} ETB*\n\n` +
-            `🎮 Click PLAY to start!`,
-            {
-                inline_keyboard: [
-                    [{ 
-                        text: `🎮 PLAY NOW (${user.balance} ETB)`, 
-                        web_app: { url: `${RENDER_URL}/?user=${user.id}` }
-                    }],
-                    [
-                        { text: "💰 DEPOSIT", callback_data: "deposit" },
-                        { text: "📊 BALANCE", callback_data: "balance" }
-                    ]
-                ]
-            }
-        );
-    } else {
-        await sendTelegramMessage(chatId,
-            `ℹ️ *አስቀድመው ተመዝግበዋል / Already Registered*\n\n` +
-            `የአሁን ባላንስዎ / Your current balance: *${user.balance} ETB*\n\n` +
-            `🎮 ጨዋታ ለመጀመር ከታች ያለውን ቁልፍ ይጫኑ።\n` +
-            `🎮 Click PLAY below to start playing!`,
-            {
-                inline_keyboard: [
-                    [{ 
-                        text: "🎮 PLAY NOW", 
-                        web_app: { url: `${RENDER_URL}/?user=${user.id}` }
-                    }],
-                    [
-                        { text: "💰 DEPOSIT", callback_data: "deposit" },
-                        { text: "📊 BALANCE", callback_data: "balance" }
-                    ]
-                ]
-            }
-        );
-    }
-    break;
-                
-            case 'play':
-                if (user.balance < GAME_CONFIG.BOARD_PRICE) {
-                    await sendTelegramMessage(chatId,
-                        `❌ *INSUFFICIENT BALANCE*\n\n` +
-                        `💰 Required: *${GAME_CONFIG.BOARD_PRICE} ETB*\n` +
-                        `💵 Your balance: *${user.balance} ETB*\n\n` +
-                        `💡 Use /deposit to add funds instantly!`,
-                        {
-                            inline_keyboard: [[
-                                { text: "💰 DEPOSIT NOW", callback_data: "deposit" }
-                            ]]
-                        }
-                    );
-                    break;
-                }
-                
-                await sendTelegramMessage(chatId,
-                    `🎮 *JOIN MULTIPLAYER BINGO*\n\n` +
-                    `💰 Entry Fee: *${GAME_CONFIG.BOARD_PRICE} ETB*\n` +
-                    `🏆 Prize Pool: 80% of all bets\n` +
-                    `👥 Min Players: ${GAME_CONFIG.MIN_PLAYERS}\n\n` +
-                    `Click below to join a game:`,
-                    {
-                        inline_keyboard: [[
-                            { 
-                                text: `🎮 JOIN GAME (${user.balance} ETB)`,
-                                web_app: {url: `${RENDER_URL}/?user=${userId}&from=play_command`}
-                            }
-                        ]]
-                    }
-                );
-                break;
-                
-            case 'deposit':
-                await sendTelegramMessage(chatId,
-                    `💰 *CHOOSE PAYMENT METHOD - INSTANT DEPOSIT* 💰\n\n` +
-                    `*FOR INSTANT CREDIT (UNDER 1 MINUTE):*\n` +
-                    `1. Select your payment method below.\n` +
-                    `2. Complete the transfer.\n` +
-                    `3. **COPY the ENTIRE confirmation SMS** you receive.\n` +
-                    `4. **PASTE that SMS text directly here** in this chat.\n\n` +
-                    `✅ *Automatic processing!*\n` +
-                    `❌ Do NOT send screenshots for instant processing.`,
-                    {
-                        inline_keyboard: [
-                            [{ text: "📱 TeleBirr (INSTANT)", callback_data: "telebirr_instant" }],
-                            [{ text: "🏦 CBE Birr (INSTANT)", callback_data: "cbe_instant" }],
-                            [{ text: "🏛️ Bank of Abyssinia", callback_data: "boa_instant" }],
-                            [{ text: "📸 Manual Screenshot (Slower)", callback_data: "manual_deposit" }]
-                        ]
-                    }
-                );
-                break;
-                
-            case 'telebirr_instant':
-    await sendTelegramMessage(chatId,
-        `📱 *Telebirr አማራጭ / Telebirr Option*\n\n` +
-        `*መመሪያ / Instructions:*\n\n` +
-        `1️⃣ ገንዘብ ወደዚህ ቁጥር ይላኩ፡\n` +
-        `   📞 *0914834341* - Mearg Alemayoh\n\n` +
-        `2️⃣ ገንዘብ ከላኩ በኋላ ከ *127* አጭር የጽሁፍ መልእክት (SMS) ይደርሳችኋል።\n\n` +
-        `3️⃣ ያንን ሙሉ የSMS መልእክት *COPY* ያድርጉ (ረጅም ተጭነው Copy ይምረጡ)።\n\n` +
-        `4️⃣ ከዚህ በታች ባለው የቴሌግራም መልእክት ማስገቢያ ላይ *PASTE* ያድርጉና ይላኩ።\n\n` +
-        `5️⃣ ባላንስዎ በራስ-ሰር ይጨመራል (ከ1 ደቂቃ በታች)።\n\n` +
-        `*ምሳሌ የሚላክ መልእክት (Example SMS):*\n` +
-        `"Dear Mearg You have transferred ETB 40.00 to ... Your transaction number is DCJ90J52HV."\n\n` +
-        `❌ *ማስታወሻ፡* ስክሪን ሾት አይላኩ። የSMS ጽሑፍ ብቻ ይላኩ።\n\n` +
-        `✅ *ከተቸገሩ* @ShebaBingoSupport ይጠይቁ።`,
-        {
-            reply_markup: {
-                inline_keyboard: [[
-                    { text: "🔙 ተመለስ / Back", callback_data: "deposit" }
-                ]]
-            }
-        }
-    );
-    break;
-                
-            case 'cbe_instant':
-                await sendTelegramMessage(chatId,
-                    `🏦 *CBE Birr INSTANT Deposit*\n\n` +
-                    `📍 *Send money to this account:*\n` +
-                    `➤ **Account:** 1000***********\n` +
-                    `➤ **Name:** Mearig Alemayehu\n\n` +
-                    `*CRITICAL INSTRUCTIONS FOR INSTANT CREDIT:*\n` +
-                    `1️⃣ Transfer any amount (Min: 10 ETB).\n` +
-                    `2️⃣ Wait for the SMS from CBE.\n` +
-                    `3️⃣ **LONG PRESS** the SMS, **COPY ALL TEXT**.\n` +
-                    `4️⃣ Come back here and **PASTE it** in this chat.\n\n` +
-                    `⏱️ *Balance update:* **Less than 1 minute**\n` +
-                    `🔒 *Secure & Automatic*`
-                );
-                break;
-                
-            case 'boa_instant':
-                await sendTelegramMessage(chatId,
-                    `🏛️ *Bank of Abyssinia INSTANT Deposit*\n\n` +
-                    `📍 *Send money to this account:*\n` +
-                    `➤ **Account:** 65******\n` +
-                    `➤ **Name:** Mearig Alemayehu\n\n` +
-                    `*Follow these steps for instant credit:*\n` +
-                    `1️⃣ Transfer any amount (Min: 10 ETB).\n` +
-                    `2️⃣ Wait for the confirmation SMS.\n` +
-                    `3️⃣ **COPY ALL TEXT** from the SMS.\n` +
-                    `4️⃣ **PASTE it** in this chat.\n\n` +
-                    `⏱️ *Balance update:* **1 minutes**`
-                );
-                break;
-                
-            case 'manual_deposit':
-                await sendTelegramMessage(chatId,
-                    `📸 *Manual Screenshot Deposit*\n\n` +
-                    `📍 *Send money to any account:*\n` +
-                    `• TeleBirr:0914834341\n` +
-                    `• CBE: 1000***********\n` +
-                    `• BoA: 65******\n\n` +
-                    `*Instructions:*\n` +
-                    `1️⃣ Complete your transfer.\n` +
-                    `2️⃣ Take a **CLEAR screenshot** of the transaction.\n` +
-                    `3️⃣ Send the screenshot here as a **PHOTO**.\n\n` +
-                    `⏱️ *Processing time:* **1 minutes**\n` +
-                    `⚠️ *For faster processing, use INSTANT deposit method above*`
-                );
-                break;
-                
-            case 'balance':
-    // First show balance
-    await sendTelegramMessage(chatId,
-        `💰 *YOUR BALANCE*\n\n` +
-        `💵 Available: *${user.balance} ETB*\n\n` +
-        `⏰ *QUICK JOIN AVAILABLE!*\n` +
-        `Click PLAY to instantly join the next game!\n` +
-        `🎮 Game starts in 25 seconds!`,
-        {
-            inline_keyboard: [[
-                { 
-                    text: `🎮 PLAY NOW (${user.balance} ETB)`, 
-                    web_app: { url: `${RENDER_URL}/?user=${userId}&autojoin=true` }
-                }
-            ]]
-        }
-    );
-    break;
-                
-            case 'withdraw':
-                await sendTelegramMessage(chatId,
-                    `📤 *WITHDRAW MONEY*\n\n` +
-                    `💰 Balance: *${user.balance} ETB*\n\n` +
-                    `Minimum withdrawal: *50 ETB*\n\n` +
-                    `Contact @AdminForWithdraw\n` +
-                    `📱 +251945343143`
-                );
-                break;
-                
-            case 'transfer':
-                await sendTelegramMessage(chatId,
-                    `📤 *TRANSFER MONEY*\n\n` +
-                    `Send:\n` +
-                    `/transfer [amount] [user_id]\n\n` +
-                    `Example:\n` +
-                    `/transfer 100*****`
-                );
-                break;
-                
-case 'instructions':
-    await sendTelegramMessage(chatId,
-        `📖 *HOW TO PLAY SHEBA BINGO / እንዴት እንደሚጫወቱ*\n\n` +
-        
-        `*🇬🇧 ENGLISH:*\n` +
-        `1️⃣ /register - Get 10 ETB free bonus 🎁\n` +
-        `2️⃣ /deposit - Add money (min 10 ETB) 💰\n` +
-        `3️⃣ /play - Open the game and select 1-3 boards 🎮\n` +
-        `4️⃣ Mark numbers as they are called ✅\n` +
-        `5️⃣ Complete a row, column, or diagonal to win! 🏆\n` +
-        `6️⃣ Click "CLAIM BINGO" when you win 🎯\n\n` +
-        
-        `*🇪🇹 አማርኛ:*\n` +
-        `1️⃣ /register - 10 ብር ነፃ ቦነስ ያግኙ 🎁\n` +
-        `2️⃣ /deposit - ገንዘብ ይሙሉ (ከ10 ብር በላይ) 💰\n` +
-        `3️⃣ /play - ጨዋታውን ይክፈቱ እና 1-3 ቦርዶች ይምረጡ 🎮\n` +
-        `4️⃣ ቁጥሮች ሲጠሩ ምልክት ያድርጉ ✅\n` +
-        `5️⃣ ረድፍ፣ አምድ ወይም ሰያፍ ሲሞላ ያሸንፋሉ! 🏆\n` +
-        `6️⃣ ሲያሸንፉ "CLAIM BINGO" የሚለውን ይጫኑ 🎯\n\n` +
-        
-        `💰 *Prize / ሽልማት:* 80% of all bets go to winners!\n` +
-        `⏱️ *Games run / ጨዋታዎች:* 24/7 every 2 minutes\n` +
-        `📞 *Support / ድጋፍ:* @ShebaBingoETBotSupport`,
-        {
-            reply_markup: {
-                inline_keyboard: [
-                    [{ text: "🎮 PLAY NOW", web_app: { url: `${RENDER_URL}/?user=${userId}` } }],
-                    [{ text: "💰 DEPOSIT", callback_data: "deposit" }]
-                ]
-            }
-        }
-    );
-    break;
-                
-            case 'support':
-    await sendTelegramMessage(chatId,
-        `📞 *SUPPORT & INSTANT DEPOSIT HELP*\n\n` +
-        `👤 Admin: @ShebaBingoETBotSupport\n` +  // ← UPDATED
-        `📱 Phone: +251945343143\n` +
-        `⏰ 24/7 Support\n\n` +
-        `📧 Contact for:\n` +
-        `• Deposit issues\n` +
-        `• Withdrawal help\n` +
-        `• Game problems`
-    );
-    break;
-                
-            case 'invite':
-    const referralLink = `https://t.me/ShebaBingoETBot?start=${userId}`;
-    await sendTelegramMessage(chatId,
-        `👥 *INVITE FRIENDS / ጓደኛ ጋብዝ*\n\n` +
-        
-        `*🇬🇧 ENGLISH:*\n` +
-        `Share this link with your friends:\n` +
-        `${referralLink}\n\n` +
-        `🎁 Get *5 ETB bonus* when they register and deposit!\n\n` +
-        
-        `*🇪🇹 አማርኛ:*\n` +
-        `ይህን ሊንክ ለጓደኞችዎ ያጋሩ:\n` +
-        `${referralLink}\n\n` +
-        `🎁 ጓደኛዎ ሲመዘገብ እና ገንዘብ ሲያስገባ *5 ብር ቦነስ* ያግኙ!`,
-        {
-            reply_markup: {
-                inline_keyboard: [
-                    [{ text: "📋 COPY LINK", callback_data: "copy_link" }],
-                    [{ text: "🔙 BACK", callback_data: "menu" }]
-                ]
-            }
-        }
-    );
-    break;
-                
-            case 'agent':
-                if (!user.isAgent) {
-                    await sendTelegramMessage(chatId,
-                        `👑 *BECOME AN AGENT*\n\n` +
-                        `Benefits:\n` +
-                        `• 10% commission on referrals\n` +
-                        `• Special bonuses\n` +
-                        `• Priority support\n\n` +
-                        `Register as agent:\n` +
-                        `/agent_register`
-                    );
-                } else {
-                    await sendTelegramMessage(chatId,
-                        `👑 *AGENT PANEL*\n\n` +
-                        `Your Code: *${user.agentCode}*\n` +
-                        `Commission: *50 ETB*\n` +
-                        `Referrals: *${user.referrals?.length || 0}*\n\n` +
-                        `Commands:\n` +
-                        `/invitesubagent - Add sub-agent\n` +
-                        `/sale - Check sales`
-                    );
-                }
-                break;
-                
-            case 'subagent':
-                await sendTelegramMessage(chatId,
-                    `🤝 *SUB-AGENT*\n\n` +
-                    `Become sub-agent under an agent.\n\n` +
-                    `Send:\n` +
-                    `/subagent [agent_code]`
-                );
-                break;
-                
-            case 'sale':
-                await sendTelegramMessage(chatId,
-                    `💰 *SALES REPORT*\n\n` +
-                    `Today's Sales: *500 ETB*\n` +
-                    `Your Commission: *50 ETB*\n\n` +
-                    `Check with:\n` +
-                    `/sale_report`
-                );
-                break;
-                
-            case 'menu':
-                await showMainMenu(chatId, user);
-                break;
-                
-            default:
-                if (data.startsWith('admin_')) {
-                    await handleAdminCallback(data, callback);
-                } else {
-                    await showMainMenu(chatId, user);
-                }
-        }
-    } catch (error) {
-        console.error('Callback error:', error.message);
-    }
-}
-
-// To this (actual implementation):
-async function handleAdminCallback(data, callback) {
-    try {
-        const parts = data.split('_');
-        const action = parts[1];
-        const depositId = parts[2];
-        
-        if (action === 'approve') {
-            const deposit = deposits.find(d => d.id === depositId);
-            if (deposit && deposit.status === 'pending_manual') {
-                const user = users[deposit.userId];
-                if (user) {
-                    deposit.status = 'approved';
-                    deposit.approvedAt = new Date().toISOString();
-                    user.balance += 50;
-                    saveUsers();
-                    saveDeposits();
-                    
-                    await sendTelegramMessage(deposit.chatId,
-                        `✅ *MANUAL DEPOSIT APPROVED!*\n\n` +
-                        `💰 Amount: *50 ETB*\n` +
-                        `🎁 New Balance: *${user.balance} ETB*\n\n` +
-                        `🎮 Click PLAY to start!`
-                    );
-                    
-                    await sendTelegramMessage(callback.message.chat.id,
-                        `✅ Manual deposit approved for ${user.username}`
-                    );
-                }
-            }
-        } else if (action === 'reject') {
-            const deposit = deposits.find(d => d.id === depositId);
-            if (deposit && deposit.status === 'pending_manual') {
-                deposit.status = 'rejected';
-                deposit.rejectedAt = new Date().toISOString();
-                saveDeposits();
-                
-                await sendTelegramMessage(deposit.chatId,
-                    `❌ *DEPOSIT REJECTED*\n\n` +
-                    `Your manual deposit was not approved.\n` +
-                    `Please use INSTANT deposit method:\n` +
-                    `1. Copy SMS confirmation\n` +
-                    `2. Paste text here\n` +
-                    `3. Get instant credit\n\n` +
-                    `Contact support if needed.`
-                );
-                
-                await sendTelegramMessage(callback.message.chat.id,
-                    `❌ Manual deposit rejected for ${deposit.username}`
-                );
-            }
-        }
-    } catch (error) {
-        console.error('Admin callback error:', error);
-    }
-}
-
-async function processInstantDeposit(userId, chatId, smsText) {
-    try {
-        const user = users[userId];
-        if (!user) {
-            await sendTelegramMessage(chatId, `❌ User not found. Please use /start first.`);
-            return;
-        }
-
-        console.log(`🔍 Processing SMS from ${user.username}: ${smsText.substring(0, 80)}...`);
-
-        // Extract Transaction ID - Enhanced for Telebirr
-        let transactionId = null;
-        const txIdPatterns = [
-            // Primary Telebirr format - "Your transaction number is DCJ90J52HV"
-            /transaction number is ([A-Z0-9]{10,})/i,
+        // Add hover effect (desktop only)
+        if (!isMobile) {
+            callElement.addEventListener('mouseenter', function() {
+                const currentScale = isMostRecent ? 1.05 : 1;
+                this.style.transform = `scale(${currentScale * 1.05})`;
+                this.style.boxShadow = '0 2px 5px rgba(0,0,0,0.3)';
+            });
             
-            // From the receipt link - "receipt/DCJ90J52HV"
-            /receipt\/([A-Z0-9]{10,})/i,
-            
-            // Standard patterns
-            /transaction (?:number|id) is (\w+)/i,
-            /transaction #(\w+)/i,
-            /reference (?:number|id) (\w+)/i,
-            /reference (\w+)/i,
-            
-            // Common Ethiopian banking patterns
-            /DA17G5W\w{3}/i,
-            /DCJ[0-9A-Z]{7,}/i,
-            
-            // Match at end of line or after period
-            /([A-Z0-9]{10,})\.?\s*$/m,
-            
-            // Generic transaction ID
-            /(?:TXN|TRN|ID)[:\s]*([A-Z0-9]{10,})/i
-        ];
-
-        for (const pattern of txIdPatterns) {
-            const match = smsText.match(pattern);
-            if (match) {
-                transactionId = match[1] || match[0];
-                console.log(`📋 Found Transaction ID: ${transactionId}`);
-                break;
-            }
-        }
-
-        // Extract Amount - Enhanced for Telebirr
-        let amount = null;
-        const amountPatterns = [
-            // Primary Telebirr format - "transferred ETB 40.00"
-            /transferred ETB ([\d.]+)/i,
-            
-            // Standard formats
-            /ETB\s*(\d+(?:\.\d{2})?)/i,
-            /transferred\s*(\d+(?:\.\d{2})?)/i,
-            /(\d+(?:\.\d{2})?)\s*ETB/i,
-            /ETB (\d+(?:\.\d{2})?)/i,
-            
-            // Amount with description
-            /(?:amount|AMT|birr)[:\s]*([\d.]+)/i,
-            
-            // Fallback - find any number with decimal
-            /\b(\d+\.\d{2})\b/
-        ];
-
-        for (const pattern of amountPatterns) {
-            const match = smsText.match(pattern);
-            if (match) {
-                amount = parseFloat(match[1]);
-                console.log(`💰 Found Amount: ${amount} ETB`);
-                if (amount >= 10) break;
-            }
-        }
-
-        // Validation with better error messages
-        if (!transactionId) {
-            await sendTelegramMessage(chatId,
-                `❌ *Unable to parse message / መልእክቱ ሊታወቅ አልቻለም*\n\n` +
-                `Please copy the *complete SMS* you received from Telebirr.\n` +
-                `እባክዎ ከቴሌብር የደረሳችሁን *ሙሉ የSMS መልእክት* ይላኩ።\n\n` +
-                `Example / ምሳሌ:\n` +
-                `"Dear Mearg You have transferred ETB 40.00 ... Your transaction number is DCJ90J52HV."\n\n` +
-                `If problem persists, contact @ShebaBingoSupport.`
-            );
-            return;
-        }
-        
-        if (!amount || amount < 10) {
-            await sendTelegramMessage(chatId,
-                `❌ *Valid amount not found / ትክክለኛ ያልሆነ መጠን*\n\n` +
-                `Minimum deposit is *10 ETB*.\n` +
-                `Found / የተገኘ: ${amount || 'nothing / ምንም'}\n\n` +
-                `Please paste the complete SMS including the amount.\n` +
-                `እባክዎ መጠኑን የያዘ ሙሉ መልእክት ይላኩ።`
-            );
-            return;
-        }
-
-        // Check for duplicate
-        const isDuplicate = deposits.some(d => 
-            d.transactionId === transactionId && d.status === 'approved'
-        );
-        
-        if (isDuplicate) {
-            await sendTelegramMessage(chatId,
-                `⚠️ *Deposit Already Processed / ክፍያው አስቀድሞ ተመዝግቧል*\n\n` +
-                `Transaction ID *${transactionId}* was already credited.\n` +
-                `If this is a mistake, contact @ShebaBingoSupport.`
-            );
-            return;
-        }
-
-        // Create deposit record
-        const depositId = `auto_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        const newDeposit = {
-            id: depositId,
-            userId: userId,
-            username: user.username,
-            chatId: chatId,
-            smsText: smsText,
-            transactionId: transactionId,
-            amount: amount,
-            status: 'approved',
-            method: smsText.includes('TeleBirr') ? 'telebirr_auto' : 
-                    smsText.includes('CBE') ? 'cbe_auto' : 'bank_auto',
-            date: new Date().toISOString(),
-            approvedAt: new Date().toISOString(),
-            autoParsed: true,
-            processedIn: 'instant'
-        };
-
-        deposits.push(newDeposit);
-        user.balance += amount;
-        user.totalDeposited = (user.totalDeposited || 0) + amount;
-        saveUsers();
-        saveDeposits();
-
-        console.log(`✅ INSTANT DEPOSIT: ${user.username} +${amount} ETB via ${transactionId}`);
-
-        // Notify user with confirmation
-        await sendTelegramMessage(chatId,
-            `✅ *Deposit successful! / ክፍያው ተሳክቷል!*\n\n` +
-            `Amount added / ተጨማሪ ገንዘብ: *${amount.toFixed(1)} ETB*\n` +
-            `Transaction / የክፍያ መለያ: *${transactionId}*\n` +
-            `New balance / አሁን ያለዎት ባላንስ: *${user.balance.toFixed(1)} ETB*\n\n` +
-            `🎮 Click PLAY to start!`,
-            {
-                reply_markup: {
-                    inline_keyboard: [[
-                        { text: "🎮 PLAY NOW", web_app: { url: `${RENDER_URL}/?user=${userId}` } }
-                    ]]
-                }
-            }
-        );
-
-        // Alert admin
-        await sendTelegramMessage(ADMIN_CHAT_ID,
-            `⚡ *INSTANT DEPOSIT*\n` +
-            `👤 ${user.username}\n` +
-            `💰 ${amount} ETB\n` +
-            `🆔 ${transactionId}\n` +
-            `💵 New: ${user.balance} ETB`
-        );
-        
-    } catch (error) {
-        console.error('Error processing instant deposit:', error);
-        await sendTelegramMessage(chatId,
-            `❌ *Error Processing Deposit*\n\n` +
-            `Please contact @ShebaBingoSupport`
-        );
-    }
-}
-// ==================== API ENDPOINTS ====================
-// Root route
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, '../public/index.html'));
-});
-
-// Redirect game.html to index.html
-app.get('/game.html', (req, res) => {
-    const userId = req.query.user;
-    console.log(`🔄 Redirecting /game.html?user=${userId} to /?user=${userId}`);
-    res.redirect(301, `/?user=${userId || ''}`);
-});
-
-app.get('/game', (req, res) => {
-    res.redirect(301, `/?user=${req.query.user || ''}`);
-});
-
-// Get active games
-app.get('/api/games/active', async (req, res) => {
-    try {
-        const result = await pool.query(`
-            SELECT mg.*, COUNT(gp.user_id) as player_count
-            FROM multiplayer_games mg
-            LEFT JOIN game_players gp ON mg.id = gp.game_id
-            WHERE mg.status IN ('selecting', 'shuffling', 'active')
-            GROUP BY mg.id
-            ORDER BY mg.created_at DESC
-            LIMIT 10
-        `);
-        
-        res.json({ success: true, games: result.rows });
-    } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
-
-// Create or join game
-app.post('/api/game/join', async (req, res) => {
-    try {
-        const { userId, boardCount = 1, boardNumbers = [] } = req.body;
-        
-        if (!users[userId]) {
-            return res.json({ success: false, error: 'User not found. Please use /start in Telegram first.' });
-        }
-        
-        const user = users[userId];
-        
-        // Validate board count
-        if (boardCount < 1 || boardCount > GAME_CONFIG.MAX_BOARDS_PER_PLAYER) {
-            return res.json({ 
-                success: false, 
-                error: `Invalid board count. Choose 1-${GAME_CONFIG.MAX_BOARDS_PER_PLAYER} boards.` 
+            callElement.addEventListener('mouseleave', function() {
+                this.style.transform = isMostRecent ? 'scale(1.05)' : 'scale(1)';
+                this.style.boxShadow = isMostRecent ? 
+                    '0 0 0 1px white, 0 1px 3px rgba(0,0,0,0.3)' : 
+                    '0 1px 2px rgba(0,0,0,0.2)';
             });
         }
         
-        const totalCost = boardCount * GAME_CONFIG.BOARD_PRICE;
-        
-        // Check balance
-        if (user.balance < totalCost) {
-            return res.json({ 
-                success: false, 
-                error: 'Insufficient balance',
-                required: totalCost,
-                current: user.balance
-            });
-        }
-        
-        // Find available game or create new
-        let gameResult = await pool.query(`
-            SELECT mg.*, COUNT(gp.user_id) as player_count
-            FROM multiplayer_games mg
-            LEFT JOIN game_players gp ON mg.id = gp.game_id
-            WHERE mg.status = 'selecting'
-            GROUP BY mg.id
-            HAVING COUNT(gp.user_id) < $1
-            ORDER BY mg.created_at ASC
-            LIMIT 1
-        `, [GAME_CONFIG.MAX_PLAYERS]);
-        
-        let gameId, gameNumber;
-        
-        if (gameResult.rows.length > 0) {
-            gameId = gameResult.rows[0].id;
-            gameNumber = gameResult.rows[0].game_number;
-        } else {
-            const newGame = await createMultiplayerGame();
-            if (!newGame.success) {
-                return res.json({ success: false, error: newGame.error });
+        container.appendChild(callElement);
+    });
+    
+    // Calculate container size based on screen
+    let containerHeight, totalWidth;
+if (isVerySmall) {
+    containerHeight = '20px';
+    const itemWidth = 28; // pixels
+    const gap = 1; // pixels
+    totalWidth = (itemWidth * recentCalls.length) + (gap * (recentCalls.length - 1));
+} else if (isMobile) {
+    containerHeight = '22px';
+    const itemWidth = 30; // pixels
+    const gap = 1.5; // pixels
+    totalWidth = (itemWidth * recentCalls.length) + (gap * (recentCalls.length - 1));
+} else {
+    containerHeight = '26px';
+    const itemWidth = 36; // pixels
+    const gap = 2; // pixels
+    totalWidth = (itemWidth * recentCalls.length) + (gap * (recentCalls.length - 1));
+}
+    // Apply container styles
+    container.style.cssText = `
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        min-width: ${totalWidth}px;
+        max-width: 100%;
+        height: ${containerHeight};
+        padding: 0;
+        overflow: visible;
+        flex-direction: row;
+        gap: ${isVerySmall ? '1px' : (isMobile ? '1.5px' : '2px')};
+        background: transparent;
+        margin: 0 auto;
+    `;
+    
+    // Add CSS animation
+    const styleId = 'called-numbers-animation-' + Date.now();
+    const style = document.createElement('style');
+    style.id = styleId;
+    style.textContent = `
+        @keyframes slideInFromRight {
+            from {
+                transform: translateX(10px) scale(0.9);
+                opacity: 0;
             }
-            gameId = newGame.gameId;
-            gameNumber = newGame.gameNumber;
+            to {
+                transform: translateX(0) scale(1);
+                opacity: 1;
+            }
         }
-        
-        // Check if user already in this game
-        const existingPlayer = await pool.query(
-            `SELECT * FROM game_players WHERE game_id = $1 AND user_id = $2`,
-            [gameId, userId]
-        );
-        
-        if (existingPlayer.rows.length > 0) {
-            return res.json({ 
-                success: false, 
-                error: 'Already in this game',
-                gameId: gameId
-            });
-        }
-        
-        // Join the game
-        const joinResult = await joinMultiplayerGame(gameId, userId, boardCount, boardNumbers);
-        
-        if (!joinResult.success) {
-            return res.json({ success: false, error: joinResult.error });
-        }
-        
-        res.json({
-            success: true,
-            gameId: gameId,
-            gameNumber: gameNumber,
-            boards: joinResult.boards,
-            prizePool: joinResult.prizePool,
-            playerCount: joinResult.playerCount,
-            gameStatus: 'selecting',
-            selectionTime: GAME_CONFIG.SELECTION_TIME,
-            yourBalance: user.balance
-        });
-        
-    } catch (error) {
-        console.error('Error in game join:', error);
-        res.status(500).json({ success: false, error: error.message });
+    `;
+    
+    // Remove old style if exists
+    const oldStyle = document.getElementById('called-numbers-animation');
+    if (oldStyle) oldStyle.remove();
+    
+    // Add new style
+    document.head.appendChild(style);
+}
+// Update your existing markNumberOnPlayerBoards function to use WebSocket
+// Find this function (around line 2000) and ADD the WebSocket call:
+function markNumberOnPlayerBoards(number, callElement) {
+    if (!gameState.currentPlayer.isActive || gameState.gamePhase !== 'started') {
+        console.log('Cannot mark number: Game not active or wrong phase');
+        return;
     }
-});
-
-// Get game state
-app.get('/api/game/:gameId/state/:userId', async (req, res) => {
-    try {
-        const { gameId, userId } = req.params;
-        const gameState = await getGameState(gameId, userId);
-        
-        if (!gameState) {
-            return res.json({ success: false, error: 'Game not found' });
+    
+    // Send to server FIRST
+    markNumberOnBoard(number);
+    
+    // Then update local state (for immediate feedback)
+    let marked = false;
+    let unmarked = false;
+    
+    gameState.currentPlayer.boards.forEach(board => {
+        if (!board.isEliminated) {
+            if (board.markedNumbers.has(number)) {
+                board.markedNumbers.delete(number);
+                unmarked = true;
+            } else {
+                board.markedNumbers.add(number);
+                marked = true;
+            }
         }
-        
-        res.json({ success: true, ...gameState });
-    } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
+    });
+    
+    // Update display
+    displayCurrentPlayerBoards(gameState.currentBoardIndex);
+}
 
-// Mark number
-app.post('/api/game/mark-number', async (req, res) => {
-    try {
-        const { gameId, userId, number } = req.body;
-        
-        const marked = await markPlayerNumber(gameId, userId, number);
-        
-        if (marked) {
-            res.json({ success: true, message: 'Number marked' });
-        } else {
-            res.json({ success: false, error: 'Number already marked or not found' });
-        }
-    } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
-
-// Claim BINGO
-app.post('/api/game/claim-bingo', async (req, res) => {
-    try {
-        const { gameId, userId } = req.body;
-        
-        const isValid = await checkBingo(gameId, userId);
-        
-        if (isValid) {
-            const result = await declareWinner(gameId, userId);
+        // Player Board Management
+        function displayCurrentPlayerBoards(forceBoardIndex = null) {
+            if (!gameState.currentPlayer.isActive) return;
             
-            if (result.success) {
-                res.json({ 
-                    success: true, 
-                    message: 'BINGO claimed successfully!',
-                    prize: result.prize
+            elements.gamePlaySection.style.display = 'block';
+            elements.boardsCarousel.innerHTML = '';
+            elements.currentBoard.innerHTML = '';
+
+            const activeBoards = gameState.currentPlayer.boards.filter(board => !board.isEliminated);
+            
+            if (activeBoards.length === 0) {
+                elements.gamePlaySection.style.display = 'none';
+                return;
+            }
+
+            if (forceBoardIndex !== null) {
+                gameState.currentBoardIndex = forceBoardIndex;
+            }
+            
+            if (gameState.currentBoardIndex >= activeBoards.length) {
+                gameState.currentBoardIndex = 0;
+            }
+
+            activeBoards.forEach((board, index) => {
+                const miniature = document.createElement('div');
+                miniature.className = `board-miniature ${index === gameState.currentBoardIndex ? 'active' : ''}`;
+                miniature.innerHTML = `<div>${t('#').split(' ')[0]} ${board.boardNumber}</div>`;
+                miniature.addEventListener('click', () => switchBoard(index));
+                elements.boardsCarousel.appendChild(miniature);
+            });
+
+            if (activeBoards.length > 0) {
+                displayBoard(gameState.currentBoardIndex);
+            }
+        }
+
+        function switchBoard(boardIndex) {
+            gameState.currentBoardIndex = boardIndex;
+            
+            document.querySelectorAll('.board-miniature').forEach((mini, index) => {
+                mini.classList.toggle('active', index === boardIndex);
+            });
+            
+            const activeBoards = gameState.currentPlayer.boards.filter(board => !board.isEliminated);
+            if (activeBoards.length > boardIndex) {
+                displayBoard(boardIndex);
+            }
+        }
+
+       function displayBoard(boardIndex) {
+    elements.currentBoard.innerHTML = '';
+
+    const activeBoards = gameState.currentPlayer.boards.filter(board => !board.isEliminated);
+    const board = activeBoards[boardIndex];
+
+    const table = document.createElement('table');
+    table.className = 'bingo-table';
+    
+    const headerRow = document.createElement('tr');
+    
+    // Define letters with their color classes
+    const letters = [
+        { letter: 'B', colorClass: 'b' },
+        { letter: 'I', colorClass: 'i' },
+        { letter: 'N', colorClass: 'n' },
+        { letter: 'G', colorClass: 'g' },
+        { letter: 'O', colorClass: 'o' }
+    ];
+    
+    // Create header cells with individual colors
+    letters.forEach(item => {
+        const th = document.createElement('th');
+        th.textContent = item.letter;
+        th.className = item.colorClass;  // ← ADD THIS LINE
+        headerRow.appendChild(th);
+    });
+    
+    table.appendChild(headerRow);
+    
+    // ... rest of the code stays the same
+    for (let row = 0; row < 5; row++) {
+        const tr = document.createElement('tr');
+        
+        for (let col = 0; col < 5; col++) {
+            const td = document.createElement('td');
+            const cellValue = board.boardData[row][col];
+            
+            td.textContent = cellValue;
+            
+            if (cellValue === '★') {
+    td.classList.add('free-space');
+    td.innerHTML = '<div style="background: linear-gradient(135deg, #2ecc71, #27ae60); color: white; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; margin: 0 auto; font-weight: 800; font-size: 0.8rem; box-shadow: 0 2px 5px rgba(0,0,0,0.3);">★</div>';
+} else if (board.markedNumbers.has(cellValue)) {
+                td.classList.add('marked');
+                td.style.cursor = 'pointer';
+                td.addEventListener('click', () => {
+                    markNumberOnPlayerBoards(cellValue, null);
                 });
             } else {
-                res.json({ success: false, error: result.error });
-            }
-        } else {
-            res.json({ success: false, error: 'No valid BINGO pattern found' });
-        }
-    } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
-
-// Leave game
-app.post('/api/game/leave', async (req, res) => {
-    try {
-        const { gameId, userId } = req.body;
-        
-        await pool.query(
-            `DELETE FROM game_players WHERE game_id = $1 AND user_id = $2`,
-            [gameId, userId]
-        );
-        
-        // Update player count in broadcast
-        broadcastToGame(gameId, {
-            type: 'player_left',
-            userId: userId,
-            playerCount: await getPlayerCount(gameId)
-        });
-        
-        res.json({ success: true, message: 'Left game' });
-    } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
-
-// Get user balance
-app.get('/api/user/:id/balance', (req, res) => {
-    const user = users[req.params.id];
-    if (user) {
-        res.json({ 
-            success: true, 
-            balance: user.balance,
-            username: user.username,
-            registered: user.registered 
-        });
-    } else {
-        res.json({ 
-            success: false, 
-            balance: 0,
-            username: 'Guest',
-            registered: false 
-        });
-    }
-});
-
-// Admin login
-app.post('/api/admin/login', (req, res) => {
-    const { password } = req.body;
-    
-    if (password === ADMIN_PASSWORD) {
-        res.json({ 
-            success: true, 
-            token: 'admin-token-' + Date.now(),
-            message: 'Login successful' 
-        });
-    } else {
-        res.json({ 
-            success: false, 
-            error: 'Invalid password' 
-        });
-    }
-});
-
-// Get system overview
-app.get('/api/admin/overview', async (req, res) => {
-    try {
-        const userList = Object.values(users);
-        const now = new Date();
-        const last24h = new Date(now - 24 * 60 * 60 * 1000);
-        
-        const activeLast24h = userList.filter(u => 
-            new Date(u.lastActive || u.joinDate) > last24h
-        ).length;
-        
-        const todayDeposits = deposits.filter(d => 
-            new Date(d.date).toDateString() === now.toDateString() && 
-            d.status === 'approved'
-        );
-        
-        const instantDepositsToday = todayDeposits.filter(d => d.autoParsed === true).length;
-        
-        // Get active games from database
-        const gamesResult = await pool.query(
-            `SELECT COUNT(*) as game_count, 
-                    COALESCE(SUM(player_count), 0) as total_players
-             FROM (
-                 SELECT mg.id, COUNT(gp.user_id) as player_count
-                 FROM multiplayer_games mg
-                 LEFT JOIN game_players gp ON mg.id = gp.game_id
-                 WHERE mg.status IN ('selecting', 'shuffling', 'active')
-                 GROUP BY mg.id
-             ) active_games`
-        );
-        
-        const activeMultiplayerGames = parseInt(gamesResult.rows[0]?.game_count) || 0;
-        const playersInGames = parseInt(gamesResult.rows[0]?.total_players) || 0;
-        
-        res.json({
-            success: true,
-            stats: {
-                totalUsers: userList.length,
-                active24h: activeLast24h,
-                totalBalance: userList.reduce((sum, user) => sum + user.balance, 0),
-                pendingManualDeposits: deposits.filter(d => d.status === 'pending_manual').length,
-                todayDeposits: todayDeposits.length,
-                todayDepositAmount: todayDeposits.reduce((sum, d) => sum + d.amount, 0),
-                instantDepositsToday: instantDepositsToday,
-                manualDepositsToday: todayDeposits.length - instantDepositsToday,
-                totalDeposits: deposits.filter(d => d.status === 'approved').length,
-                totalDepositAmount: deposits.filter(d => d.status === 'approved').reduce((sum, d) => sum + d.amount, 0),
-                gamesPlayed: games.filter(g => g.type === 'play').length,
-                totalWins: games.filter(g => g.type === 'win').length,
-                totalWinAmount: games.filter(g => g.type === 'win').reduce((sum, g) => sum + g.amount, 0),
-                activeMultiplayerGames: activeMultiplayerGames,
-                playersInGames: playersInGames
-            },
-            system: {
-                uptime: process.uptime(),
-                timestamp: now.toISOString(),
-                autoDepositSystem: 'operational',
-                multiplayerSystem: 'active'
-            }
-        });
-    } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
-
-// Get pending deposits
-app.get('/api/admin/deposits/pending', (req, res) => {
-    const pending = deposits.filter(d => d.status === 'pending_manual');
-    res.json({ success: true, deposits: pending, count: pending.length });
-});
-
-// Approve manual deposit
-app.post('/api/admin/deposit/:id/approve', async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { amount = 50 } = req.body;
-        
-        const deposit = deposits.find(d => d.id === id);
-        if (!deposit) {
-            return res.json({ success: false, error: 'Deposit not found' });
-        }
-        
-        const user = users[deposit.userId];
-        if (!user) {
-            return res.json({ success: false, error: 'User not found' });
-        }
-        
-        deposit.status = 'approved';
-        deposit.approvedAmount = amount;
-        deposit.approvedAt = new Date().toISOString();
-        deposit.approvedBy = 'admin';
-        
-        user.balance += amount;
-        user.totalDeposited = (user.totalDeposited || 0) + amount;
-        
-        saveUsers();
-        saveDeposits();
-        
-        // Notify user
-        if (user.chatId) {
-            await sendTelegramMessage(user.chatId,
-                `✅ *MANUAL DEPOSIT APPROVED!*\n\n` +
-                `💰 Amount: *${amount} ETB*\n` +
-                `🎁 New Balance: *${user.balance} ETB*\n\n` +
-                `🎮 Click PLAY to start!`
-            );
-        }
-        
-        res.json({ 
-            success: true, 
-            message: 'Deposit approved',
-            approvedAmount: amount,
-            newBalance: user.balance
-        });
-    } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
-
-
-// WebSocket endpoint
-app.get('/game-ws', (req, res) => {
-    res.json({ 
-        message: 'WebSocket endpoint is active',
-        url: `ws://${req.headers.host}/game-ws`
-    });
-});
-
-// Get user's active games
-app.get('/api/user/:id/games', async (req, res) => {
-    try {
-        const userId = req.params.id;
-        
-        const result = await pool.query(`
-            SELECT mg.*, gp.boards, gp.marked_numbers
-            FROM multiplayer_games mg
-            INNER JOIN game_players gp ON mg.id = gp.game_id
-            WHERE gp.user_id = $1 
-            AND mg.status IN ('selecting', 'shuffling', 'active')
-            ORDER BY mg.created_at DESC
-            LIMIT 5
-        `, [userId]);
-        
-        res.json({ success: true, games: result.rows });
-    } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
-
-// Update user balance (for script.js)
-app.post('/api/user/update-balance', async (req, res) => {
-    try {
-        const { userId, balance } = req.body;
-        
-        if (!users[userId]) {
-            return res.json({ success: false, error: 'User not found' });
-        }
-        
-        users[userId].balance = balance;
-        saveUsers();
-        
-        res.json({ success: true, newBalance: balance });
-    } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
-
-// Add this route to test the game flow
-app.get('/api/test-game-flow', async (req, res) => {
-    try {
-        // Create a test game
-        const game = await createMultiplayerGame();
-        
-        // Add a test player
-        const testUserId = 'test_user_123';
-        const testUser = {
-            id: testUserId,
-            username: 'Test Player',
-            balance: 100,
-            registered: true
-        };
-        
-        users[testUserId] = testUser;
-        
-        // Join the game
-        const joinResult = await joinMultiplayerGame(game.gameId, testUserId, 1, []);
-        
-        res.json({
-            success: true,
-            message: 'Test game created',
-            gameId: game.gameId,
-            gameNumber: game.gameNumber,
-            joinResult: joinResult,
-            selectionTimeLeft: GAME_CONFIG.SELECTION_TIME,
-            playersNeeded: GAME_CONFIG.MIN_PLAYERS
-        });
-    } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
-
-// ==================== MULTIPLAYER API ENDPOINTS (ADD THESE) ====================
-
-// 1. Get active multiplayer games (matches frontend call)
-app.get('/api/multiplayer/games', async (req, res) => {
-    try {
-        // Get games from file-based activeMultiplayerGames
-        const games = [];
-        for (const gameId in activeMultiplayerGames) {
-            const game = activeMultiplayerGames[gameId];
-            if (game.status === 'waiting' || game.status === 'selecting') {
-                games.push({
-                    id: game.id,
-                    gameNumber: game.gameNumber,
-                    players: Object.keys(game.players).length,
-                    prizePool: game.prizePool,
-                    status: game.status,
-                    timeLeft: Math.max(0, Math.floor((new Date(game.selectionEndTime) - new Date()) / 1000))
+                td.style.cursor = 'pointer';
+                td.addEventListener('click', () => {
+                    markNumberOnPlayerBoards(cellValue, null);
                 });
             }
-        }
-        
-        // Also check database for any active games
-        const dbGames = await pool.query(`
-            SELECT id, game_number, status, prize_pool, selection_end_time
-            FROM multiplayer_games 
-            WHERE status IN ('waiting', 'selecting')
-            ORDER BY created_at DESC
-            LIMIT 10
-        `);
-        
-        for (const dbGame of dbGames.rows) {
-            const playerCount = await getPlayerCount(dbGame.id);
-            games.push({
-                id: dbGame.id,
-                gameNumber: dbGame.game_number,
-                players: playerCount,
-                prizePool: dbGame.prize_pool,
-                status: dbGame.status,
-                timeLeft: Math.max(0, Math.floor((new Date(dbGame.selection_end_time) - new Date()) / 1000))
-            });
-        }
-        
-        // Remove duplicates by ID
-        const uniqueGames = [];
-        const seenIds = new Set();
-        for (const game of games) {
-            if (!seenIds.has(game.id)) {
-                seenIds.add(game.id);
-                uniqueGames.push(game);
-            }
-        }
-        
-        res.json({ success: true, games: uniqueGames });
-    } catch (error) {
-        console.error('Error getting multiplayer games:', error);
-        res.json({ success: false, games: [] });
-    }
-});
-
-// 2. Join multiplayer game (matches frontend call)
-app.post('/api/multiplayer/join', async (req, res) => {
-    try {
-        const { userId, boardCount = 1, boardNumbers = [] } = req.body;
-        
-        console.log(`📥 Multiplayer join: userId=${userId}, boardCount=${boardCount}`);
-        
-        const user = users[userId];
-        if (!user) {
-            return res.json({ success: false, error: 'User not found. Please register first.' });
-        }
-        
-        const totalCost = boardCount * GAME_CONFIG.BOARD_PRICE;
-        if (user.balance < totalCost) {
-            return res.json({ 
-                success: false, 
-                error: `Insufficient balance. Need ${totalCost} ETB, have ${user.balance} ETB` 
-            });
-        }
-        
-        // Find existing waiting game
-        let gameId = null;
-        let gameNumber = null;
-        
-        // Check file-based games first
-        for (const gid in activeMultiplayerGames) {
-            const game = activeMultiplayerGames[gid];
-            if (game.status === 'waiting') {
-                gameId = gid;
-                gameNumber = game.gameNumber;
-                break;
-            }
-        }
-        
-        // Check database if no file-based game
-        if (!gameId) {
-            const dbGame = await pool.query(`
-                SELECT id, game_number FROM multiplayer_games 
-                WHERE status = 'waiting' 
-                ORDER BY created_at ASC 
-                LIMIT 1
-            `);
             
-            if (dbGame.rows.length > 0) {
-                gameId = dbGame.rows[0].id;
-                gameNumber = dbGame.rows[0].game_number;
-            }
+            tr.appendChild(td);
         }
-        
-        // Create new game if none exists
-        if (!gameId) {
-            const newGame = await createMultiplayerGame();
-            if (!newGame.success) {
-                return res.json({ success: false, error: newGame.error });
-            }
-            gameId = newGame.gameId;
-            gameNumber = newGame.gameNumber;
-        }
-        
-        // Join the game
-        const joinResult = await joinMultiplayerGame(gameId, userId, boardCount, boardNumbers);
-        
-        if (!joinResult.success) {
-            return res.json({ success: false, error: joinResult.error });
-        }
-        
-        res.json({
-            success: true,
-            gameId: gameId,
-            gameNumber: gameNumber,
-            boards: joinResult.boards,
-            prizePool: joinResult.prizePool,
-            playerCount: joinResult.playerCount,
-            selectionTimeLeft: GAME_CONFIG.SELECTION_TIME,
-            yourBalance: user.balance
-        });
-        
-    } catch (error) {
-        console.error('Multiplayer join error:', error);
-        res.json({ success: false, error: error.message });
+        table.appendChild(tr);
     }
-});
+    
+    elements.currentBoard.appendChild(table);
+    
+    const bingoButton = document.createElement('button');
+    bingoButton.className = 'bingo-btn';
+    bingoButton.textContent = t('claimBingo');
+    bingoButton.style.marginTop = '10px';
+    bingoButton.style.width = '100%';
+    bingoButton.addEventListener('click', claimBingo);
+    elements.currentBoard.appendChild(bingoButton);
+}
 
-// 3. Get multiplayer game state (matches frontend call)
-app.get('/api/multiplayer/state/:gameId/:userId', async (req, res) => {
-    try {
-        const { gameId, userId } = req.params;
-        
-        // Check file-based games first
-        let game = activeMultiplayerGames[gameId];
-        
-        // If not in file, check database
-        if (!game) {
-            const dbResult = await pool.query(
-                `SELECT * FROM multiplayer_games WHERE id = $1`,
-                [gameId]
-            );
-            if (dbResult.rows.length > 0) {
-                game = dbResult.rows[0];
-                game.players = await getGamePlayersFromDB(gameId);
-            }
-        }
-        
-        if (!game) {
-            return res.json({ success: false, error: 'Game not found' });
-        }
-        
-        const player = game.players?.[userId];
-        if (!player) {
-            // Check database for player
-            const dbPlayer = await pool.query(
-                `SELECT * FROM game_players WHERE game_id = $1 AND user_id = $2`,
-                [gameId, userId]
-            );
-            if (dbPlayer.rows.length === 0) {
-                return res.json({ success: false, error: 'Not in this game' });
-            }
-        }
-        
-        // Get player list
-        const playerList = [];
-        if (game.players) {
-            for (const pid in game.players) {
-                playerList.push(game.players[pid].username);
-            }
+        // Win Checking
+        function checkBoardWin(board) {
+    const patterns = getAllWinningPatterns(board);
+    return patterns.length > 0;
+}
+// ==================== EMERGENCY GRID FALLBACK ====================
+// If grid still empty after 5 seconds, force create it
+setTimeout(() => {
+    const grid = document.getElementById('bingoGrid');
+    if (grid && grid.children.length === 0) {
+        console.warn("⚠️ Grid still empty after 5s, forcing creation...");
+        if (typeof createMainBingoBoard === 'function') {
+            createMainBingoBoard();
         } else {
-            const dbPlayers = await pool.query(
-                `SELECT u.username FROM game_players gp
-                 JOIN users u ON gp.user_id = u.id
-                 WHERE gp.game_id = $1`,
-                [gameId]
-            );
-            for (const p of dbPlayers.rows) {
-                playerList.push(p.username);
-            }
+            // Last resort: manually create cells
+            console.error("createMainBingoBoard not available!");
+            grid.innerHTML = '<div style="color:red;padding:20px;">Grid failed to load</div>';
         }
-        
-        res.json({
-            success: true,
-            game: {
-                id: game.id,
-                gameNumber: game.gameNumber,
-                status: game.status,
-                calledNumbers: game.calledNumbers || game.called_numbers || [],
-                currentCall: game.currentCall || game.current_call,
-                prizePool: game.prizePool || game.prize_pool,
-                players: playerList.length,
-                playerList: playerList,
-                startTime: game.startTime || game.start_time,
-                endTime: game.endTime || game.end_time,
-                timeLeft: game.endTime ? Math.max(0, new Date(game.endTime) - new Date()) : 
-                          game.end_time ? Math.max(0, new Date(game.end_time) - new Date()) : 0
-            },
-            player: {
-                boards: player?.boards || (game.players?.[userId]?.boards) || [],
-                markedNumbers: player?.markedNumbers || (game.players?.[userId]?.markedNumbers) || [],
-                hasBingo: player?.hasBingo || (game.players?.[userId]?.hasBingo) || false
-            }
-        });
-        
-    } catch (error) {
-        console.error('Multiplayer state error:', error);
-        res.json({ success: false, error: error.message });
     }
-});
+}, 5000);
 
-// 4. Get next game start time
-app.get('/api/game/next-start', async (req, res) => {
-    try {
-        let nextStartTime = null;
-        
-        // Check file-based games
-        for (const gameId in activeMultiplayerGames) {
-            const game = activeMultiplayerGames[gameId];
-            if (game.status === 'waiting' && game.selectionEndTime) {
-                const endTime = new Date(game.selectionEndTime);
-                if (endTime > new Date()) {
-                    if (!nextStartTime || endTime < nextStartTime) {
-                        nextStartTime = endTime;
+
+        // Support Manager
+        const supportManager = {
+            init: function() {
+                this.createSupportButtons();
+            },
+            
+            createSupportButtons: function() {
+                // Create support container
+                const supportContainer = document.createElement('div');
+                supportContainer.id = 'supportContainer';
+                supportContainer.style.cssText = `
+                    position: fixed;
+                    bottom: 30px;
+                    right: 10px;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 10px;
+                    z-index: 1000;
+                    font-family: 'Poppins', sans-serif;
+                `;
+                
+                // Telegram Support Button
+                const telegramBtn = document.createElement('div');
+                telegramBtn.className = 'support-btn';
+                telegramBtn.style.cssText = `
+                    width: 30px;
+                    height: 30px;
+                    background: #0088cc;
+                    border-radius: 50%;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    cursor: pointer;
+                    box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+                    transition: all 0.3s ease;
+                `;
+                
+                telegramBtn.innerHTML = `
+                    <a href="https://t.me/YourUsername" target="_blank">
+                        <img src="https://cdn-icons-png.flaticon.com/512/2111/2111646.png"
+                             alt="Telegram" width="30">
+                    </a>
+                `;
+                telegramBtn.title = 'Contact us on Telegram';
+                
+                // FAQ/Help Button
+                const helpBtn = document.createElement('div');
+                helpBtn.className = 'support-btn';
+                helpBtn.style.cssText = `
+                    width: 30px;
+                    height: 30px;
+                    background: var(--safari-gold);
+                    border-radius: 50%;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    cursor: pointer;
+                    box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+                    transition: all 0.3s ease;
+                `;
+                helpBtn.innerHTML = '❓';
+                helpBtn.title = 'Quick Help & FAQ';
+                
+                // Call Support Button
+                const callBtn = document.createElement('div');
+                callBtn.className = 'support-btn';
+                callBtn.style.cssText = `
+                    width: 30px;
+                    height: 30px;                    
+                    border-radius: 50%;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    cursor: pointer;
+                    box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+                    transition: all 0.3s ease;
+                `;
+                callBtn.innerHTML = '📞';
+                callBtn.title = 'Call Support';
+                
+                // Add hover effects
+                [telegramBtn, callBtn, helpBtn].forEach(btn => {
+                    btn.addEventListener('mouseenter', () => {
+                        btn.style.transform = 'scale(1.1)';
+                        btn.style.boxShadow = '0 6px 20px rgba(0,0,0,0.4)';
+                    });
+                    btn.addEventListener('mouseleave', () => {
+                        btn.style.transform = 'scale(1)';
+                        btn.style.boxShadow = '0 4px 15px rgba(0,0,0,0.3)';
+                    });
+                });
+                
+                // Event listeners
+                helpBtn.addEventListener('click', () => this.toggleSupportButtons(helpBtn, telegramBtn, callBtn));
+                telegramBtn.addEventListener('click', () => this.openTelegramSupport());
+                callBtn.addEventListener('click', () => this.showCallSupport());
+                
+                // Add buttons in correct order - question mark LAST (at bottom)
+                supportContainer.appendChild(callBtn);      // Will be at TOP
+                supportContainer.appendChild(telegramBtn);  // Will be in MIDDLE  
+                supportContainer.appendChild(helpBtn);      // Will be at BOTTOM (visible)
+                
+                document.body.appendChild(supportContainer);
+            },
+            
+            toggleSupportButtons: function(helpBtn, telegramBtn, callBtn) {
+                // Check if other buttons are visible
+                const telegramVisible = telegramBtn.style.display !== 'none';
+                const callVisible = callBtn.style.display !== 'none';
+                
+                if (telegramVisible || callVisible) {
+                    // Hide other buttons (collapse)
+                    telegramBtn.style.display = 'none';
+                    callBtn.style.display = 'none';
+                    helpBtn.innerHTML = '❓';
+                    helpBtn.title = 'Show Support Options';
+                } else {
+                    // Show other buttons (expand)
+                    telegramBtn.style.display = 'flex';
+                    callBtn.style.display = 'flex';
+                    helpBtn.innerHTML = '❓';
+                    helpBtn.title = 'Close Support Menu';
+                    // Show quick help immediately when expanding
+                    this.showQuickHelp();
+                }
+            },
+            
+            openTelegramSupport: function() {
+                // Open Telegram support
+                const telegramUrl = 'https://t.me/ShebaBingoSupport';
+                window.open(telegramUrl, '_blank');
+                
+                // Show confirmation message
+                this.showSupportMessage('Opening Telegram support...', 'info');
+            },
+            
+            showCallSupport: function() {
+                // Show call support information
+                const phoneNumber = '+251945343143';
+                const callMessage = `
+                    <div style="text-align: center;">
+                        <h3 style="color: var(--safari-gold); margin-bottom: 10px;">📞 Call Support</h3>
+                        <p style="margin-bottom: 15px; font-size: 1.1rem;">For immediate assistance, call our support team:</p>
+                        <div style="background: rgba(39, 174, 96, 0.2); padding: 15px; border-radius: 10px; margin: 10px 0;">
+                            <strong style="color: #27ae60; font-size: 1.3rem;">${phoneNumber}</strong>
+                        </div>
+                        <p style="font-size: 0.9rem; color: #ccc;">Available 24/7 for game support and account issues</p>
+                    </div>
+                `;
+                
+                this.showSupportModal('Call Support', callMessage);
+            },
+            
+            showQuickHelp: function() {
+                // Quick help and FAQ
+                const helpContent = `
+                    <div style="max-height: 400px; overflow-y: auto;">
+                        <div style="margin-bottom: 20px;">
+                            <h4 style="color: var(--safari-gold); margin-bottom: 10px;">🎮 How to Play</h4>
+                            <ul style="text-align: left; color: #ccc; font-size: 0.9rem;">
+                                <li>Select 1-3 boards during registration</li>
+                                <li>Mark numbers as they are called</li>
+                                <li>Complete a row, column, or diagonal to win</li>
+                                <li>Click "CLAIM BINGO" when you have a winning pattern</li>
+                                <li>Each board costs 10 ETB to play</li>
+                            </ul>
+                        </div>
+                        
+                        <div style="margin-bottom: 20px;">
+                            <h4 style="color: var(--safari-gold); margin-bottom: 10px;">💰 Payments</h4>
+                            <ul style="text-align: left; color: #ccc; font-size: 0.9rem;">
+                                <li>Minimum deposit: 10 ETB</li>
+                                <li>Minimum withdrawal: 50 ETB</li>
+                                <li>Supported: Telebirr, CBE, BOA</li>
+                                <li>Withdrawals processed within 5 Minutes</li>
+                            </ul>
+                        </div>
+                        
+                        <div style="margin-bottom: 20px;">
+                            <h4 style="color: var(--safari-gold); margin-bottom: 10px;">🏆 Prizes</h4>
+                            <ul style="text-align: left; color: #ccc; font-size: 0.9rem;">
+                            <li>Prizes automatically added to balance</li>
+                            <li>Multiple winners split the prize</li>
+                               
+                            </ul>
+                        </div>
+                        
+                        <div style="text-align: center; margin-top: 20px; padding: 15px; background: rgba(52, 152, 219, 0.2); border-radius: 10px;">
+                            <p style="margin: 0; color: #3498db; font-size: 0.9rem;">
+                                Need more help? Contact us via Telegram or phone!
+                            </p>
+                        </div>
+                    </div>
+                `;
+                
+                this.showSupportModal('Quick Help & FAQ', helpContent);
+            },
+            
+            showSupportModal: function(title, content) {
+                // Remove existing modal if any
+                const existingModal = document.getElementById('supportModal');
+                if (existingModal) {
+                    existingModal.remove();
+                }
+                
+                // Create modal
+                const modal = document.createElement('div');
+                modal.id = 'supportModal';
+                modal.style.cssText = `
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    background: rgba(0,0,0,0.8);
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    z-index: 1001;
+                    font-family: 'Poppins', sans-serif;
+                `;
+                
+                modal.innerHTML = `
+                    <div style="
+                        background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+                        padding: 30px;
+                        border-radius: 15px;
+                        max-width: 500px;
+                        width: 90%;
+                        max-height: 80vh;
+                        overflow-y: auto;
+                        box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+                        border: 2px solid var(--safari-gold);
+                    ">
+                        <div style="
+                            display: flex;
+                            justify-content: space-between;
+                            align-items: center;
+                            margin-bottom: 20px;
+                            border-bottom: 1px solid var(--safari-gold);
+                            padding-bottom: 10px;
+                        ">
+                            <h2 style="color: var(--safari-gold); margin: 0; font-size: 1.5rem;">${title}</h2>
+                            <button onclick="this.closest('#supportModal').remove()" style="
+                                background: none;
+                                border: none;
+                                color: var(--safari-gold);
+                                font-size: 1.5rem;
+                                cursor: pointer;
+                                padding: 0;
+                                width: 30px;
+                                height: 30px;
+                                display: flex;
+                                align-items: center;
+                                justify-content: center;
+                            ">✕</button>
+                        </div>
+                        <div>${content}</div>
+                    </div>
+                `;
+                
+                // Close modal when clicking outside
+                modal.addEventListener('click', (e) => {
+                    if (e.target === modal) {
+                        modal.remove();
+                    }
+                });
+                
+                document.body.appendChild(modal);
+            },
+            
+            showSupportMessage: function(message, type) {
+                // Create toast message
+                const toast = document.createElement('div');
+                toast.style.cssText = `
+                    position: fixed;
+                    top: 20px;
+                    right: 20px;
+                    background: ${type === 'info' ? '#3498db' : '#27ae60'};
+                    color: white;
+                    padding: 15px 25px;
+                    border-radius: 10px;
+                    box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+                    z-index: 1002;
+                    font-family: 'Poppins', sans-serif;
+                    font-weight: 500;
+                `;
+                toast.textContent = message;
+                
+                document.body.appendChild(toast);
+                
+                // Remove toast after 3 seconds
+                setTimeout(() => {
+                    toast.remove();
+                }, 3000);
+            },
+            
+            closeSupportMenu: function() {
+                const supportContainer = document.getElementById('supportContainer');
+                if (supportContainer) {
+                    const buttons = supportContainer.querySelectorAll('.support-btn');
+                    buttons.forEach((btn, index) => {
+                        if (index > 0) { // Keep first button (help button) visible
+                            btn.style.display = 'none';
+                        }
+                    });
+                    
+                    // Reset help button to question mark
+                    const helpBtn = buttons[0];
+                    if (helpBtn) {
+                        helpBtn.innerHTML = '❓';
+                        helpBtn.title = 'Show Support Options';
                     }
                 }
             }
-        }
-        
-        // Check database
-        const dbResult = await pool.query(`
-            SELECT selection_end_time FROM multiplayer_games 
-            WHERE status = 'waiting' AND selection_end_time > NOW()
-            ORDER BY selection_end_time ASC 
-            LIMIT 1
-        `);
-        
-        if (dbResult.rows.length > 0) {
-            const dbEndTime = new Date(dbResult.rows[0].selection_end_time);
-            if (!nextStartTime || dbEndTime < nextStartTime) {
-                nextStartTime = dbEndTime;
-            }
-        }
-        
-        if (nextStartTime) {
-            const secondsLeft = Math.max(0, Math.floor((nextStartTime - new Date()) / 1000));
-            res.json({ success: true, secondsLeft: secondsLeft });
-        } else {
-            // Default: next game in 25 seconds
-            res.json({ success: true, secondsLeft: 25 });
-        }
-        
-    } catch (error) {
-        console.error('Error getting next start:', error);
-        res.json({ success: true, secondsLeft: 25 });
-    }
-});
+        };
 
-// Helper function to get game players from database
-async function getGamePlayersFromDB(gameId) {
-    try {
-        const result = await pool.query(
-            `SELECT user_id, boards, marked_numbers, has_bingo 
-             FROM game_players WHERE game_id = $1`,
-            [gameId]
-        );
-        
-        const players = {};
-        for (const row of result.rows) {
-            const user = users[row.user_id];
-            players[row.user_id] = {
-                id: row.user_id,
-                username: user?.username || 'Player',
-                boards: JSON.parse(row.boards),
-                markedNumbers: JSON.parse(row.marked_numbers || '[]'),
-                hasBingo: row.has_bingo
-            };
-        }
-        return players;
-    } catch (error) {
-        console.error('Error getting game players:', error);
-        return {};
-    }
-}
-
-
-
-
-
-// ==================== START SERVER ====================
-// 🧹 CLEANUP FUNCTION (place this just above server.listen)
-async function cleanupStuckGames() {
-    try {
-        console.log('🧹 Cleaning up stuck games...');
-        
-        // Cancel all selecting games older than 2 minutes
-        const result = await pool.query(`
-            UPDATE multiplayer_games 
-            SET status = 'cancelled', end_time = NOW()
-            WHERE status = 'selecting'
-            AND created_at < NOW() - INTERVAL '2 minutes'
-            RETURNING id
-        `);
-        
-        console.log(`🧹 Cancelled ${result.rows.length} stuck games`);
-        
-        // Delete very old games
-        const deleteResult = await pool.query(`
-            DELETE FROM multiplayer_games 
-            WHERE created_at < NOW() - INTERVAL '1 hour'
-            RETURNING id
-        `);
-        
-        console.log(`🧹 Deleted ${deleteResult.rows.length} old games`);
-        
-    } catch (error) {
-        console.error('Error cleaning up stuck games:', error);
-    }
-}
-
-// ==================== START SERVER ====================
-// STEP 6: START SERVER (ONLY ONCE)
-const PORT = process.env.PORT || 3000;
-
-// Start server
-server.listen(PORT, '0.0.0.0', async () => {
-    console.log(`🚀 Server running on port ${PORT}`);
-    
-    // Initialize everything after server starts
-    await initializeDatabase();
-    await migrateDatabase();
-    await cleanupStuckGames();
-    await setupTelegramWebhook();
-    startGameCycle();
-    
-    console.log('✅ All systems initialized');
-});
-
-
-
-// Graceful shutdown
-process.on('SIGTERM', async () => {
-    console.log('SIGTERM received, shutting down gracefully...');
-    
-    // Close WebSocket connections
-    wss.close();
-    
-    // Close database connection
-    await pool.end();
-    
-    // Save data to files
-    saveUsers();
-    saveDeposits();
-    saveGames();
-    
-    console.log('Data saved, server shutting down...');
-    process.exit(0);
-});
-
-
-
-
-
-// Initialize database tables
-async function initializeDatabase() {
-    try {
-        // Update multiplayer_games table
-        await pool.query(`
-            CREATE TABLE IF NOT EXISTS multiplayer_games (
-                id VARCHAR(50) PRIMARY KEY,
-                game_number INTEGER,
-                status VARCHAR(20) DEFAULT 'selecting',
-                prize_pool DECIMAL(10,2) DEFAULT 0,
-                called_numbers JSONB DEFAULT '[]',
-                current_call VARCHAR(5),
-                start_time TIMESTAMP,
-                end_time TIMESTAMP,
-                selection_end_time TIMESTAMP,
-                winner_id INTEGER,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                -- ADD THESE NEW COLUMNS:
-                total_boards INTEGER DEFAULT 0,
-                min_players INTEGER DEFAULT 2,
-                max_players INTEGER DEFAULT 100,
-                game_mode VARCHAR(20) DEFAULT 'classic'
-            )
-        `);
-        
-        // Update game_players table
-        await pool.query(`
-            CREATE TABLE IF NOT EXISTS game_players (
-                id SERIAL PRIMARY KEY,
-                game_id VARCHAR(50) REFERENCES multiplayer_games(id) ON DELETE CASCADE,
-                user_id INTEGER,
-                boards JSONB,
-                marked_numbers JSONB DEFAULT '[]',
-                has_bingo BOOLEAN DEFAULT FALSE,
-                joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                -- ADD THESE NEW COLUMNS:
-                board_count INTEGER DEFAULT 1,
-                total_paid DECIMAL(10,2) DEFAULT 0,
-                last_active TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(game_id, user_id)
-            )
-        `);
-        
-        console.log('✅ Database tables initialized/updated');
-    } catch (error) {
-        console.error('Error initializing database:', error);
-    }
-}
-
-// ==================== DATABASE MIGRATION ====================
-async function migrateDatabase() {
-    try {
-        console.log('🔄 Running database migrations...');
-        
-        // Add missing columns to multiplayer_games
-        await pool.query(`
-            ALTER TABLE multiplayer_games 
-            ADD COLUMN IF NOT EXISTS total_boards INTEGER DEFAULT 0,
-            ADD COLUMN IF NOT EXISTS min_players INTEGER DEFAULT 2,
-            ADD COLUMN IF NOT EXISTS max_players INTEGER DEFAULT 100,
-            ADD COLUMN IF NOT EXISTS game_mode VARCHAR(20) DEFAULT 'classic'
-        `);
-        
-        // Add missing columns to game_players
-        await pool.query(`
-            ALTER TABLE game_players 
-            ADD COLUMN IF NOT EXISTS board_count INTEGER DEFAULT 1,
-            ADD COLUMN IF NOT EXISTS total_paid DECIMAL(10,2) DEFAULT 0,
-            ADD COLUMN IF NOT EXISTS last_active TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        `);
-        
-        console.log('✅ Database migrations completed');
-    } catch (error) {
-        console.error('❌ Database migration error:', error.message);
-    }
-}
+        // Initialize when page loads
+        document.addEventListener('DOMContentLoaded', initializeApp);
+        window.closeRegistrationPopup = closeRegistrationPopup;
+   
