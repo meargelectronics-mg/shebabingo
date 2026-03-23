@@ -550,9 +550,11 @@ async function joinMultiplayerGame(gameId, userId, boardCount, boardNumbers) {
     
     try {
         await client.query('BEGIN');
+        // ✅ ADD THIS LINE: Convert to string for file storage
+        const userIdStr = userId.toString();
         
         // 1. Check user exists and has balance
-        const user = users[userId];
+        const user = users[userIdStr];  // ← Use userIdStr
         if (!user) {
             throw new Error('User not found. Please register first.');
         }
@@ -592,7 +594,7 @@ async function joinMultiplayerGame(gameId, userId, boardCount, boardNumbers) {
         await client.query(
             `INSERT INTO game_players (game_id, user_id, boards, marked_numbers)
              VALUES ($1, $2, $3, $4)`,
-            [gameId, userId, JSON.stringify(playerBoards), '[]']
+           [gameId, parseInt(userIdStr), JSON.stringify(playerBoards), '[]']  // ← Convert to number for DB
         );
         
         // 4. Deduct balance from user
@@ -612,7 +614,7 @@ async function joinMultiplayerGame(gameId, userId, boardCount, boardNumbers) {
         // ✅ 6. UPDATE activeMultiplayerGames (in-memory storage)
         if (activeMultiplayerGames[gameId]) {
             // Add player to in-memory game
-            activeMultiplayerGames[gameId].players[userId] = {
+            activeMultiplayerGames[gameId].players[userIdStr] = {  // ← Use userIdStr
                 id: userId,
                 username: user.username,
                 boards: playerBoards,
@@ -710,7 +712,7 @@ async function joinMultiplayerGame(gameId, userId, boardCount, boardNumbers) {
         const gameRecordId = 'game_' + Date.now();
         games.push({
             id: gameRecordId,
-            userId: userId,
+            userId: userIdStr,  // ← Use userIdStr
             amount: totalCost,
             date: new Date().toISOString(),
             type: 'join',
@@ -724,7 +726,7 @@ async function joinMultiplayerGame(gameId, userId, boardCount, boardNumbers) {
         // 10. Broadcast player joined via WebSocket
         broadcastToGame(gameId, {
             type: 'player_joined',
-            userId: userId,
+            userId: userIdStr,  // ← Use userIdStr
             username: user.username,
             playerCount: playerCount
         });
@@ -1983,35 +1985,34 @@ app.post('/telegram-webhook', async (req, res) => {
         }
         
         // Handle messages
-        if (update.message) {
-            const chatId = update.message.chat.id;
-            const text = update.message.text || '';
-            const userId = update.message.from.id;
-            const username = update.message.from.username || update.message.from.first_name;
-            
-            // Initialize user if new
-            if (!users[userId]) {
-                users[userId] = {
-                    id: userId,
-                    username: username,
-                    chatId: chatId,
-                    balance: 0,
-                    registered: false,
-                    isAgent: false,
-                    agentCode: 'AG' + userId.toString().slice(-6),
-                    joinDate: new Date().toISOString(),
-                    lastActive: new Date().toISOString(),
-                    totalDeposited: 0,
-                    totalWon: 0
-                };
-                saveUsers();
-                console.log(`👤 New user registered: ${username} (${userId})`);
-            }
-            
-            // Update last active time
-            users[userId].lastActive = new Date().toISOString();
-            const user = users[userId];
-
+if (update.message) {
+    const chatId = update.message.chat.id;
+    const text = update.message.text || '';
+    const userId = update.message.from.id;
+    const userIdStr = userId.toString();  // ✅ Convert to string
+    
+    // Initialize user if new
+    if (!users[userIdStr]) {  // ✅ Use string key
+        users[userIdStr] = {  // ✅ Store with string key
+            id: userIdStr,  // ✅ Store ID as string
+            username: username,
+            chatId: chatId,
+            balance: 0,
+            registered: false,
+            isAgent: false,
+            agentCode: 'AG' + userIdStr.slice(-6),  // ✅ Use string
+            joinDate: new Date().toISOString(),
+            lastActive: new Date().toISOString(),
+            totalDeposited: 0,
+            totalWon: 0
+        };
+        saveUsers();
+        console.log(`👤 New user registered: ${username} (${userIdStr})`);
+    }
+    
+    // Update last active time
+    users[userIdStr].lastActive = new Date().toISOString();
+    const user = users[userIdStr];
 // Handle /play command
 if (text === '/play') {
     console.log(`🎮 /play command from user ${userId}`);
@@ -3108,21 +3109,22 @@ app.post('/api/game/leave', async (req, res) => {
 
 // Get user balance
 app.get('/api/user/:id/balance', (req, res) => {
-    const user = users[req.params.id];
+    const userId = req.params.id;  // This is already a string from URL
+    const user = users[userId];
+    
     if (user) {
-        res.json({ 
-            success: true, 
-            balance: user.balance,
-            username: user.username,
-            registered: user.registered 
-        });
+        res.json({ success: true, balance: user.balance, username: user.username });
     } else {
-        res.json({ 
-            success: false, 
+        // Create new user if not exists
+        users[userId] = {  // ✅ Already using string
+            id: userId,
+            username: 'Player_' + userId.slice(-4),
             balance: 0,
-            username: 'Guest',
-            registered: false 
-        });
+            registered: false,
+            // ...
+        };
+        saveUsers();
+        res.json({ success: true, balance: 0 });
     }
 });
 
@@ -3740,9 +3742,8 @@ async function initializeDatabase() {
                 start_time TIMESTAMP,
                 end_time TIMESTAMP,
                 selection_end_time TIMESTAMP,
-                winner_id INTEGER,
+                winner_id BIGINT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                -- ADD THESE NEW COLUMNS:
                 total_boards INTEGER DEFAULT 0,
                 min_players INTEGER DEFAULT 2,
                 max_players INTEGER DEFAULT 100,
@@ -3750,17 +3751,16 @@ async function initializeDatabase() {
             )
         `);
         
-        // Update game_players table
+        // ✅ FIX: Use BIGINT for user_id
         await pool.query(`
             CREATE TABLE IF NOT EXISTS game_players (
                 id SERIAL PRIMARY KEY,
                 game_id VARCHAR(50) REFERENCES multiplayer_games(id) ON DELETE CASCADE,
-                user_id INTEGER,
+                user_id BIGINT,
                 boards JSONB,
                 marked_numbers JSONB DEFAULT '[]',
                 has_bingo BOOLEAN DEFAULT FALSE,
                 joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                -- ADD THESE NEW COLUMNS:
                 board_count INTEGER DEFAULT 1,
                 total_paid DECIMAL(10,2) DEFAULT 0,
                 last_active TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -3778,6 +3778,26 @@ async function initializeDatabase() {
 async function migrateDatabase() {
     try {
         console.log('🔄 Running database migrations...');
+        
+        // ✅ FIX: Change user_id column from INTEGER to BIGINT
+        // First drop the foreign key constraint if it exists
+        try {
+            await pool.query(`ALTER TABLE game_players DROP CONSTRAINT game_players_user_id_fkey`);
+        } catch (e) {
+            // Constraint might not exist, ignore error
+        }
+        
+        // Change column type to BIGINT
+        await pool.query(`
+            ALTER TABLE game_players 
+            ALTER COLUMN user_id TYPE BIGINT
+        `);
+        
+        // Also update winner_id in multiplayer_games
+        await pool.query(`
+            ALTER TABLE multiplayer_games 
+            ALTER COLUMN winner_id TYPE BIGINT
+        `);
         
         // Add missing columns to multiplayer_games
         await pool.query(`
