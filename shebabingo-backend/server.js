@@ -3616,6 +3616,44 @@ app.get('/api/game/next-start', async (req, res) => {
     }
 });
 
+// ==================== SERVE FRONTEND ====================
+app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// ==================== SERVER KEEP-ALIVE ====================
+// ⬇️⬇️⬇️ ADD THE KEEP-ALIVE CODE HERE ⬇️⬇️⬇️
+
+// Prevent Render free tier from sleeping
+// Render free tier sleeps after 15 minutes of inactivity
+// So ping every 10 minutes to stay alive
+const KEEP_ALIVE_INTERVAL = 10 * 60 * 1000; // 10 minutes (600 seconds)
+
+let keepAliveCount = 0;
+
+setInterval(async () => {
+    try {
+        // Self-ping using the health endpoint
+        const response = await fetch(`http://localhost:${PORT}/api/health`);
+        keepAliveCount++;
+        console.log(`💓 Keep-alive ping #${keepAliveCount} sent at ${new Date().toLocaleTimeString()}`);
+    } catch (error) {
+        console.log(`⚠️ Keep-alive ping failed:`, error.message);
+    }
+}, KEEP_ALIVE_INTERVAL);
+
+// Add health check endpoint (if you don't already have one)
+app.get('/api/health', (req, res) => {
+    res.json({ 
+        status: 'ok', 
+        timestamp: new Date().toISOString(),
+        uptime: process.uptime(),
+        activeGames: Object.keys(activeMultiplayerGames).length
+    });
+});
+
+
+
 // Helper function to get game players from database
 async function getGamePlayersFromDB(gameId) {
     try {
