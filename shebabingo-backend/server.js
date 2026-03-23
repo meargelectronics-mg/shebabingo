@@ -94,14 +94,18 @@ if (DATABASE_URL) {
             console.error('Keep-alive failed:', err.message);
         }
     }, 60000); // Ping every 60 seconds
-}// ==================== FILE-BASED STORAGE (BACKUP) ====================
+}
+
+// ==================== FILE-BASED STORAGE (BACKUP) ====================
 const USERS_FILE = path.join(__dirname, 'users.json');
 const DEPOSITS_FILE = path.join(__dirname, 'deposits.json');
 const GAMES_FILE = path.join(__dirname, 'games.json');
+const ACTIVE_MULTIPLAYER_FILE = path.join(__dirname, 'active_multipayer_games.json');
 
 let users = {};
 let deposits = [];
 let games = [];
+let activeMultiplayerGames = {};
 
 // Load existing data
 if (fs.existsSync(USERS_FILE)) {
@@ -131,6 +135,19 @@ if (fs.existsSync(GAMES_FILE)) {
     }
 }
 
+// Load multiplayer games
+if (fs.existsSync(ACTIVE_MULTIPLAYER_FILE)) {
+    try {
+        const data = fs.readFileSync(ACTIVE_MULTIPLAYER_FILE, 'utf8');
+        if (data && data.trim()) {
+            activeMultiplayerGames = JSON.parse(data);
+            console.log(`✅ Loaded ${Object.keys(activeMultiplayerGames).length} active multiplayer games`);
+        }
+    } catch (error) {
+        console.error('Error loading multiplayer games:', error.message);
+    }
+}
+
 // Save functions
 function saveUsers() {
     try {
@@ -153,6 +170,16 @@ function saveGames() {
         fs.writeFileSync(GAMES_FILE, JSON.stringify(games, null, 2));
     } catch (error) {
         console.error('Error saving games:', error.message);
+    }
+}
+
+// Save multiplayer games
+function saveActiveMultiplayerGames() {
+    try {
+        fs.writeFileSync(ACTIVE_MULTIPLAYER_FILE, JSON.stringify(activeMultiplayerGames, null, 2));
+        console.log('✅ Multiplayer games saved');
+    } catch (error) {
+        console.error('Error saving multiplayer games:', error.message);
     }
 }
 
@@ -295,9 +322,6 @@ wss.on('connection', (ws, request) => {
     });
 });
 
-
-
-
 // ==================== GAME MESSAGE HANDLER ====================
 async function handleGameMessage(ws, message) {
     const data = JSON.parse(message);
@@ -305,14 +329,32 @@ async function handleGameMessage(ws, message) {
 
     switch (data.type) {
 
-        case 'mark_number':
-            await markPlayerNumber(gameId, userId, data.number);
-            broadcastToGame(gameId, {
-                type: 'number_marked',
-                userId,
-                number: data.number
-            });
-            break;
+        // In your WebSocket message handler
+case 'mark_number':
+    const marked = await markPlayerNumber(gameId, userId, data.number);
+    if (marked) {
+        // Broadcast to all players in the game
+        broadcastToGame(gameId, {
+            type: 'number_marked',
+            userId: userId,
+            number: data.number,
+            username: user.username
+        });
+        
+        // Send confirmation back to the player
+        ws.send(JSON.stringify({
+            type: 'mark_success',
+            number: data.number,
+            marked: true
+        }));
+    } else {
+        ws.send(JSON.stringify({
+            type: 'mark_failed',
+            number: data.number,
+            error: 'Number already marked or invalid'
+        }));
+    }
+    break;
 
         case 'claim_bingo':
             const valid = await checkBingo(gameId, userId);
@@ -410,14 +452,35 @@ async function createMultiplayerGame() {
     // Generate unique game ID and number
     const gameId = 'GAME_' + Date.now().toString(36);
     const gameNumber = await getNextGameNumber();
+    const now = new Date();
+    const selectionEndTime = new Date(now.getTime() + (GAME_CONFIG.SELECTION_TIME * 1000));
     
     try {
+        // ✅ 1. Insert into PostgreSQL database
         await pool.query(
             `INSERT INTO multiplayer_games (id, game_number, status, selection_end_time) 
              VALUES ($1, $2, $3, $4)`,
-            [gameId, gameNumber, 'selecting', 
-             new Date(Date.now() + GAME_CONFIG.SELECTION_TIME * 1000).toISOString()]
+            [gameId, gameNumber, 'selecting', selectionEndTime.toISOString()]
         );
+        
+        // ✅ 2. ALSO store in activeMultiplayerGames (in-memory for fast access)
+        activeMultiplayerGames[gameId] = {
+            id: gameId,
+            gameNumber: gameNumber,
+            status: 'selecting',
+            players: {},
+            calledNumbers: [],
+            prizePool: 0,
+            createdAt: now.toISOString(),
+            selectionEndTime: selectionEndTime.toISOString(),
+            startTime: null,
+            endTime: null,
+            currentCall: null,
+            winners: []
+        };
+        
+        // ✅ 3. Save to file for persistence
+        saveActiveMultiplayerGames();
         
         console.log(`🆕 Multiplayer Game #${gameNumber} created (ID: ${gameId})`);
         
@@ -433,6 +496,7 @@ async function createMultiplayerGame() {
         }, GAME_CONFIG.SELECTION_TIME * 1000);
         
         return { success: true, gameId, gameNumber };
+        
     } catch (error) {
         console.error('Error creating multiplayer game:', error);
         return { success: false, error: error.message };
@@ -481,7 +545,6 @@ async function checkAndStartGame(gameId) {
         }
     }
 }
-
 async function joinMultiplayerGame(gameId, userId, boardCount, boardNumbers) {
     const client = await pool.connect();
     
@@ -537,7 +600,7 @@ async function joinMultiplayerGame(gameId, userId, boardCount, boardNumbers) {
         user.totalWagered = (user.totalWagered || 0) + totalCost;
         saveUsers();
         
-        // 5. Update prize pool
+        // 5. Update prize pool in database
         const prizeContribution = totalCost * (GAME_CONFIG.PRIZE_POOL_PERCENT / 100);
         await client.query(
             `UPDATE multiplayer_games 
@@ -546,14 +609,70 @@ async function joinMultiplayerGame(gameId, userId, boardCount, boardNumbers) {
             [prizeContribution, gameId]
         );
         
-        // 6. Get current player count
+        // ✅ 6. UPDATE activeMultiplayerGames (in-memory storage)
+        if (activeMultiplayerGames[gameId]) {
+            // Add player to in-memory game
+            activeMultiplayerGames[gameId].players[userId] = {
+                id: userId,
+                username: user.username,
+                boards: playerBoards,
+                markedNumbers: [],
+                hasBingo: false,
+                totalBet: totalCost,
+                joinedAt: new Date().toISOString()
+            };
+            
+            // Update prize pool in memory
+            activeMultiplayerGames[gameId].prizePool += prizeContribution;
+            
+            // Save to file
+            saveActiveMultiplayerGames();
+        } else {
+            // Create in-memory game if it doesn't exist (fallback)
+            console.log(`⚠️ Game ${gameId} not in memory, creating from database`);
+            const dbGame = await client.query(
+                `SELECT * FROM multiplayer_games WHERE id = $1`,
+                [gameId]
+            );
+            
+            if (dbGame.rows.length > 0) {
+                activeMultiplayerGames[gameId] = {
+                    id: dbGame.rows[0].id,
+                    gameNumber: dbGame.rows[0].game_number,
+                    status: dbGame.rows[0].status,
+                    players: {},
+                    calledNumbers: dbGame.rows[0].called_numbers || [],
+                    prizePool: dbGame.rows[0].prize_pool || 0,
+                    selectionEndTime: dbGame.rows[0].selection_end_time,
+                    startTime: dbGame.rows[0].start_time,
+                    endTime: dbGame.rows[0].end_time,
+                    currentCall: dbGame.rows[0].current_call,
+                    winners: []
+                };
+                
+                // Add player to newly created in-memory game
+                activeMultiplayerGames[gameId].players[userId] = {
+                    id: userId,
+                    username: user.username,
+                    boards: playerBoards,
+                    markedNumbers: [],
+                    hasBingo: false,
+                    totalBet: totalCost,
+                    joinedAt: new Date().toISOString()
+                };
+                
+                saveActiveMultiplayerGames();
+            }
+        }
+        
+        // 7. Get current player count
         const playerCountResult = await client.query(
             `SELECT COUNT(*) FROM game_players WHERE game_id = $1`,
             [gameId]
         );
         const playerCount = parseInt(playerCountResult.rows[0].count);
         
-        // 7. Update game status based on player count
+        // 8. Update game status based on player count
         if (playerCount >= GAME_CONFIG.MIN_PLAYERS) {
             // Check if game is still in waiting/selecting phase
             const gameResult = await client.query(
@@ -567,19 +686,27 @@ async function joinMultiplayerGame(gameId, userId, boardCount, boardNumbers) {
                     `UPDATE multiplayer_games 
                      SET status = 'shuffling', 
                          start_time = NOW(),
-                         end_time = NOW() + INTERVAL '1.5 minutes'
+                         end_time = NOW() + INTERVAL '${GAME_CONFIG.GAME_DURATION/1000} seconds'
                      WHERE id = $1`,
                     [gameId]
                 );
                 
-                // Trigger game start (you'll need a function for this)
+                // ✅ Update in-memory status
+                if (activeMultiplayerGames[gameId]) {
+                    activeMultiplayerGames[gameId].status = 'shuffling';
+                    activeMultiplayerGames[gameId].startTime = new Date().toISOString();
+                    activeMultiplayerGames[gameId].endTime = new Date(Date.now() + GAME_CONFIG.GAME_DURATION).toISOString();
+                    saveActiveMultiplayerGames();
+                }
+                
+                // Trigger game start
                 setTimeout(() => {
                     startGamePlay(gameId);
                 }, 5000); // 5 seconds shuffling
             }
         }
         
-        // 8. Record in file-based games
+        // 9. Record in file-based games
         const gameRecordId = 'game_' + Date.now();
         games.push({
             id: gameRecordId,
@@ -594,7 +721,7 @@ async function joinMultiplayerGame(gameId, userId, boardCount, boardNumbers) {
         
         await client.query('COMMIT');
         
-        // 9. Broadcast player joined
+        // 10. Broadcast player joined via WebSocket
         broadcastToGame(gameId, {
             type: 'player_joined',
             userId: userId,
@@ -604,12 +731,18 @@ async function joinMultiplayerGame(gameId, userId, boardCount, boardNumbers) {
         
         console.log(`🎮 User ${user.username} joined game ${gameId} with ${boardCount} boards`);
         
+        // Get updated prize pool
+        const prizePool = activeMultiplayerGames[gameId]?.prizePool || await getGamePrizePool(gameId);
+        
         return {
             success: true,
             gameId: gameId,
             boards: playerBoards,
-            prizePool: await getGamePrizePool(gameId),
-            playerCount: playerCount
+            prizePool: prizePool,
+            playerCount: playerCount,
+            selectionTimeLeft: activeMultiplayerGames[gameId]?.selectionEndTime 
+                ? Math.max(0, Math.floor((new Date(activeMultiplayerGames[gameId].selectionEndTime) - new Date()) / 1000))
+                : GAME_CONFIG.SELECTION_TIME
         };
         
     } catch (error) {
@@ -620,6 +753,7 @@ async function joinMultiplayerGame(gameId, userId, boardCount, boardNumbers) {
         client.release();
     }
 }
+
 
 // Get available board numbers for a game
 async function getAvailableBoardNumbers(gameId) {
@@ -746,6 +880,42 @@ async function getGamePrizePool(gameId) {
 
 async function markPlayerNumber(gameId, userId, number) {
     try {
+        // 1. Update in-memory storage (activeMultiplayerGames)
+        if (activeMultiplayerGames[gameId] && activeMultiplayerGames[gameId].players[userId]) {
+            const player = activeMultiplayerGames[gameId].players[userId];
+            
+            // Check if number is already marked
+            if (!player.markedNumbers.includes(number)) {
+                player.markedNumbers.push(number);
+                
+                // Also check if this number exists on any board (optional)
+                let found = false;
+                for (const board of player.boards) {
+                    for (let row = 0; row < 5; row++) {
+                        for (let col = 0; col < 5; col++) {
+                            if (board.boardData[row][col] === number) {
+                                found = true;
+                                break;
+                            }
+                        }
+                        if (found) break;
+                    }
+                    if (found) break;
+                }
+                
+                if (found) {
+                    console.log(`✅ Marked number ${number} for user ${userId} in game ${gameId}`);
+                }
+                
+                // Save to file
+                saveActiveMultiplayerGames();
+            } else {
+                console.log(`⚠️ Number ${number} already marked for user ${userId}`);
+                return false;
+            }
+        }
+        
+        // 2. Update database
         const playerResult = await pool.query(
             `SELECT marked_numbers FROM game_players WHERE game_id = $1 AND user_id = $2`,
             [gameId, userId]
@@ -762,9 +932,13 @@ async function markPlayerNumber(gameId, userId, number) {
                 `UPDATE game_players SET marked_numbers = $1 WHERE game_id = $2 AND user_id = $3`,
                 [JSON.stringify(markedNumbers), gameId, userId]
             );
+            
+            console.log(`✅ Database updated: marked ${number} for user ${userId}`);
             return true;
         }
+        
         return false;
+        
     } catch (error) {
         console.error('Error marking number:', error);
         return false;
@@ -1388,7 +1562,7 @@ async function declareWinners(gameId, winners, prizePool) {
         // Calculate prize per winner
         const prizePerWinner = Math.floor(prizePool / winners.length);
         
-        // Update game status
+        // 1. Update database
         await client.query(
             `UPDATE multiplayer_games 
              SET status = 'completed', 
@@ -1400,7 +1574,33 @@ async function declareWinners(gameId, winners, prizePool) {
             [winners[0].userId, JSON.stringify(winners), JSON.stringify({ prizePerWinner, totalWinners: winners.length }), gameId]
         );
         
-        // Award prizes to each winner
+        // 2. Update in-memory storage (activeMultiplayerGames)
+        if (activeMultiplayerGames[gameId]) {
+            activeMultiplayerGames[gameId].status = 'completed';
+            activeMultiplayerGames[gameId].winners = winners;
+            activeMultiplayerGames[gameId].prizePerWinner = prizePerWinner;
+            activeMultiplayerGames[gameId].endTime = new Date().toISOString();
+            
+            // Mark winners in player objects
+            for (const winner of winners) {
+                if (activeMultiplayerGames[gameId].players[winner.userId]) {
+                    activeMultiplayerGames[gameId].players[winner.userId].hasBingo = true;
+                    
+                    // Mark the specific board as winner
+                    for (const board of activeMultiplayerGames[gameId].players[winner.userId].boards) {
+                        if (board.boardNumber === winner.boardNumber) {
+                            board.hasBingo = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            // Save to file
+            saveActiveMultiplayerGames();
+        }
+        
+        // 3. Award prizes to each winner
         for (const winner of winners) {
             const user = users[winner.userId];
             if (user) {
@@ -1449,7 +1649,7 @@ async function declareWinners(gameId, winners, prizePool) {
         await client.query('COMMIT');
         saveUsers();
         
-        // Broadcast winners to all players
+        // 4. Broadcast winners to all players
         const winnerAnnouncement = winners.length > 1 ?
             `🎉 *${winners.length} WINNERS!*\n\n` +
             winners.map((w, i) => `${i+1}. ${w.username} - ${prizePerWinner} ETB`).join('\n') :
@@ -1465,7 +1665,7 @@ async function declareWinners(gameId, winners, prizePool) {
         
         console.log(`✅ Game ${gameId} completed. ${winners.length} winner(s) awarded ${prizePerWinner} ETB each.`);
         
-        // Clean up after 30 seconds
+        // 5. Clean up after 30 seconds
         setTimeout(() => {
             cleanupGame(gameId);
         }, 30000);
@@ -1482,15 +1682,7 @@ async function endGameNoWinner(gameId) {
     try {
         console.log(`⏰ Game ${gameId} ended with no winner`);
         
-        // Get game info before updating
-        const gameResult = await pool.query(
-            `SELECT prize_pool FROM multiplayer_games WHERE id = $1`,
-            [gameId]
-        );
-        
-        const prizePool = gameResult.rows[0]?.prize_pool || 0;
-        
-        // Update game status
+        // 1. Update database
         await pool.query(
             `UPDATE multiplayer_games 
              SET status = 'completed_no_winner', end_time = NOW()
@@ -1498,13 +1690,20 @@ async function endGameNoWinner(gameId) {
             [gameId]
         );
         
-        // Refund 80% of bets to players (like Joy Bingo)
+        // 2. Update in-memory storage
+        if (activeMultiplayerGames[gameId]) {
+            activeMultiplayerGames[gameId].status = 'completed_no_winner';
+            activeMultiplayerGames[gameId].endTime = new Date().toISOString();
+            saveActiveMultiplayerGames();
+        }
+        
+        // 3. Refund 80% of bets to players
         const playersResult = await pool.query(
             `SELECT user_id, boards FROM game_players WHERE game_id = $1`,
             [gameId]
         );
         
-        const refundRate = 0.8; // 80% refund
+        const refundRate = 0.8;
         let totalRefund = 0;
         
         for (const player of playersResult.rows) {
@@ -1534,22 +1733,16 @@ async function endGameNoWinner(gameId) {
         
         saveUsers();
         
-        // Broadcast to remaining players
+        // 4. Broadcast to remaining players
         broadcastToGame(gameId, {
             type: 'game_ended',
             message: `🤷 *GAME ENDED - NO WINNER*\n💰 80% refund issued to all players.`
         });
         
-        console.log(`✅ Game ${gameId} ended. Total refund: ${totalRefund} ETB`);
-        
-        // Clean up connections
+        // 5. Clean up connections
         cleanupGameConnections(gameId);
         
-        // Create next game after delay
-        setTimeout(async () => {
-            console.log(`🔄 Creating next game...`);
-            await createMultiplayerGame();
-        }, GAME_CONFIG.NEXT_GAME_DELAY);
+        console.log(`✅ Game ${gameId} ended. Total refund: ${totalRefund} ETB`);
         
     } catch (error) {
         console.error('Error ending game:', error);
@@ -1570,13 +1763,16 @@ async function cancelGame(gameId) {
         );
         
         // Refund each player
+        let totalRefund = 0;
         for (const row of playersResult.rows) {
             const boards = JSON.parse(row.boards);
             const refundAmount = boards.length * GAME_CONFIG.BOARD_PRICE;
+            totalRefund += refundAmount;
             
             const user = users[row.user_id];
             if (user) {
                 user.balance += refundAmount;
+                console.log(`💰 Refunded ${refundAmount} ETB to ${user.username}`);
                 
                 // Notify user via Telegram
                 if (user.chatId) {
@@ -1584,13 +1780,14 @@ async function cancelGame(gameId) {
                         `🔄 *Game Cancelled*\n\n` +
                         `Not enough players joined.\n` +
                         `💰 Refund: *${refundAmount} ETB*\n` +
-                        `📊 New Balance: *${user.balance} ETB*`
+                        `📊 New Balance: *${user.balance} ETB*\n\n` +
+                        `🎮 Next game starting now!`
                     );
                 }
             }
         }
         
-        // Update game status
+        // Update game status in database
         await client.query(
             `UPDATE multiplayer_games SET status = 'cancelled', end_time = NOW() WHERE id = $1`,
             [gameId]
@@ -1599,7 +1796,25 @@ async function cancelGame(gameId) {
         await client.query('COMMIT');
         saveUsers();
         
-        console.log(`✅ Game ${gameId} cancelled, players refunded`);
+        console.log(`✅ Game ${gameId} cancelled. Total refund: ${totalRefund} ETB`);
+        
+        // ✅ 1. Remove from in-memory storage
+        if (activeMultiplayerGames[gameId]) {
+            delete activeMultiplayerGames[gameId];
+            console.log(`🧹 Removed game ${gameId} from activeMultiplayerGames`);
+        }
+        
+        // ✅ 2. Save the updated state to file
+        saveActiveMultiplayerGames();
+        
+        // ✅ 3. Clean up WebSocket connections
+        cleanupGameConnections(gameId);
+        
+        // ✅ 4. Create next game after delay
+        setTimeout(async () => {
+            console.log(`🔄 Creating next game after cancellation...`);
+            await createMultiplayerGame();
+        }, GAME_CONFIG.NEXT_GAME_DELAY || 2000);
         
     } catch (error) {
         await client.query('ROLLBACK');
@@ -1609,20 +1824,31 @@ async function cancelGame(gameId) {
     }
 }
 
-// Clean up game connections and timers
-function cleanupGame(gameId) {
-    // Close WebSocket connections
+// Clean up WebSocket connections for a game
+function cleanupGameConnections(gameId) {
     const connections = gameConnections.get(gameId);
     if (connections) {
         connections.forEach(ws => {
             if (ws.readyState === WebSocket.OPEN) {
-                ws.close(1001, 'Game ended');
+                ws.close(1001, 'Game cancelled');
             }
         });
         gameConnections.delete(gameId);
+        console.log(`🧹 Closed ${connections.size} WebSocket connections for game ${gameId}`);
+    }
+}
+// Full game cleanup (called after game ends)
+function cleanupGame(gameId) {
+    // Clean WebSocket connections
+    cleanupGameConnections(gameId);
+    
+    // Remove from memory if still present
+    if (activeMultiplayerGames[gameId]) {
+        delete activeMultiplayerGames[gameId];
+        saveActiveMultiplayerGames();
     }
     
-    // Clear timers if any
+    // Clear timers
     if (gameTimers[gameId]) {
         clearTimeout(gameTimers[gameId]);
         delete gameTimers[gameId];
@@ -1633,7 +1859,7 @@ function cleanupGame(gameId) {
         delete gameIntervals[gameId];
     }
     
-    console.log(`🧹 Game ${gameId} cleaned up`);
+    console.log(`🧹 Full cleanup completed for game ${gameId}`);
 }
 
 // ==================== TELEGRAM FUNCTIONS ====================
@@ -3237,23 +3463,26 @@ app.post('/api/multiplayer/join', async (req, res) => {
             gameNumber = newGame.gameNumber;
         }
         
-        // Join the game
-        const joinResult = await joinMultiplayerGame(gameId, userId, boardCount, boardNumbers);
-        
-        if (!joinResult.success) {
-            return res.json({ success: false, error: joinResult.error });
-        }
-        
-        res.json({
-            success: true,
-            gameId: gameId,
-            gameNumber: gameNumber,
-            boards: joinResult.boards,
-            prizePool: joinResult.prizePool,
-            playerCount: joinResult.playerCount,
-            selectionTimeLeft: GAME_CONFIG.SELECTION_TIME,
-            yourBalance: user.balance
-        });
+       // Join the game
+const joinResult = await joinMultiplayerGame(gameId, userId, boardCount, boardNumbers);
+
+if (!joinResult.success) {
+    return res.json({ success: false, error: joinResult.error });
+}
+
+// ✅ Use selectionTimeLeft from joinResult (which comes from activeMultiplayerGames)
+const selectionTimeLeft = joinResult.selectionTimeLeft || GAME_CONFIG.SELECTION_TIME;
+
+res.json({
+    success: true,
+    gameId: gameId,
+    gameNumber: gameNumber,
+    boards: joinResult.boards,
+    prizePool: joinResult.prizePool,
+    playerCount: joinResult.playerCount,
+    selectionTimeLeft: selectionTimeLeft,
+    yourBalance: user.balance
+});
         
     } catch (error) {
         console.error('Multiplayer join error:', error);
