@@ -428,26 +428,7 @@ async function getNextGameNumber() {
 }
 
 async function createMultiplayerGame() {
-    // RATE LIMITING CHECK: Prevent creating too many games at once
-    try {
-        const recentGames = await pool.query(`
-            SELECT COUNT(*) as count FROM multiplayer_games 
-            WHERE created_at > NOW() - INTERVAL '30 seconds'
-            AND status = 'selecting'
-        `);
-        
-        const recentCount = parseInt(recentGames.rows[0].count);
-        
-        if (recentCount >= 2) {
-            console.log('⏳ Too many recent games created, waiting...');
-            return { success: false, error: 'Too many recent games' };
-        }
-        
-        console.log(`📈 Recent games in last 30 seconds: ${recentCount}`);
-    } catch (error) {
-        console.error('Error checking recent games:', error);
-        // Continue anyway, don't block game creation on error
-    }
+    // ✅ RATE LIMITING REMOVED - Games can be created freely for 24/7 play
     
     // Generate unique game ID and number
     const gameId = 'GAME_' + Date.now().toString(36);
@@ -463,7 +444,7 @@ async function createMultiplayerGame() {
             [gameId, gameNumber, 'selecting', selectionEndTime.toISOString()]
         );
         
-        // ✅ 2. ALSO store in activeMultiplayerGames (in-memory for fast access)
+        // ✅ 2. Store in activeMultiplayerGames (in-memory for fast access)
         activeMultiplayerGames[gameId] = {
             id: gameId,
             gameNumber: gameNumber,
@@ -483,10 +464,12 @@ async function createMultiplayerGame() {
         saveActiveMultiplayerGames();
         
         console.log(`🆕 Multiplayer Game #${gameNumber} created (ID: ${gameId})`);
+        console.log(`⏰ Selection ends at: ${selectionEndTime.toLocaleTimeString()}`);
         
-        // Schedule game start check with error handling
+        // ✅ 4. Schedule game start check
         setTimeout(async () => {
             try {
+                console.log(`🔍 Checking game ${gameId} to start...`);
                 await checkAndStartGame(gameId);
             } catch (error) {
                 console.error(`❌ Error in scheduled game check for ${gameId}:`, error.message);
@@ -498,10 +481,11 @@ async function createMultiplayerGame() {
         return { success: true, gameId, gameNumber };
         
     } catch (error) {
-        console.error('Error creating multiplayer game:', error);
+        console.error('❌ Error creating multiplayer game:', error);
         return { success: false, error: error.message };
     }
 }
+
 
 async function checkAndStartGame(gameId) {
     try {
@@ -527,13 +511,20 @@ async function checkAndStartGame(gameId) {
         const playerCount = await getPlayerCount(gameId);
         console.log(`📊 Game ${gameId} has ${playerCount} players, minimum: ${GAME_CONFIG.MIN_PLAYERS}`);
         
+        // ✅ Always start game if there's at least 1 player (or 2, your choice)
         if (playerCount >= GAME_CONFIG.MIN_PLAYERS) {
             console.log(`✅ Game ${gameId} meets minimum players (${playerCount} >= ${GAME_CONFIG.MIN_PLAYERS})`);
             console.log(`🎮 STARTING Game ${gameId} with ${playerCount} players`);
             await startGamePlay(gameId);
         } else {
+            // ✅ If not enough players, cancel and refund
             console.log(`❌ Game ${gameId} cancelled - only ${playerCount} players (need ${GAME_CONFIG.MIN_PLAYERS})`);
             await cancelGame(gameId);
+            
+            // ✅ Create new game immediately after cancellation
+            setTimeout(() => {
+                createMultiplayerGame();
+            }, 2000);
         }
     } catch (error) {
         console.error('❌ Error checking game:', error.message);
@@ -545,6 +536,7 @@ async function checkAndStartGame(gameId) {
         }
     }
 }
+
 async function joinMultiplayerGame(gameId, userId, boardCount, boardNumbers) {
     const client = await pool.connect();
     
