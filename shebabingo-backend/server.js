@@ -1055,24 +1055,17 @@ async function declareWinner(gameId, userId) {
 }
 
 // ==================== GAME LOGIC FUNCTIONS ====================
-function generateBingoBoard() {
-    const board = { B: [], I: [], N: [], G: [], O: [] };
-    
-    // B: 1-15, I: 16-30, N: 31-45, G: 46-60, O: 61-75
-    for (let i = 0; i < 5; i++) {
-        board.B.push(getUniqueNumber(board.B, 1, 15));
-        board.I.push(getUniqueNumber(board.I, 16, 30));
-        board.N.push(getUniqueNumber(board.N, 31, 45));
-        board.G.push(getUniqueNumber(board.G, 46, 60));
-        board.O.push(getUniqueNumber(board.O, 61, 75));
+
+// Shuffle array (Fisher-Yates algorithm)
+function shuffleArray(array) {
+    for (let i = array.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [array[i], array[j]] = [array[j], array[i]];
     }
-    
-    // Free space in center (N column, 3rd row)
-    board.N[2] = 'FREE';
-    
-    return board;
+    return array;
 }
 
+// Get unique random number
 function getUniqueNumber(existing, min, max) {
     let num;
     do {
@@ -1081,21 +1074,46 @@ function getUniqueNumber(existing, min, max) {
     return num;
 }
 
+// Generate a Bingo board (5x5 array format, matching frontend)
+function generateBingoBoard() {
+    // Create arrays for each letter (B, I, N, G, O)
+    const B = shuffleArray([...Array(15).keys()].map(i => i + 1)).slice(0, 5).sort((a, b) => a - b);
+    const I = shuffleArray([...Array(15).keys()].map(i => i + 16)).slice(0, 5).sort((a, b) => a - b);
+    const N = shuffleArray([...Array(15).keys()].map(i => i + 31)).slice(0, 4).sort((a, b) => a - b);
+    const G = shuffleArray([...Array(15).keys()].map(i => i + 46)).slice(0, 5).sort((a, b) => a - b);
+    const O = shuffleArray([...Array(15).keys()].map(i => i + 61)).slice(0, 5).sort((a, b) => a - b);
+    
+    const board = [];
+    let nIndex = 0;
+    
+    for (let row = 0; row < 5; row++) {
+        const rowData = [
+            B[row],
+            I[row],
+            row === 2 ? 'FREE' : N[nIndex++],
+            G[row],
+            O[row]
+        ];
+        board.push(rowData);
+    }
+    
+    return board;
+}
+
+// Check if a board has BINGO (5x5 array format)
 function checkBoardForBingo(boardData, markedNumbers, calledNumbers) {
-    // Convert called numbers to just numbers
+    // Convert called numbers from format like "B5" to just numbers
     const calledNums = calledNumbers.map(cn => {
-        const num = cn.replace(/[BINGO]/, '');
-        return parseInt(num);
+        const match = cn.match(/\d+/);
+        return match ? parseInt(match[0]) : cn;
     });
     
     // Check rows
-    for (let i = 0; i < 5; i++) {
+    for (let row = 0; row < 5; row++) {
         let rowComplete = true;
-        const columns = ['B', 'I', 'N', 'G', 'O'];
-        for (const col of columns) {
-            const cell = boardData[col][i];
-            if (cell === 'FREE') continue;
-            if (!calledNums.includes(cell)) {
+        for (let col = 0; col < 5; col++) {
+            const cell = boardData[row][col];
+            if (cell !== 'FREE' && !markedNumbers.includes(cell) && !calledNums.includes(cell)) {
                 rowComplete = false;
                 break;
             }
@@ -1104,13 +1122,11 @@ function checkBoardForBingo(boardData, markedNumbers, calledNumbers) {
     }
     
     // Check columns
-    const columns = ['B', 'I', 'N', 'G', 'O'];
-    for (const col of columns) {
+    for (let col = 0; col < 5; col++) {
         let colComplete = true;
-        for (let i = 0; i < 5; i++) {
-            const cell = boardData[col][i];
-            if (cell === 'FREE') continue;
-            if (!calledNums.includes(cell)) {
+        for (let row = 0; row < 5; row++) {
+            const cell = boardData[row][col];
+            if (cell !== 'FREE' && !markedNumbers.includes(cell) && !calledNums.includes(cell)) {
                 colComplete = false;
                 break;
             }
@@ -1122,14 +1138,57 @@ function checkBoardForBingo(boardData, markedNumbers, calledNumbers) {
     let diag1Complete = true;
     let diag2Complete = true;
     for (let i = 0; i < 5; i++) {
-        // Top-left to bottom-right
-        const cell1 = boardData[columns[i]][i];
-        if (cell1 !== 'FREE' && !calledNums.includes(cell1)) {
+        const cell1 = boardData[i][i];
+        if (cell1 !== 'FREE' && !markedNumbers.includes(cell1) && !calledNums.includes(cell1)) {
             diag1Complete = false;
         }
-        // Top-right to bottom-left
-        const cell2 = boardData[columns[4-i]][i];
-        if (cell2 !== 'FREE' && !calledNums.includes(cell2)) {
+        const cell2 = boardData[i][4 - i];
+        if (cell2 !== 'FREE' && !markedNumbers.includes(cell2) && !calledNums.includes(cell2)) {
+            diag2Complete = false;
+        }
+    }
+    
+    return diag1Complete || diag2Complete;
+}
+
+// Alternative: Check board using marked numbers (for player marking)
+function checkBoardWithMarked(boardData, markedNumbers) {
+    // Check rows
+    for (let row = 0; row < 5; row++) {
+        let rowComplete = true;
+        for (let col = 0; col < 5; col++) {
+            const cell = boardData[row][col];
+            if (cell !== 'FREE' && !markedNumbers.includes(cell)) {
+                rowComplete = false;
+                break;
+            }
+        }
+        if (rowComplete) return true;
+    }
+    
+    // Check columns
+    for (let col = 0; col < 5; col++) {
+        let colComplete = true;
+        for (let row = 0; row < 5; row++) {
+            const cell = boardData[row][col];
+            if (cell !== 'FREE' && !markedNumbers.includes(cell)) {
+                colComplete = false;
+                break;
+            }
+        }
+        if (colComplete) return true;
+    }
+    
+    // Check diagonals
+    let diag1Complete = true;
+    let diag2Complete = true;
+    for (let i = 0; i < 5; i++) {
+        const cell1 = boardData[i][i];
+        if (cell1 !== 'FREE' && !markedNumbers.includes(cell1)) {
+            diag1Complete = false;
+        }
+        const cell2 = boardData[i][4 - i];
+        if (cell2 !== 'FREE' && !markedNumbers.includes(cell2)) {
             diag2Complete = false;
         }
     }
@@ -3352,12 +3411,12 @@ app.get('/api/test-game-flow', async (req, res) => {
 
 // ==================== MULTIPLAYER API ENDPOINTS (ADD THESE) ====================
 
-// 1. Get active multiplayer games (matches frontend call)
+// // 1. Get active multiplayer games (matches frontend call)
 app.get('/api/multiplayer/games', async (req, res) => {
     try {
         console.log('📡 GET /api/multiplayer/games - Fetching active games...');
         
-        // Get games from file-based activeMultiplayerGames only
+        // Get games from file-based activeMultiplayerGames
         const games = [];
         
         for (const gameId in activeMultiplayerGames) {
@@ -3389,85 +3448,107 @@ app.get('/api/multiplayer/games', async (req, res) => {
 });
 
 // 2. Join multiplayer game (matches frontend call)
+
 app.post('/api/multiplayer/join', async (req, res) => {
+    console.log('🔥 JOIN ENDPOINT CALLED!', req.body);
+    
     try {
         const { userId, boardCount = 1, boardNumbers = [] } = req.body;
         
-        // ✅ FIX 1: Convert userId to string for consistency
-        const userIdStr = userId.toString();
+        console.log(`📥 Join request: userId=${userId}, boardCount=${boardCount}`);
         
-        console.log(`📥 Multiplayer join: userId=${userIdStr}, boardCount=${boardCount}`);
-        
-        // ✅ FIX 2: Use userIdStr to access user
-        const user = users[userIdStr];
+        // Check if user exists
+        const user = users[userId];
         if (!user) {
-            console.log(`❌ User not found: ${userIdStr}`);
+            console.log(`❌ User not found: ${userId}`);
             return res.json({ success: false, error: 'User not found. Please register first.' });
         }
         
-        const totalCost = boardCount * GAME_CONFIG.BOARD_PRICE;
+        const totalCost = boardCount * 10; // 10 ETB per board
+        
         if (user.balance < totalCost) {
             console.log(`❌ Insufficient balance: ${user.balance} < ${totalCost}`);
-            return res.json({ 
-                success: false, 
-                error: `Insufficient balance. Need ${totalCost} ETB, have ${user.balance} ETB` 
-            });
+            return res.json({ success: false, error: `Insufficient balance. Need ${totalCost} ETB` });
         }
         
         // Find existing waiting game
         let gameId = null;
-        let gameNumber = null;
-        
-        // Check file-based games first
         for (const gid in activeMultiplayerGames) {
-            const game = activeMultiplayerGames[gid];
-            if (game.status === 'waiting') {
+            if (activeMultiplayerGames[gid].status === 'waiting') {
                 gameId = gid;
-                gameNumber = game.gameNumber;
                 break;
             }
         }
         
-        // Create new game if none exists
+        // If no game exists, create one
         if (!gameId) {
-            const newGame = await createMultiplayerGame();
-            if (!newGame.success) {
-                return res.json({ success: false, error: newGame.error });
-            }
-            gameId = newGame.gameId;
-            gameNumber = newGame.gameNumber;
+            gameId = 'GAME_' + Date.now().toString(36);
+            const gameNumber = Object.keys(activeMultiplayerGames).length + 1;
+            
+            activeMultiplayerGames[gameId] = {
+                id: gameId,
+                gameNumber: gameNumber,
+                status: 'waiting',
+                players: {},
+                calledNumbers: [],
+                prizePool: 0,
+                createdAt: new Date().toISOString(),
+                selectionEndTime: new Date(Date.now() + 25000).toISOString()
+            };
+            console.log(`🆕 Created new game: ${gameId}`);
+            saveActiveMultiplayerGames();
         }
         
-        // ✅ FIX 3: Pass userIdStr (string) to join function
-        const joinResult = await joinMultiplayerGame(gameId, userIdStr, boardCount, boardNumbers);
-        
-        if (!joinResult.success) {
-            return res.json({ success: false, error: joinResult.error });
-        }
-        
-        // ✅ FIX 4: Get selectionTimeLeft from the game object
         const game = activeMultiplayerGames[gameId];
-        const selectionTimeLeft = game ? Math.max(0, Math.floor((new Date(game.selectionEndTime) - new Date()) / 1000)) : GAME_CONFIG.SELECTION_TIME;
         
-        console.log(`✅ Join successful: ${user.username} joined game ${gameId}`);
-        console.log(`📊 Game now has ${joinResult.playerCount} players, ${selectionTimeLeft}s left`);
+        // Generate boards
+        const boards = [];
+        for (let i = 0; i < boardCount; i++) {
+            boards.push({
+                boardNumber: boardNumbers[i] || Math.floor(Math.random() * 400) + 1,
+                boardData: generateBingoBoard(),
+                markedNumbers: [],
+                hasBingo: false,
+                boardId: `B${i + 1}`
+            });
+        }
+        
+        // Add player to game
+        game.players[userId] = {
+            id: userId,
+            username: user.username,
+            boards: boards,
+            markedNumbers: [],
+            hasBingo: false,
+            totalBet: totalCost,
+            joinedAt: new Date().toISOString()
+        };
+        
+        // Deduct balance
+        user.balance -= totalCost;
+        game.prizePool += totalCost * 0.8;
+        
+        saveUsers();
+        saveActiveMultiplayerGames();
+        
+        console.log(`✅ ${user.username} joined game ${gameId} with ${boardCount} boards`);
         
         res.json({
             success: true,
             gameId: gameId,
-            gameNumber: gameNumber,
-            boards: joinResult.boards,
-            prizePool: joinResult.prizePool,
-            playerCount: joinResult.playerCount,
-            selectionTimeLeft: selectionTimeLeft,
-            yourBalance: user.balance - totalCost
+            gameNumber: game.gameNumber,
+            boards: boards,
+            prizePool: game.prizePool,
+            playerCount: Object.keys(game.players).length,
+            selectionTimeLeft: Math.max(0, Math.floor((new Date(game.selectionEndTime) - new Date()) / 1000))
         });
         
     } catch (error) {
-        console.error('❌ Multiplayer join error:', error);
+        console.error('❌ Join error:', error);
         res.json({ success: false, error: error.message });
     }
 });
+
 
 // 3. Get multiplayer game state (matches frontend call)
 app.get('/api/multiplayer/state/:gameId/:userId', async (req, res) => {
