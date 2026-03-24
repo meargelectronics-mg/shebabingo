@@ -16,7 +16,6 @@ const server = http.createServer(app);
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(express.static(path.join(__dirname, 'public')));
 
 // ==================== CONFIGURATION ====================
 const BOT_TOKEN = process.env.BOT_TOKEN || '8238998135:AAGKZIQWwsTBECcqjY2X9oJM_gN595tcFcI';
@@ -3411,43 +3410,9 @@ app.get('/api/test-game-flow', async (req, res) => {
 
 // ==================== MULTIPLAYER API ENDPOINTS (ADD THESE) ====================
 
-// // 1. Get active multiplayer games (matches frontend call)
-app.get('/api/multiplayer/games', async (req, res) => {
-    try {
-        console.log('📡 GET /api/multiplayer/games - Fetching active games...');
-        
-        // Get games from file-based activeMultiplayerGames
-        const games = [];
-        
-        for (const gameId in activeMultiplayerGames) {
-            const game = activeMultiplayerGames[gameId];
-            // Only show games that are waiting or selecting (not started or finished)
-            if (game.status === 'waiting' || game.status === 'selecting') {
-                const playerCount = Object.keys(game.players || {}).length;
-                const timeLeft = game.selectionEndTime ? 
-                    Math.max(0, Math.floor((new Date(game.selectionEndTime) - new Date()) / 1000)) : 25;
-                
-                games.push({
-                    id: game.id,
-                    gameNumber: game.gameNumber || 1,
-                    players: playerCount,
-                    prizePool: game.prizePool || 0,
-                    status: game.status,
-                    timeLeft: timeLeft
-                });
-            }
-        }
-        
-        console.log(`📊 Found ${games.length} active game(s)`);
-        res.json({ success: true, games: games });
-        
-    } catch (error) {
-        console.error('❌ Error getting multiplayer games:', error);
-        res.json({ success: false, games: [], error: error.message });
-    }
-});
 
-// 2. Join multiplayer game (matches frontend call)
+
+// 1. Join multiplayer game (matches frontend call)
 
 app.post('/api/multiplayer/join', async (req, res) => {
     console.log('🔥 JOIN ENDPOINT CALLED!', req.body);
@@ -3549,6 +3514,41 @@ app.post('/api/multiplayer/join', async (req, res) => {
     }
 });
 
+// 2. Get active multiplayer games (matches frontend call)
+app.get('/api/multiplayer/games', async (req, res) => {
+    try {
+        console.log('📡 GET /api/multiplayer/games - Fetching active games...');
+        
+        // Get games from file-based activeMultiplayerGames
+        const games = [];
+        
+        for (const gameId in activeMultiplayerGames) {
+            const game = activeMultiplayerGames[gameId];
+            // Only show games that are waiting or selecting (not started or finished)
+            if (game.status === 'waiting' || game.status === 'selecting') {
+                const playerCount = Object.keys(game.players || {}).length;
+                const timeLeft = game.selectionEndTime ? 
+                    Math.max(0, Math.floor((new Date(game.selectionEndTime) - new Date()) / 1000)) : 25;
+                
+                games.push({
+                    id: game.id,
+                    gameNumber: game.gameNumber || 1,
+                    players: playerCount,
+                    prizePool: game.prizePool || 0,
+                    status: game.status,
+                    timeLeft: timeLeft
+                });
+            }
+        }
+        
+        console.log(`📊 Found ${games.length} active game(s)`);
+        res.json({ success: true, games: games });
+        
+    } catch (error) {
+        console.error('❌ Error getting multiplayer games:', error);
+        res.json({ success: false, games: [], error: error.message });
+    }
+});
 
 // 3. Get multiplayer game state (matches frontend call)
 app.get('/api/multiplayer/state/:gameId/:userId', async (req, res) => {
@@ -3681,6 +3681,8 @@ app.get('/api/game/next-start', async (req, res) => {
 });
 
 // ==================== SERVE FRONTEND ====================
+// 2. Static files
+app.use(express.static(path.join(__dirname, 'public')));
 app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
