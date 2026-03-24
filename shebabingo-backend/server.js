@@ -18,7 +18,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // ==================== CONFIGURATION ====================
-const BOT_TOKEN = process.env.BOT_TOKEN || '8238998135:AAGKZIQWwsTBECcqjY2X9oJM_gN595tcFcI';
+const BOT_TOKEN = process.env.BOT_TOKEN || '8238998135:AAG7bwL1rkiMHyDhn8FwitM2a6OsoSYqJK8';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'Mg@sheba#23';
 const RENDER_URL = process.env.RENDER_URL || 'https://shebabingo-bot.onrender.com';
 const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID || '6297094384';
