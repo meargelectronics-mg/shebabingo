@@ -3088,92 +3088,121 @@ function showSpectatorMessage(message = 'Watching Game') {
 }
 
 
-        // Balance deduction when buying boards
+
        // ==================== CONFIRM SELECTION (MULTIPLAYER) ====================
+// ==================== FETCH WITH TIMEOUT ====================
+async function fetchWithTimeout(url, options, timeout = 15000) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+    
+    try {
+        const response = await fetch(url, {
+            ...options,
+            signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        return response;
+    } catch (error) {
+        clearTimeout(timeoutId);
+        if (error.name === 'AbortError') {
+            throw new Error('Request timed out after 15 seconds');
+        }
+        throw error;
+    }
+}
+
+// ==================== CONFIRM SELECTION WITH RETRY ====================
 async function confirmSelection() {
     if (gameState.selectedBoards.size === 0) {
-        alert(t('selectOneBoard'));
+        alert('Please select at least one board');
         return;
     }
     
     const totalCost = gameState.selectedBoards.size * CONFIG.BET_AMOUNT;
     
-    // Check balance
     if (totalCost > gameState.currentPlayer.balance) {
-        alert(`❌ Insufficient balance!\n\nNeed: ${totalCost} ETB\nYour balance: ${gameState.currentPlayer.balance} ETB\n\nUse /deposit in Telegram to add funds.`);
+        alert(`❌ Insufficient balance!\n\nNeed: ${totalCost} ETB\nYour balance: ${gameState.currentPlayer.balance} ETB`);
         return;
     }
     
-    // Show loading state
     const confirmBtn = document.getElementById('confirmSelection');
     const originalText = confirmBtn.textContent;
     confirmBtn.textContent = '⏳ Joining game...';
     confirmBtn.disabled = true;
     
-    try {
-        const userId = getUserIdFromUrl();
-        
-        console.log(`🎮 Joining multiplayer game with ${gameState.selectedBoards.size} boards`);
-        
-        // Join multiplayer game via API
-        const response = await fetch('/api/multiplayer/join', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                userId: userId,
-                boardCount: gameState.selectedBoards.size,
-                boardNumbers: Array.from(gameState.selectedBoards)
-            })
-        });
-        
-        const data = await response.json();
-        
-        if (data.success) {
-            console.log('✅ Successfully joined game:', data.gameId);
-            console.log(`👥 Players: ${data.playerCount}, Selection time: ${data.selectionTimeLeft}s`);
+    let retries = 3;
+    let lastError = null;
+    
+    while (retries > 0) {
+        try {
+            const userId = getUserIdFromUrl();
+            console.log(`📡 Attempting to join (${4-retries}/3)...`);
             
-            // Store game ID for polling
-            window.currentGameId = data.gameId;
+            // ✅ Use fetch with timeout
+            const response = await fetchWithTimeout('/api/multiplayer/join', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    userId: userId,
+                    boardCount: gameState.selectedBoards.size,
+                    boardNumbers: Array.from(gameState.selectedBoards)
+                })
+            }, 15000); // 15 second timeout
             
-            // Update local balance (server already deducted)
-            gameState.currentPlayer.balance -= totalCost;
-            gameState.currentPlayer.isActive = true;
+            const data = await response.json();
             
-            // Store boards from server
-            gameState.currentPlayer.boards = data.boards.map(board => ({
-                boardNumber: board.boardNumber,
-                boardData: board.boardData,
-                markedNumbers: new Set(board.markedNumbers || []),
-                isWinner: false,
-                isEliminated: false
-            }));
-            gameState.currentPlayer.totalPaid = totalCost;
+            if (data.success) {
+                console.log('✅ Joined game:', data.gameId);
+                window.currentGameId = data.gameId;
+                
+                gameState.currentPlayer.balance -= totalCost;
+                updateGameStats();
+                
+                gameState.currentPlayer.boards = data.boards.map(board => ({
+                    boardNumber: board.boardNumber,
+                    boardData: board.boardData,
+                    markedNumbers: new Set(board.markedNumbers || []),
+                    isWinner: false,
+                    isEliminated: false
+                }));
+                
+                gameState.currentPlayer.isActive = true;
+                
+                closeRegistrationPopup();
+                elements.gamePlaySection.style.display = 'block';
+                displayCurrentPlayerBoards(0);
+                showWaitingForPlayers(data.playerCount, data.selectionTimeLeft || 25);
+                startGamePolling(data.gameId);
+                
+                confirmBtn.textContent = originalText;
+                confirmBtn.disabled = false;
+                return;
+                
+            } else {
+                // Server returned error
+                alert('Failed to join game: ' + (data.error || 'Unknown error'));
+                confirmBtn.textContent = originalText;
+                confirmBtn.disabled = false;
+                return;
+            }
             
-            // Update UI
-            updateGameStats();
-            closeRegistrationPopup();
-            elements.gamePlaySection.style.display = 'block';
-            displayCurrentPlayerBoards(0);
+        } catch (error) {
+            console.error(`❌ Attempt failed (${4-retries}/3):`, error.message);
+            lastError = error;
+            retries--;
             
-            // Show waiting screen
-            showWaitingForPlayers(data.playerCount, data.selectionTimeLeft || 25);
-            
-            // Start polling for game state
-            startGamePolling(data.gameId);
-            
-        } else {
-            console.error('Join failed:', data.error);
-            alert('Failed to join game: ' + data.error);
-            confirmBtn.textContent = originalText;
-            confirmBtn.disabled = false;
+            if (retries > 0) {
+                // Wait 2 seconds before retry
+                confirmBtn.textContent = `⏳ Retrying (${4-retries}/3)...`;
+                await new Promise(resolve => setTimeout(resolve, 2000));
+            }
         }
-        
-    } catch (error) {
-        console.error('Join error:', error);
-        alert('Network error. Please try again.');
-        confirmBtn.textContent = originalText;
-        confirmBtn.disabled = false;
     }
+    
+    // All retries failed
+    alert('Network error: ' + (lastError?.message || 'Could not connect to server. Please check your internet connection and try again.'));
+    confirmBtn.textContent = originalText;
+    confirmBtn.disabled = false;
 }
 
 // ==================== SHOW WAITING FOR PLAYERS ====================
@@ -3209,12 +3238,20 @@ function startGamePolling(gameId) {
             const response = await fetch(`/api/multiplayer/state/${gameId}/${userId}`);
             const data = await response.json();
             
+            console.log(`📡 Polling response:`, {
+                status: data.game?.status,
+                calledNumbers: data.game?.calledNumbers?.length,
+                players: data.game?.players
+            });
+            
             if (data.success) {
                 updateGameFromMultiplayer(data);
             } else {
                 if (data.error === 'Game not found' || data.error === 'Not in this game') {
                     console.log('⏹️ Game no longer available, stopping polling');
                     stopGamePolling();
+                } else {
+                    console.log('⚠️ Polling error:', data.error);
                 }
             }
         } catch (error) {
@@ -3222,6 +3259,7 @@ function startGamePolling(gameId) {
         }
     }, 2000);
 }
+
 // ==================== STOP GAME POLLING ====================
 function stopGamePolling() {
     if (window.gamePollInterval) {
@@ -3237,49 +3275,194 @@ function updateGameFromMultiplayer(data) {
     const game = data.game;
     const player = data.player;
     
-    // Update game phase
+    // ✅ Enhanced logging
+    console.log(`📊 Game status: ${game.status}, Called: ${game.calledNumbers?.length || 0}, Players: ${game.players}`);
+    console.log(`📡 Full game data:`, {
+        id: game.id,
+        status: game.status,
+        calledCount: game.calledNumbers?.length,
+        timeLeft: game.timeLeft,
+        prizePool: game.prizePool
+    });
+    
+    // ✅ Update game phase
     if (game.status !== gameState.gamePhase) {
-        console.log(`🔄 Phase change: ${gameState.gamePhase} → ${game.status}`);
+        console.log(`🔄 PHASE CHANGE: ${gameState.gamePhase} → ${game.status}`);
         gameState.gamePhase = game.status;
         updateGameStatus();
         
         switch(game.status) {
             case 'shuffling':
+                console.log('🎲 SHUFFLING - Showing shuffling screen');
                 showShufflingScreen();
                 break;
+                
             case 'active':
+                console.log('🎮 ACTIVE - Game is live! Numbers will appear...');
                 removeWaitingScreen();
                 gameState.calledNumbers = game.calledNumbers || [];
                 gameState.currentCall = game.currentCall;
                 updateCalledNumbersList();
                 updateMainBoardColors();
-                console.log('🎮 GAME ACTIVE!');
                 break;
+                
             case 'completed':
+                console.log('🏆 COMPLETED - Game finished');
                 stopGamePolling();
                 if (game.winners) {
                     showGameResults(game);
                 }
                 break;
+                
+            case 'cancelled':
+                console.log('❌ CANCELLED - Not enough players');
+                stopGamePolling();
+                showWaitForNextGame('Game cancelled. Not enough players. Next game starting soon...');
+                break;
+                
+            default:
+                console.log(`ℹ️ Status: ${game.status} - No UI action needed`);
         }
     }
     
-    // Update called numbers during active game
+    // ✅ Update called numbers during active game
     if (game.status === 'active' && game.calledNumbers) {
-        if (game.calledNumbers.length > gameState.calledNumbers.length) {
+        const currentCount = gameState.calledNumbers.length;
+        const newCount = game.calledNumbers.length;
+        
+        if (newCount > currentCount) {
+            const newNumbers = game.calledNumbers.slice(currentCount);
+            console.log(`🔔 NEW NUMBERS (${newCount - currentCount}): ${newNumbers.join(', ')}`);
+            
             gameState.calledNumbers = game.calledNumbers;
             gameState.currentCall = game.currentCall;
             updateCalledNumbersList();
             updateMainBoardColors();
+            
+            // Auto-check for BINGO
+            setTimeout(() => checkPlayerBingo(), 500);
+        }
+    }
+    
+    // ✅ Update prize pool
+    if (game.prizePool !== undefined && game.prizePool !== gameState.totalPrizePool) {
+        console.log(`💰 Prize pool updated: ${gameState.totalPrizePool} → ${game.prizePool}`);
+        gameState.totalPrizePool = game.prizePool;
+        updateGameStats();
+    }
+    
+    // ✅ Update player's marked numbers if provided
+    if (player && player.markedNumbers) {
+        const boardIndex = gameState.currentBoardIndex || 0;
+        if (gameState.currentPlayer.boards[boardIndex]) {
+            const oldCount = gameState.currentPlayer.boards[boardIndex].markedNumbers.size;
+            gameState.currentPlayer.boards[boardIndex].markedNumbers = new Set(player.markedNumbers);
+            if (oldCount !== player.markedNumbers.length) {
+                console.log(`📌 Marked numbers updated: ${player.markedNumbers.length} marks`);
+                displayCurrentPlayerBoards(boardIndex);
+            }
         }
     }
 }
 
+function showShufflingScreen() {
+    if (!elements.currentBoard) return;
+    
+    elements.currentBoard.innerHTML = `
+        <div class="shuffling-screen">
+            <div class="shuffling-animation">🔄 🔄 🔄</div>
+            <h3>SHUFFLING NUMBERS...</h3>
+            <p>Game starts in 5 seconds!</p>
+            <div class="boards-summary">
+                Your boards: ${gameState.currentPlayer.boards.map(b => `#${b.boardNumber}`).join(', ')}
+            </div>
+        </div>
+    `;
+}
 
+function removeWaitingScreen() {
+    const screens = document.querySelectorAll('.waiting-screen, .shuffling-screen, .results-screen');
+    screens.forEach(screen => screen.remove());
+}
 
+function showGameResults(game) {
+    const winners = game.winners || [];
+    const prizePerWinner = game.prizePerWinner || 0;
+    const isCurrentPlayerWinner = winners.some(w => w.userId === gameState.currentPlayer.id);
+    
+    let message = '';
+    if (winners.length > 1) {
+        message = `🎉 ${winners.length} WINNERS! Each wins ${prizePerWinner} ETB!`;
+    } else if (winners.length === 1) {
+        if (isCurrentPlayerWinner) {
+            message = `🏆 YOU WON ${prizePerWinner} ETB! 🏆`;
+        } else {
+            message = `🏆 WINNER: ${winners[0].username} wins ${prizePerWinner} ETB!`;
+        }
+    } else {
+        message = '🤷 No winner this game!';
+    }
+    
+    elements.currentBoard.innerHTML = `
+        <div class="results-screen">
+            <h2>${message}</h2>
+            ${winners.length > 0 ? `<p>💰 Prize: ${prizePerWinner} ETB</p>` : ''}
+            <p>⏰ Next game starts in 25 seconds...</p>
+            <button onclick="location.reload()" class="play-again-btn">🎮 JOIN NEXT GAME</button>
+        </div>
+    `;
+}
+function checkPlayerBingo() {
+    if (!gameState.currentPlayer.boards) return;
+    
+    for (let i = 0; i < gameState.currentPlayer.boards.length; i++) {
+        const board = gameState.currentPlayer.boards[i];
+        if (!board.hasBingo && !board.isWinner) {
+            const hasBingo = checkBoardForBingo(
+                board.boardData, 
+                Array.from(board.markedNumbers), 
+                gameState.calledNumbers
+            );
+            if (hasBingo) {
+                console.log(`🎯 BINGO detected on board #${board.boardNumber}!`);
+                claimBingo(board.boardId);
+                return;
+            }
+        }
+    }
+}
 
-
-
+async function claimBingo(boardId) {
+    if (!window.currentGameId) {
+        console.error('No game ID to claim BINGO');
+        return;
+    }
+    
+    try {
+        const userId = getUserIdFromUrl();
+        const response = await fetch('/api/multiplayer/claim', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                gameId: window.currentGameId,
+                userId: userId,
+                boardId: boardId
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            alert(`🎉 BINGO! You won ${data.prize} ETB!`);
+            const board = gameState.currentPlayer.boards.find(b => b.boardId === boardId);
+            if (board) board.hasBingo = true;
+        } else {
+            console.log('Claim failed:', data.error);
+        }
+    } catch (error) {
+        console.error('Claim error:', error);
+    }
+}
 
 
         function createPlayerBoards() {
