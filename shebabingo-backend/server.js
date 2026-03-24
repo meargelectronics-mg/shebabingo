@@ -1981,18 +1981,23 @@ if (update.message) {
     const chatId = update.message.chat.id;
     const text = update.message.text || '';
     const userId = update.message.from.id;
-    const userIdStr = userId.toString();  // ✅ Convert to string
+    const userIdStr = userId.toString();
+    
+    // ✅ CRITICAL FIX: Define username from Telegram
+    const username = update.message.from.username || update.message.from.first_name || 'User';
+    
+    console.log(`📝 Message from ${username} (${userIdStr}): ${text}`);
     
     // Initialize user if new
-    if (!users[userIdStr]) {  // ✅ Use string key
-        users[userIdStr] = {  // ✅ Store with string key
-            id: userIdStr,  // ✅ Store ID as string
-            username: username,
+    if (!users[userIdStr]) {
+        users[userIdStr] = {
+            id: userIdStr,
+            username: username,  // ✅ Now defined
             chatId: chatId,
             balance: 0,
             registered: false,
             isAgent: false,
-            agentCode: 'AG' + userIdStr.slice(-6),  // ✅ Use string
+            agentCode: 'AG' + userIdStr.slice(-6),
             joinDate: new Date().toISOString(),
             lastActive: new Date().toISOString(),
             totalDeposited: 0,
@@ -2005,7 +2010,8 @@ if (update.message) {
     // Update last active time
     users[userIdStr].lastActive = new Date().toISOString();
     const user = users[userIdStr];
-// Handle /play command
+    
+    // Handle /play command
 if (text === '/play') {
     console.log(`🎮 /play command from user ${userId}`);
     
