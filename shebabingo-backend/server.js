@@ -16,6 +16,7 @@ const server = http.createServer(app);
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(express.static(path.join(__dirname, 'public')));
 
 // ==================== CONFIGURATION ====================
 const BOT_TOKEN = process.env.BOT_TOKEN || '8238998135:AAG7bwL1rkiMHyDhn8FwitM2a6OsoSYqJK8';
@@ -3682,7 +3683,7 @@ app.get('/api/game/next-start', async (req, res) => {
 
 // ==================== SERVE FRONTEND ====================
 // 2. Static files
-app.use(express.static(path.join(__dirname, 'public')));
+
 app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
