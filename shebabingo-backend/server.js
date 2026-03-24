@@ -2865,7 +2865,7 @@ async function processInstantDeposit(userId, chatId, smsText) {
             `Amount added / ተጨማሪ ገንዘብ: *${amount.toFixed(1)} ETB*\n` +
             `Transaction / የክፍያ መለያ: *${transactionId}*\n` +
             `New balance / አሁን ያለዎት ባላንስ: *${user.balance.toFixed(1)} ETB*\n\n` +
-            `🎮 Click PLAY to start!`+
+            `🎮 Click PLAY to start!`,
             {
                 reply_markup: {
                     inline_keyboard: [[
