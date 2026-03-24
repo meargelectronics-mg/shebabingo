@@ -19,7 +19,12 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ==================== CONFIGURATION ====================
-const BOT_TOKEN = process.env.BOT_TOKEN || '8238998135:AAG7bwL1rkiMHyDhn8FwitM2a6OsoSYqJK8';
+const BOT_TOKEN = process.env.BOT_TOKEN;
+if (!BOT_TOKEN) {
+    console.error('❌ BOT_TOKEN not set! Please add it to environment variables.');
+    console.error('💡 Go to Render Dashboard → Environment → Add BOT_TOKEN');
+    process.exit(1); // Stop the server if no token
+}
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'Mg@sheba#23';
 const RENDER_URL = process.env.RENDER_URL || 'https://shebabingo-bot.onrender.com';
 const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID || '6297094384';
