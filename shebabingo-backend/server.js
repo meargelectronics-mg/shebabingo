@@ -7,16 +7,35 @@ const path = require('path');
 const fs = require('fs');
 const { Pool } = require('pg');
 const cors = require('cors');
+const helmet = require('helmet');
 
 // Create Express app
 const app = express();
 // Create HTTP server
 const server = http.createServer(app);
 // ==================== MIDDLEWARE ====================
-app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
+
+// Security headers
+app.use(helmet({
+    contentSecurityPolicy: {
+        directives: {
+            defaultSrc: ["'self'"],
+            scriptSrc: ["'self'", "'unsafe-inline'", "https://telegram.org"],
+            styleSrc: ["'self'", "'unsafe-inline'"],
+            imgSrc: ["'self'", "data:", "https:"],
+        },
+    },
+}));
+
+// CORS - restrict origins
+app.use(cors({
+    origin: ['https://shebabingo-bot.onrender.com', 'https://t.me'],
+    methods: ['GET', 'POST'],
+    credentials: true
+}));
 
 // ==================== CONFIGURATION ====================
 const BOT_TOKEN = process.env.BOT_TOKEN;
@@ -3346,22 +3365,59 @@ app.get('/api/user/:id/games', async (req, res) => {
     try {
         const userId = req.params.id;
         
+        // ✅ Convert to string to handle both number and string IDs
+        const userIdStr = userId.toString();
+        
+        // ✅ Check if user exists in file-based storage first
+        const userExists = users[userIdStr];
+        if (!userExists) {
+            return res.json({ success: true, games: [] }); // No games for non-existent user
+        }
+        
+        // ✅ SAFE - Using parameterized query
         const result = await pool.query(`
-            SELECT mg.*, gp.boards, gp.marked_numbers
+            SELECT mg.id, mg.game_number, mg.status, mg.prize_pool, 
+                   mg.called_numbers, mg.current_call, mg.created_at,
+                   mg.start_time, mg.end_time,
+                   gp.boards, gp.marked_numbers, gp.has_bingo,
+                   COUNT(*) OVER() as total_games
             FROM multiplayer_games mg
             INNER JOIN game_players gp ON mg.id = gp.game_id
             WHERE gp.user_id = $1 
             AND mg.status IN ('selecting', 'shuffling', 'active')
             ORDER BY mg.created_at DESC
             LIMIT 5
-        `, [userId]);
+        `, [userIdStr]);  // ← $1 is safe!
         
-        res.json({ success: true, games: result.rows });
+        // Format the response
+        const games = result.rows.map(row => ({
+            gameId: row.id,
+            gameNumber: row.game_number,
+            status: row.status,
+            prizePool: parseFloat(row.prize_pool) || 0,
+            boards: row.boards ? JSON.parse(row.boards) : [],
+            markedNumbers: row.marked_numbers ? JSON.parse(row.marked_numbers) : [],
+            hasBingo: row.has_bingo,
+            createdAt: row.created_at,
+            startTime: row.start_time,
+            endTime: row.end_time,
+            timeLeft: row.end_time ? Math.max(0, new Date(row.end_time) - new Date()) : 0
+        }));
+        
+        res.json({ 
+            success: true, 
+            games: games,
+            count: games.length
+        });
+        
     } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
+        console.error('Error fetching user games:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: error.message 
+        });
     }
 });
-
 // Update user balance (for script.js)
 app.post('/api/user/update-balance', async (req, res) => {
     try {
