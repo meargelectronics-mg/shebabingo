@@ -2802,7 +2802,7 @@ async function processInstantDeposit(userId, chatId, smsText) {
                 `እባክዎ ከቴሌብር የደረሳችሁን *ሙሉ የSMS መልእክት* ይላኩ።\n\n` +
                 `Example / ምሳሌ:\n` +
                 `"Dear Mearg You have transferred ETB 40.00 ... Your transaction number is DCJ90J52HV."\n\n` +
-                `If problem persists, contact @ShebaBingoSupport.`
+                `If problem persists, contact @ShebaBingoETBotSupport.`
             );
             return;
         }
@@ -2827,7 +2827,7 @@ async function processInstantDeposit(userId, chatId, smsText) {
             await sendTelegramMessage(chatId,
                 `⚠️ *Deposit Already Processed / ክፍያው አስቀድሞ ተመዝግቧል*\n\n` +
                 `Transaction ID *${transactionId}* was already credited.\n` +
-                `If this is a mistake, contact @ShebaBingoSupport.`
+                `If this is a mistake, contact @ShebaBingoETBotSupport.`
             );
             return;
         }
@@ -2859,7 +2859,7 @@ async function processInstantDeposit(userId, chatId, smsText) {
 
         console.log(`✅ INSTANT DEPOSIT: ${user.username} +${amount} ETB via ${transactionId}`);
 
-        // Notify user with confirmation
+        // ✅ UPDATED: Notify user with confirmation and ONLY PLAY NOW button
         await sendTelegramMessage(chatId,
             `✅ *Deposit successful! / ክፍያው ተሳክቷል!*\n\n` +
             `Amount added / ተጨማሪ ገንዘብ: *${amount.toFixed(1)} ETB*\n` +
@@ -2869,7 +2869,10 @@ async function processInstantDeposit(userId, chatId, smsText) {
             {
                 reply_markup: {
                     inline_keyboard: [[
-                        { text: "🎮 PLAY NOW", web_app: { url: `${RENDER_URL}/?user=${userId}` } }
+                        { 
+                            text: "🎮 PLAY NOW", 
+                            web_app: { url: `${RENDER_URL}/?user=${userId}` }
+                        }
                     ]]
                 }
             }
@@ -2888,7 +2891,7 @@ async function processInstantDeposit(userId, chatId, smsText) {
         console.error('Error processing instant deposit:', error);
         await sendTelegramMessage(chatId,
             `❌ *Error Processing Deposit*\n\n` +
-            `Please contact @ShebaBingoSupport`
+            `Please contact @ShebaBingoETBotSupport`
         );
     }
 }
