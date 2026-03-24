@@ -3389,18 +3389,22 @@ app.get('/api/multiplayer/games', async (req, res) => {
 app.post('/api/multiplayer/join', async (req, res) => {
     try {
         const { userId, boardCount = 1, boardNumbers = [] } = req.body;
-        // ✅ Convert userId to string for consistency
+        
+        // ✅ FIX 1: Convert userId to string for consistency
         const userIdStr = userId.toString();
         
-        console.log(`📥 Multiplayer join: userId=${userId}, boardCount=${boardCount}`);
+        console.log(`📥 Multiplayer join: userId=${userIdStr}, boardCount=${boardCount}`);
         
-        const user = users[userId];
+        // ✅ FIX 2: Use userIdStr to access user
+        const user = users[userIdStr];
         if (!user) {
+            console.log(`❌ User not found: ${userIdStr}`);
             return res.json({ success: false, error: 'User not found. Please register first.' });
         }
         
         const totalCost = boardCount * GAME_CONFIG.BOARD_PRICE;
         if (user.balance < totalCost) {
+            console.log(`❌ Insufficient balance: ${user.balance} < ${totalCost}`);
             return res.json({ 
                 success: false, 
                 error: `Insufficient balance. Need ${totalCost} ETB, have ${user.balance} ETB` 
@@ -3421,21 +3425,6 @@ app.post('/api/multiplayer/join', async (req, res) => {
             }
         }
         
-        // Check database if no file-based game
-        if (!gameId) {
-            const dbGame = await pool.query(`
-                SELECT id, game_number FROM multiplayer_games 
-                WHERE status = 'waiting' 
-                ORDER BY created_at ASC 
-                LIMIT 1
-            `);
-            
-            if (dbGame.rows.length > 0) {
-                gameId = dbGame.rows[0].id;
-                gameNumber = dbGame.rows[0].game_number;
-            }
-        }
-        
         // Create new game if none exists
         if (!gameId) {
             const newGame = await createMultiplayerGame();
@@ -3446,29 +3435,33 @@ app.post('/api/multiplayer/join', async (req, res) => {
             gameNumber = newGame.gameNumber;
         }
         
-       // Join the game
-const joinResult = await joinMultiplayerGame(gameId, userId, boardCount, boardNumbers);
-
-if (!joinResult.success) {
-    return res.json({ success: false, error: joinResult.error });
-}
-
-// ✅ Use selectionTimeLeft from joinResult (which comes from activeMultiplayerGames)
-const selectionTimeLeft = joinResult.selectionTimeLeft || GAME_CONFIG.SELECTION_TIME;
-
-res.json({
-    success: true,
-    gameId: gameId,
-    gameNumber: gameNumber,
-    boards: joinResult.boards,
-    prizePool: joinResult.prizePool,
-    playerCount: joinResult.playerCount,
-    selectionTimeLeft: selectionTimeLeft,
-    yourBalance: user.balance
-});
+        // ✅ FIX 3: Pass userIdStr (string) to join function
+        const joinResult = await joinMultiplayerGame(gameId, userIdStr, boardCount, boardNumbers);
+        
+        if (!joinResult.success) {
+            return res.json({ success: false, error: joinResult.error });
+        }
+        
+        // ✅ FIX 4: Get selectionTimeLeft from the game object
+        const game = activeMultiplayerGames[gameId];
+        const selectionTimeLeft = game ? Math.max(0, Math.floor((new Date(game.selectionEndTime) - new Date()) / 1000)) : GAME_CONFIG.SELECTION_TIME;
+        
+        console.log(`✅ Join successful: ${user.username} joined game ${gameId}`);
+        console.log(`📊 Game now has ${joinResult.playerCount} players, ${selectionTimeLeft}s left`);
+        
+        res.json({
+            success: true,
+            gameId: gameId,
+            gameNumber: gameNumber,
+            boards: joinResult.boards,
+            prizePool: joinResult.prizePool,
+            playerCount: joinResult.playerCount,
+            selectionTimeLeft: selectionTimeLeft,
+            yourBalance: user.balance - totalCost
+        });
         
     } catch (error) {
-        console.error('Multiplayer join error:', error);
+        console.error('❌ Multiplayer join error:', error);
         res.json({ success: false, error: error.message });
     }
 });
