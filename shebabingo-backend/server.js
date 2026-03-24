@@ -97,15 +97,17 @@ if (DATABASE_URL) {
 }
 
 // ==================== FILE-BASED STORAGE (BACKUP) ====================
+let users = {};
+let deposits = [];
+let games = [];
+let activeMultiplayerGames = {};
+
 const USERS_FILE = path.join(__dirname, 'users.json');
 const DEPOSITS_FILE = path.join(__dirname, 'deposits.json');
 const GAMES_FILE = path.join(__dirname, 'games.json');
 const ACTIVE_MULTIPLAYER_FILE = path.join(__dirname, 'active_multipayer_games.json');
 
-let users = {};
-let deposits = [];
-let games = [];
-let activeMultiplayerGames = {};
+
 
 // Load existing data
 if (fs.existsSync(USERS_FILE)) {
@@ -3350,57 +3352,36 @@ app.get('/api/test-game-flow', async (req, res) => {
 // 1. Get active multiplayer games (matches frontend call)
 app.get('/api/multiplayer/games', async (req, res) => {
     try {
-        // Get games from file-based activeMultiplayerGames
+        console.log('📡 GET /api/multiplayer/games - Fetching active games...');
+        
+        // Get games from file-based activeMultiplayerGames only
         const games = [];
+        
         for (const gameId in activeMultiplayerGames) {
             const game = activeMultiplayerGames[gameId];
+            // Only show games that are waiting or selecting (not started or finished)
             if (game.status === 'waiting' || game.status === 'selecting') {
+                const playerCount = Object.keys(game.players || {}).length;
+                const timeLeft = game.selectionEndTime ? 
+                    Math.max(0, Math.floor((new Date(game.selectionEndTime) - new Date()) / 1000)) : 25;
+                
                 games.push({
                     id: game.id,
-                    gameNumber: game.gameNumber,
-                    players: Object.keys(game.players).length,
-                    prizePool: game.prizePool,
+                    gameNumber: game.gameNumber || 1,
+                    players: playerCount,
+                    prizePool: game.prizePool || 0,
                     status: game.status,
-                    timeLeft: Math.max(0, Math.floor((new Date(game.selectionEndTime) - new Date()) / 1000))
+                    timeLeft: timeLeft
                 });
             }
         }
         
-        // Also check database for any active games
-        const dbGames = await pool.query(`
-            SELECT id, game_number, status, prize_pool, selection_end_time
-            FROM multiplayer_games 
-            WHERE status IN ('waiting', 'selecting')
-            ORDER BY created_at DESC
-            LIMIT 10
-        `);
+        console.log(`📊 Found ${games.length} active game(s)`);
+        res.json({ success: true, games: games });
         
-        for (const dbGame of dbGames.rows) {
-            const playerCount = await getPlayerCount(dbGame.id);
-            games.push({
-                id: dbGame.id,
-                gameNumber: dbGame.game_number,
-                players: playerCount,
-                prizePool: dbGame.prize_pool,
-                status: dbGame.status,
-                timeLeft: Math.max(0, Math.floor((new Date(dbGame.selection_end_time) - new Date()) / 1000))
-            });
-        }
-        
-        // Remove duplicates by ID
-        const uniqueGames = [];
-        const seenIds = new Set();
-        for (const game of games) {
-            if (!seenIds.has(game.id)) {
-                seenIds.add(game.id);
-                uniqueGames.push(game);
-            }
-        }
-        
-        res.json({ success: true, games: uniqueGames });
     } catch (error) {
-        console.error('Error getting multiplayer games:', error);
-        res.json({ success: false, games: [] });
+        console.error('❌ Error getting multiplayer games:', error);
+        res.json({ success: false, games: [], error: error.message });
     }
 });
 
