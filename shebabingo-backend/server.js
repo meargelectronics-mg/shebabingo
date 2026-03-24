@@ -2420,7 +2420,7 @@ async function handleCallbackQuery(callback) {
         `📱 *Telebirr አማራጭ / Telebirr Option*\n\n` +
         `*መመሪያ / Instructions:*\n\n` +
         `1️⃣ ገንዘብ ወደዚህ ቁጥር ይላኩ፡\n` +
-        `   📞 *0914834341* - Mearg Alemayoh\n\n` +
+        `   📞 *+251945343143* - Mearg Alemayoh\n\n` +
         `2️⃣ ገንዘብ ከላኩ በኋላ ከ *127* አጭር የጽሁፍ መልእክት (SMS) ይደርሳችኋል።\n\n` +
         `3️⃣ ያንን ሙሉ የSMS መልእክት *COPY* ያድርጉ (ረጅም ተጭነው Copy ይምረጡ)።\n\n` +
         `4️⃣ ከዚህ በታች ባለው የቴሌግራም መልእክት ማስገቢያ ላይ *PASTE* ያድርጉና ይላኩ።\n\n` +
@@ -2474,7 +2474,7 @@ async function handleCallbackQuery(callback) {
                 await sendTelegramMessage(chatId,
                     `📸 *Manual Screenshot Deposit*\n\n` +
                     `📍 *Send money to any account:*\n` +
-                    `• TeleBirr:0914834341\n` +
+                    `• TeleBirr:+251945343143\n` +
                     `• CBE: 1000***********\n` +
                     `• BoA: 65******\n\n` +
                     `*Instructions:*\n` +
