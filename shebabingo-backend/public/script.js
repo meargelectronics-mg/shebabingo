@@ -2679,51 +2679,72 @@ function updateGameStatus() {
         }
 
         
-        async function checkForActiveGames() {
-    console.log('🔍 Checking for active games...');
+        function openRegistrationPopup() {
+    console.log("🎮 STEP 1: openRegistrationPopup CALLED");
     
-    try {
-        // Call your multiplayer games endpoint
-        const response = await fetch('/api/multiplayer/games');
-        const data = await response.json();
+    // Check if popup element exists
+    const popup = document.getElementById('registrationPopup');
+    console.log("🎮 STEP 2: popup element =", popup);
+    
+    if (!popup) {
+        console.error("❌ registrationPopup element NOT FOUND!");
+        console.log("🔍 Check HTML for: <div id='registrationPopup'>...</div>");
         
-        console.log('📡 Games response:', data);
-        
-        if (data.success && data.games && data.games.length > 0) {
-            console.log(`🎮 Found ${data.games.length} active game(s)`);
-            
-            // Find a game that is waiting for players
-            const availableGame = data.games.find(game => 
-                game.status === 'waiting' || game.status === 'selecting'
-            );
-            
-            if (availableGame) {
-                console.log(`🎯 Joining game: ${availableGame.id}`);
-                console.log(`👥 Players: ${availableGame.players}, Time left: ${availableGame.timeLeft}s`);
-                
-                // Store the game ID
-                window.currentGameId = availableGame.id;
-                
-                // ✅ Show registration popup
-                openRegistrationPopup();
-                return;
-            }
-        }
-        
-        // ✅ If no games found, STILL show registration popup to create a new game
-        console.log('🆕 No active games found - showing registration popup');
-        openRegistrationPopup();
-        
-    } catch (error) {
-        console.error('❌ Error checking active games:', error);
-        
-        // ✅ On error, still show registration popup
-        console.log('⚠️ API error, showing registration popup anyway');
-        setTimeout(() => {
-            openRegistrationPopup();
-        }, 1000);
+        // Try to find any element with that ID
+        const allElements = document.querySelectorAll('[id]');
+        const found = Array.from(allElements).filter(el => el.id.includes('popup'));
+        console.log("🔍 Elements with 'popup' in ID:", found);
+        return;
     }
+    
+    // Check current display style
+    console.log("🎮 STEP 3: Current popup style.display =", popup.style.display);
+    
+    // Show popup
+    popup.style.display = 'flex';
+    console.log("🎮 STEP 4: Set popup.style.display = 'flex'");
+    
+    // Verify it changed
+    console.log("🎮 STEP 5: New popup style.display =", popup.style.display);
+    
+    // Check if popup is visible
+    const rect = popup.getBoundingClientRect();
+    console.log("🎮 STEP 6: Popup position:", rect);
+    console.log("🎮 STEP 7: Popup visible?", rect.width > 0 && rect.height > 0);
+    
+    // Generate boards
+    if (typeof generateBoardOptions === 'function') {
+        console.log("🎮 STEP 8: Calling generateBoardOptions");
+        generateBoardOptions();
+    } else {
+        console.error("❌ generateBoardOptions is not a function!");
+    }
+    
+    // Update selection info
+    console.log("🎮 STEP 9: Calling updateSelectionInfo");
+    updateSelectionInfo();
+    
+    // Start timer
+    console.log("🎮 STEP 10: Starting timer");
+    gameState.selectionTimer = CONFIG.SELECTION_TIME;
+    updateTimerDisplay();
+    
+    if (gameState.timerInterval) {
+        clearInterval(gameState.timerInterval);
+    }
+    
+    gameState.timerInterval = setInterval(() => {
+        gameState.selectionTimer--;
+        updateTimerDisplay();
+        if (gameState.selectionTimer <= 0) {
+            clearInterval(gameState.timerInterval);
+            console.log("⏰ Selection time ended");
+        }
+    }, 1000);
+    
+    console.log("✅ openRegistrationPopup COMPLETED");
 }
+
 
 function closeRegistrationPopup() {
     const popup = document.getElementById('registrationPopup');
