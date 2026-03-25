@@ -2679,55 +2679,50 @@ function updateGameStatus() {
         }
 
         
-        function openRegistrationPopup() {
-    console.log("🎮 Opening registration popup...");
+        async function checkForActiveGames() {
+    console.log('🔍 Checking for active games...');
     
-    // 1. Get popup element
-    const popup = document.getElementById('registrationPopup');
-    if (!popup) {
-        console.error("❌ registrationPopup element not found!");
-        return;
-    }
-    
-    // 2. Show popup
-    popup.style.display = 'flex';
-    console.log("✅ Popup displayed");
-    
-    // 3. Generate board options
-    if (typeof generateBoardOptions === 'function') {
-        generateBoardOptions();
-    }
-    
-    // 4. Update selection info
-    updateSelectionInfo();
-    
-    // 5. Clear any existing timer
-    if (gameState.timerInterval) {
-        clearInterval(gameState.timerInterval);
-        gameState.timerInterval = null;
-    }
-    
-    // 6. Start timer (25 seconds)
-    gameState.selectionTimer = CONFIG.SELECTION_TIME;
-    updateTimerDisplay();
-    
-    gameState.timerInterval = setInterval(() => {
-        gameState.selectionTimer--;
-        updateTimerDisplay();
+    try {
+        // Call your multiplayer games endpoint
+        const response = await fetch('/api/multiplayer/games');
+        const data = await response.json();
         
-        if (gameState.selectionTimer <= 0) {
-            clearInterval(gameState.timerInterval);
-            console.log("⏰ Selection time ended");
-            // In multiplayer, we don't auto-confirm
-            // The server will handle game start
+        console.log('📡 Games response:', data);
+        
+        if (data.success && data.games && data.games.length > 0) {
+            console.log(`🎮 Found ${data.games.length} active game(s)`);
+            
+            // Find a game that is waiting for players
+            const availableGame = data.games.find(game => 
+                game.status === 'waiting' || game.status === 'selecting'
+            );
+            
+            if (availableGame) {
+                console.log(`🎯 Joining game: ${availableGame.id}`);
+                console.log(`👥 Players: ${availableGame.players}, Time left: ${availableGame.timeLeft}s`);
+                
+                // Store the game ID
+                window.currentGameId = availableGame.id;
+                
+                // ✅ Show registration popup
+                openRegistrationPopup();
+                return;
+            }
         }
-    }, 1000);
-    
-    console.log("📊 Current state:", {
-        selectedBoards: gameState.selectedBoards.size,
-        availableBoards: gameState.availableBoards.length,
-        timer: gameState.selectionTimer
-    });
+        
+        // ✅ If no games found, STILL show registration popup to create a new game
+        console.log('🆕 No active games found - showing registration popup');
+        openRegistrationPopup();
+        
+    } catch (error) {
+        console.error('❌ Error checking active games:', error);
+        
+        // ✅ On error, still show registration popup
+        console.log('⚠️ API error, showing registration popup anyway');
+        setTimeout(() => {
+            openRegistrationPopup();
+        }, 1000);
+    }
 }
 
 function closeRegistrationPopup() {
