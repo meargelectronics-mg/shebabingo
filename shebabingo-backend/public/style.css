@@ -1074,4 +1074,58 @@ html,body{height:100%;width:100%;overflow:hidden;position:fixed;
     min-width: 0;
     overflow: hidden;
 }
-        
+
+
+/* Waiting Screen */
+.waiting-screen, .shuffling-screen {
+    text-align: center;
+    padding: 30px;
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    border-radius: 15px;
+    color: white;
+    margin: 10px 0;
+}
+.waiting-spinner, .shuffling-animation {
+    font-size: 48px;
+    animation: spin 1s linear infinite;
+    margin-bottom: 15px;
+}
+.player-count {
+    font-size: 24px;
+    font-weight: bold;
+    margin: 15px 0;
+}
+.countdown {
+    font-size: 18px;
+    margin: 10px 0;
+}
+.boards-summary {
+    font-size: 14px;
+    margin: 15px 0;
+    opacity: 0.9;
+}
+.tip {
+    font-size: 12px;
+    margin-top: 20px;
+}
+.board-tab {
+    display: inline-block;
+    padding: 5px 12px;
+    margin: 0 5px;
+    background: rgba(255,255,255,0.2);
+    border-radius: 20px;
+    cursor: pointer;
+    font-size: 12px;
+}
+.board-tab.active {
+    background: #2ecc71;
+    color: white;
+}
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+.called-chip {
+    display: inline-block;
+    margin: 2px;
+}
