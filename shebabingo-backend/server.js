@@ -517,44 +517,38 @@ async function checkAndStartGame(gameId) {
     try {
         console.log(`🔍 Checking game ${gameId} for starting...`);
         
-        // First verify game still exists and is in selecting status
-        const gameCheck = await pool.query(
-            `SELECT status FROM multiplayer_games WHERE id = $1`,
-            [gameId]
-        );
-        
-        if (gameCheck.rows.length === 0) {
-            console.log(`❌ Game ${gameId} not found, skipping`);
+        // ✅ FIX: Check file-based activeMultiplayerGames, NOT database
+        const game = activeMultiplayerGames[gameId];
+        if (!game) {
+            console.log(`❌ Game ${gameId} not found in active games`);
             return;
         }
         
-        if (gameCheck.rows[0].status !== 'selecting') {
-            console.log(`⚠️ Game ${gameId} is already ${gameCheck.rows[0].status}, skipping`);
+        // Check if game is still in waiting status
+        if (game.status !== 'waiting') {
+            console.log(`⚠️ Game ${gameId} is already ${game.status}, skipping`);
             return;
         }
         
-        // Get player count
-        const playerCount = await getPlayerCount(gameId);
+        // Get player count from file-based game
+        const playerCount = Object.keys(game.players).length;
         console.log(`📊 Game ${gameId} has ${playerCount} players, minimum: ${GAME_CONFIG.MIN_PLAYERS}`);
         
-        // ✅ Always start game if there's at least 1 player (or 2, your choice)
         if (playerCount >= GAME_CONFIG.MIN_PLAYERS) {
             console.log(`✅ Game ${gameId} meets minimum players (${playerCount} >= ${GAME_CONFIG.MIN_PLAYERS})`);
             console.log(`🎮 STARTING Game ${gameId} with ${playerCount} players`);
             await startGamePlay(gameId);
         } else {
-            // ✅ If not enough players, cancel and refund
             console.log(`❌ Game ${gameId} cancelled - only ${playerCount} players (need ${GAME_CONFIG.MIN_PLAYERS})`);
             await cancelGame(gameId);
             
-            // ✅ Create new game immediately after cancellation
+            // Create new game immediately after cancellation
             setTimeout(() => {
                 createMultiplayerGame();
             }, 2000);
         }
     } catch (error) {
         console.error('❌ Error checking game:', error.message);
-        // Try to cancel the game on error
         try {
             await cancelGame(gameId);
         } catch (cancelError) {
@@ -873,16 +867,10 @@ async function getGameState(gameId, userId) {
 }
 
 async function getPlayerCount(gameId) {
-    try {
-        const result = await pool.query(
-            `SELECT COUNT(*) as count FROM game_players WHERE game_id = $1`,
-            [gameId]
-        );
-        return parseInt(result.rows[0].count);
-    } catch (error) {
-        console.error('Error getting player count:', error);
-        return 0;
-    }
+    // ✅ Get count from file-based activeMultiplayerGames
+    const game = activeMultiplayerGames[gameId];
+    if (!game) return 0;
+    return Object.keys(game.players).length;
 }
 
 async function getGamePrizePool(gameId) {
