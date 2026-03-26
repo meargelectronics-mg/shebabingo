@@ -203,17 +203,36 @@ async function joinGame() {
     confirmBtn.disabled = true;
     
     try {
+        // ✅ First, check if there's an existing waiting game
+        console.log('🔍 Checking for existing games...');
+        const gamesResponse = await fetch('/api/multiplayer/games');
+        const gamesData = await gamesResponse.json();
+        
+        let existingGameId = null;
+        if (gamesData.success && gamesData.games && gamesData.games.length > 0) {
+            existingGameId = gamesData.games[0].id;
+            console.log(`✅ Found existing game: ${existingGameId} with ${gamesData.games[0].players} players`);
+        }
+        
+        // ✅ Join with existing game ID if available
+        console.log('📡 Sending join request...');
         const data = await apiCall('/api/multiplayer/join', {
             method: 'POST',
             body: JSON.stringify({
                 userId: USER_ID,
                 boardCount: gameState.selectedBoards.size,
-                boardNumbers: Array.from(gameState.selectedBoards)
+                boardNumbers: Array.from(gameState.selectedBoards),
+                gameId: existingGameId  // Pass existing game ID if found
             })
         });
         
+        console.log('📡 Join response:', data);
+        
         if (data.success) {
             console.log('✅ Joined game:', data.gameId);
+            console.log('👥 Players in game:', data.playerCount);
+            console.log('⏰ Time left:', data.selectionTimeLeft, 'seconds');
+            
             currentGameId = data.gameId;
             
             // Update balance
@@ -233,13 +252,14 @@ async function joinGame() {
             elements.gamePlaySection.style.display = 'block';
             displayBoards();
             
-            // Show waiting screen
+            // Show waiting screen with correct player count
             showWaitingScreen(data.playerCount, data.selectionTimeLeft || 25);
             
-            // Start polling
+            // Start polling for game state
             startPolling(data.gameId);
             
         } else {
+            console.error('Join failed:', data.error);
             alert('Failed to join: ' + (data.error || 'Unknown error'));
         }
     } catch (error) {
