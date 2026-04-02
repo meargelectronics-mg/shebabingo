@@ -124,7 +124,6 @@ if (DATABASE_URL) {
 let users = {};
 let deposits = [];
 let games = [];
-let activeMultiplayerGames = {};
 
 const USERS_FILE = path.join(__dirname, 'users.json');
 const DEPOSITS_FILE = path.join(__dirname, 'deposits.json');
@@ -161,18 +160,6 @@ if (fs.existsSync(GAMES_FILE)) {
     }
 }
 
-// Load multiplayer games
-if (fs.existsSync(ACTIVE_MULTIPLAYER_FILE)) {
-    try {
-        const data = fs.readFileSync(ACTIVE_MULTIPLAYER_FILE, 'utf8');
-        if (data && data.trim()) {
-            activeMultiplayerGames = JSON.parse(data);
-            console.log(`✅ Loaded ${Object.keys(activeMultiplayerGames).length} active multiplayer games`);
-        }
-    } catch (error) {
-        console.error('Error loading multiplayer games:', error.message);
-    }
-}
 
 // Save functions
 function saveUsers() {
@@ -196,16 +183,6 @@ function saveGames() {
         fs.writeFileSync(GAMES_FILE, JSON.stringify(games, null, 2));
     } catch (error) {
         console.error('Error saving games:', error.message);
-    }
-}
-
-// Save multiplayer games
-function saveActiveMultiplayerGames() {
-    try {
-        fs.writeFileSync(ACTIVE_MULTIPLAYER_FILE, JSON.stringify(activeMultiplayerGames, null, 2));
-        console.log('✅ Multiplayer games saved');
-    } catch (error) {
-        console.error('Error saving multiplayer games:', error.message);
     }
 }
 
@@ -454,8 +431,6 @@ async function getNextGameNumber() {
 }
 
 async function createMultiplayerGame() {
-    // ✅ RATE LIMITING REMOVED - Games can be created freely for 24/7 play
-    
     // Generate unique game ID and number
     const gameId = 'GAME_' + Date.now().toString(36);
     const gameNumber = await getNextGameNumber();
@@ -463,43 +438,23 @@ async function createMultiplayerGame() {
     const selectionEndTime = new Date(now.getTime() + (GAME_CONFIG.SELECTION_TIME * 1000));
     
     try {
-        // ✅ 1. Insert into PostgreSQL database
+        // ✅ ONLY use PostgreSQL - NO file storage
         await pool.query(
             `INSERT INTO multiplayer_games (id, game_number, status, selection_end_time) 
              VALUES ($1, $2, $3, $4)`,
-            [gameId, gameNumber, 'selecting', selectionEndTime.toISOString()]
+            [gameId, gameNumber, 'waiting', selectionEndTime.toISOString()]
         );
         
-        // ✅ 2. Store in activeMultiplayerGames (in-memory for fast access)
-        activeMultiplayerGames[gameId] = {
-            id: gameId,
-            gameNumber: gameNumber,
-            status: 'selecting',
-            players: {},
-            calledNumbers: [],
-            prizePool: 0,
-            createdAt: now.toISOString(),
-            selectionEndTime: selectionEndTime.toISOString(),
-            startTime: null,
-            endTime: null,
-            currentCall: null,
-            winners: []
-        };
-        
-        // ✅ 3. Save to file for persistence
-        saveActiveMultiplayerGames();
-        
         console.log(`🆕 Multiplayer Game #${gameNumber} created (ID: ${gameId})`);
-        console.log(`⏰ Selection ends at: ${selectionEndTime.toLocaleTimeString()}`);
+        console.log(`⏰ Selection ends in ${GAME_CONFIG.SELECTION_TIME} seconds at: ${selectionEndTime.toLocaleTimeString()}`);
         
-        // ✅ 4. Schedule game start check
+        // ✅ Schedule game start check
         setTimeout(async () => {
             try {
                 console.log(`🔍 Checking game ${gameId} to start...`);
                 await checkAndStartGame(gameId);
             } catch (error) {
                 console.error(`❌ Error in scheduled game check for ${gameId}:`, error.message);
-                // Cancel game if check fails
                 await cancelGame(gameId);
             }
         }, GAME_CONFIG.SELECTION_TIME * 1000);
@@ -512,48 +467,48 @@ async function createMultiplayerGame() {
     }
 }
 
-
 async function checkAndStartGame(gameId) {
     try {
         console.log(`🔍 Checking game ${gameId} for starting...`);
         
-        // ✅ FIX: Check file-based activeMultiplayerGames, NOT database
-        const game = activeMultiplayerGames[gameId];
-        if (!game) {
-            console.log(`❌ Game ${gameId} not found in active games`);
+        // ✅ Get from DATABASE
+        const gameResult = await pool.query(
+            `SELECT status FROM multiplayer_games WHERE id = $1`,
+            [gameId]
+        );
+        
+        if (gameResult.rows.length === 0) {
+            console.log(`❌ Game ${gameId} not found`);
             return;
         }
         
-        // Check if game is still in waiting status
-        if (game.status !== 'waiting') {
-            console.log(`⚠️ Game ${gameId} is already ${game.status}, skipping`);
+        const gameStatus = gameResult.rows[0].status;
+        
+        // ✅ Check for 'waiting' status (not 'selecting')
+        if (gameStatus !== 'waiting') {
+            console.log(`⚠️ Game ${gameId} is already ${gameStatus}, skipping`);
             return;
         }
         
-        // Get player count from file-based game
-        const playerCount = Object.keys(game.players).length;
-        console.log(`📊 Game ${gameId} has ${playerCount} players, minimum: ${GAME_CONFIG.MIN_PLAYERS}`);
+        // ✅ Get player count from DATABASE
+        const playerCountResult = await pool.query(
+            `SELECT COUNT(*) FROM game_players WHERE game_id = $1`,
+            [gameId]
+        );
+        const playerCount = parseInt(playerCountResult.rows[0].count);
+        
+        console.log(`📊 Game ${gameId} has ${playerCount} players, need ${GAME_CONFIG.MIN_PLAYERS}`);
         
         if (playerCount >= GAME_CONFIG.MIN_PLAYERS) {
-            console.log(`✅ Game ${gameId} meets minimum players (${playerCount} >= ${GAME_CONFIG.MIN_PLAYERS})`);
-            console.log(`🎮 STARTING Game ${gameId} with ${playerCount} players`);
+            console.log(`✅ Starting game ${gameId} with ${playerCount} players`);
             await startGamePlay(gameId);
         } else {
-            console.log(`❌ Game ${gameId} cancelled - only ${playerCount} players (need ${GAME_CONFIG.MIN_PLAYERS})`);
+            console.log(`❌ Game ${gameId} cancelled - only ${playerCount} players`);
             await cancelGame(gameId);
-            
-            // Create new game immediately after cancellation
-            setTimeout(() => {
-                createMultiplayerGame();
-            }, 2000);
         }
+        
     } catch (error) {
         console.error('❌ Error checking game:', error.message);
-        try {
-            await cancelGame(gameId);
-        } catch (cancelError) {
-            console.error('Failed to cancel game:', cancelError.message);
-        }
     }
 }
 
@@ -562,11 +517,9 @@ async function joinMultiplayerGame(gameId, userId, boardCount, boardNumbers) {
     
     try {
         await client.query('BEGIN');
-        // ✅ ADD THIS LINE: Convert to string for file storage
-        const userIdStr = userId.toString();
         
         // 1. Check user exists and has balance
-        const user = users[userIdStr];  // ← Use userIdStr
+        const user = users[userId];
         if (!user) {
             throw new Error('User not found. Please register first.');
         }
@@ -585,7 +538,6 @@ async function joinMultiplayerGame(gameId, userId, boardCount, boardNumbers) {
             if (boardNumbers[i] && !availableNumbers.includes(boardNumbers[i])) {
                 boardNumber = boardNumbers[i];
             } else {
-                // Get random available number
                 boardNumber = availableNumbers[Math.floor(Math.random() * availableNumbers.length)];
             }
             
@@ -597,156 +549,75 @@ async function joinMultiplayerGame(gameId, userId, boardCount, boardNumbers) {
                 boardId: `B${i + 1}`
             });
             
-            // Remove used number
             const index = availableNumbers.indexOf(boardNumber);
             if (index > -1) availableNumbers.splice(index, 1);
         }
         
-        // 3. Add player to game in database
+        // 3. Add player to game in DATABASE ONLY
         await client.query(
-            `INSERT INTO game_players (game_id, user_id, boards, marked_numbers)
-             VALUES ($1, $2, $3, $4)`,
-           [gameId, parseInt(userIdStr), JSON.stringify(playerBoards), '[]']  // ← Convert to number for DB
+            `INSERT INTO game_players (game_id, user_id, boards, marked_numbers, bet_amount)
+             VALUES ($1, $2, $3, $4, $5)`,
+            [gameId, userId, JSON.stringify(playerBoards), '[]', totalCost]
         );
         
         // 4. Deduct balance from user
         user.balance -= totalCost;
-        user.totalWagered = (user.totalWagered || 0) + totalCost;
         saveUsers();
         
-        // 5. Update prize pool in database
+        // 5. Update prize pool
         const prizeContribution = totalCost * (GAME_CONFIG.PRIZE_POOL_PERCENT / 100);
         await client.query(
-            `UPDATE multiplayer_games 
-             SET prize_pool = prize_pool + $1
-             WHERE id = $2`,
+            `UPDATE multiplayer_games SET prize_pool = prize_pool + $1 WHERE id = $2`,
             [prizeContribution, gameId]
         );
         
-        // ✅ 6. UPDATE activeMultiplayerGames (in-memory storage)
-        if (activeMultiplayerGames[gameId]) {
-            // Add player to in-memory game
-            activeMultiplayerGames[gameId].players[userIdStr] = {  // ← Use userIdStr
-                id: userId,
-                username: user.username,
-                boards: playerBoards,
-                markedNumbers: [],
-                hasBingo: false,
-                totalBet: totalCost,
-                joinedAt: new Date().toISOString()
-            };
-            
-            // Update prize pool in memory
-            activeMultiplayerGames[gameId].prizePool += prizeContribution;
-            
-            // Save to file
-            saveActiveMultiplayerGames();
-        } else {
-            // Create in-memory game if it doesn't exist (fallback)
-            console.log(`⚠️ Game ${gameId} not in memory, creating from database`);
-            const dbGame = await client.query(
-                `SELECT * FROM multiplayer_games WHERE id = $1`,
-                [gameId]
-            );
-            
-            if (dbGame.rows.length > 0) {
-                activeMultiplayerGames[gameId] = {
-                    id: dbGame.rows[0].id,
-                    gameNumber: dbGame.rows[0].game_number,
-                    status: dbGame.rows[0].status,
-                    players: {},
-                    calledNumbers: dbGame.rows[0].called_numbers || [],
-                    prizePool: dbGame.rows[0].prize_pool || 0,
-                    selectionEndTime: dbGame.rows[0].selection_end_time,
-                    startTime: dbGame.rows[0].start_time,
-                    endTime: dbGame.rows[0].end_time,
-                    currentCall: dbGame.rows[0].current_call,
-                    winners: []
-                };
-                
-                // Add player to newly created in-memory game
-                activeMultiplayerGames[gameId].players[userId] = {
-                    id: userId,
-                    username: user.username,
-                    boards: playerBoards,
-                    markedNumbers: [],
-                    hasBingo: false,
-                    totalBet: totalCost,
-                    joinedAt: new Date().toISOString()
-                };
-                
-                saveActiveMultiplayerGames();
-            }
-        }
-        
-        // 7. Get current player count
+        // 6. Get current player count from DATABASE
         const playerCountResult = await client.query(
             `SELECT COUNT(*) FROM game_players WHERE game_id = $1`,
             [gameId]
         );
         const playerCount = parseInt(playerCountResult.rows[0].count);
         
-        // 8. Update game status based on player count
+        // 7. Update players_count in games table
+        await client.query(
+            `UPDATE multiplayer_games SET players_count = $1 WHERE id = $2`,
+            [playerCount, gameId]
+        );
+        
+        // 8. Get selection time left and prize pool
+        const gameResult = await client.query(
+            `SELECT selection_end_time, prize_pool FROM multiplayer_games WHERE id = $1`,
+            [gameId]
+        );
+        const selectionTimeLeft = Math.max(0, Math.floor((new Date(gameResult.rows[0].selection_end_time) - new Date()) / 1000));
+        const prizePool = parseFloat(gameResult.rows[0].prize_pool) || 0;
+        
+        // 9. Check if game should start
         if (playerCount >= GAME_CONFIG.MIN_PLAYERS) {
-            // Check if game is still in waiting/selecting phase
-            const gameResult = await client.query(
+            const statusResult = await client.query(
                 `SELECT status FROM multiplayer_games WHERE id = $1`,
                 [gameId]
             );
             
-            if (gameResult.rows[0].status === 'waiting' || gameResult.rows[0].status === 'selecting') {
-                // Start the game countdown
+            if (statusResult.rows[0].status === 'waiting') {
                 await client.query(
                     `UPDATE multiplayer_games 
-                     SET status = 'shuffling', 
-                         start_time = NOW(),
-                         end_time = NOW() + INTERVAL '${GAME_CONFIG.GAME_DURATION/1000} seconds'
+                     SET status = 'shuffling', start_time = NOW()
                      WHERE id = $1`,
                     [gameId]
                 );
                 
-                // ✅ Update in-memory status
-                if (activeMultiplayerGames[gameId]) {
-                    activeMultiplayerGames[gameId].status = 'shuffling';
-                    activeMultiplayerGames[gameId].startTime = new Date().toISOString();
-                    activeMultiplayerGames[gameId].endTime = new Date(Date.now() + GAME_CONFIG.GAME_DURATION).toISOString();
-                    saveActiveMultiplayerGames();
-                }
+                console.log(`🎮 Game ${gameId} starting in 5 seconds with ${playerCount} players`);
                 
-                // Trigger game start
                 setTimeout(() => {
                     startGamePlay(gameId);
-                }, 5000); // 5 seconds shuffling
+                }, 5000);
             }
         }
         
-        // 9. Record in file-based games
-        const gameRecordId = 'game_' + Date.now();
-        games.push({
-            id: gameRecordId,
-            userId: userIdStr,  // ← Use userIdStr
-            amount: totalCost,
-            date: new Date().toISOString(),
-            type: 'join',
-            gameId: gameId,
-            boardCount: boardCount
-        });
-        saveGames();
-        
         await client.query('COMMIT');
         
-        // 10. Broadcast player joined via WebSocket
-        broadcastToGame(gameId, {
-            type: 'player_joined',
-            userId: userIdStr,  // ← Use userIdStr
-            username: user.username,
-            playerCount: playerCount
-        });
-        
-        console.log(`🎮 User ${user.username} joined game ${gameId} with ${boardCount} boards`);
-        
-        // Get updated prize pool
-        const prizePool = activeMultiplayerGames[gameId]?.prizePool || await getGamePrizePool(gameId);
+        console.log(`✅ ${user.username} joined game ${gameId} with ${boardCount} boards`);
         
         return {
             success: true,
@@ -754,9 +625,7 @@ async function joinMultiplayerGame(gameId, userId, boardCount, boardNumbers) {
             boards: playerBoards,
             prizePool: prizePool,
             playerCount: playerCount,
-            selectionTimeLeft: activeMultiplayerGames[gameId]?.selectionEndTime 
-                ? Math.max(0, Math.floor((new Date(activeMultiplayerGames[gameId].selectionEndTime) - new Date()) / 1000))
-                : GAME_CONFIG.SELECTION_TIME
+            selectionTimeLeft: selectionTimeLeft
         };
         
     } catch (error) {
@@ -867,10 +736,17 @@ async function getGameState(gameId, userId) {
 }
 
 async function getPlayerCount(gameId) {
-    // ✅ Get count from file-based activeMultiplayerGames
-    const game = activeMultiplayerGames[gameId];
-    if (!game) return 0;
-    return Object.keys(game.players).length;
+    // ✅ Get count from DATABASE only
+    try {
+        const result = await pool.query(
+            `SELECT COUNT(*) FROM game_players WHERE game_id = $1`,
+            [gameId]
+        );
+        return parseInt(result.rows[0].count);
+    } catch (error) {
+        console.error('Error getting player count:', error);
+        return 0;
+    }
 }
 
 async function getGamePrizePool(gameId) {
@@ -888,42 +764,7 @@ async function getGamePrizePool(gameId) {
 
 async function markPlayerNumber(gameId, userId, number) {
     try {
-        // 1. Update in-memory storage (activeMultiplayerGames)
-        if (activeMultiplayerGames[gameId] && activeMultiplayerGames[gameId].players[userId]) {
-            const player = activeMultiplayerGames[gameId].players[userId];
-            
-            // Check if number is already marked
-            if (!player.markedNumbers.includes(number)) {
-                player.markedNumbers.push(number);
-                
-                // Also check if this number exists on any board (optional)
-                let found = false;
-                for (const board of player.boards) {
-                    for (let row = 0; row < 5; row++) {
-                        for (let col = 0; col < 5; col++) {
-                            if (board.boardData[row][col] === number) {
-                                found = true;
-                                break;
-                            }
-                        }
-                        if (found) break;
-                    }
-                    if (found) break;
-                }
-                
-                if (found) {
-                    console.log(`✅ Marked number ${number} for user ${userId} in game ${gameId}`);
-                }
-                
-                // Save to file
-                saveActiveMultiplayerGames();
-            } else {
-                console.log(`⚠️ Number ${number} already marked for user ${userId}`);
-                return false;
-            }
-        }
-        
-        // 2. Update database
+        // ✅ Update DATABASE only (no file storage)
         const playerResult = await pool.query(
             `SELECT marked_numbers FROM game_players WHERE game_id = $1 AND user_id = $2`,
             [gameId, userId]
@@ -941,10 +782,11 @@ async function markPlayerNumber(gameId, userId, number) {
                 [JSON.stringify(markedNumbers), gameId, userId]
             );
             
-            console.log(`✅ Database updated: marked ${number} for user ${userId}`);
+            console.log(`✅ Marked number ${number} for user ${userId} in game ${gameId}`);
             return true;
         }
         
+        console.log(`⚠️ Number ${number} already marked for user ${userId}`);
         return false;
         
     } catch (error) {
@@ -1307,22 +1149,29 @@ async function startGamePlay(gameId) {
     try {
         console.log(`🚀 Starting game play for ${gameId}`);
         
-        // 1. SHUFFLING PHASE (30 seconds countdown)
+        // ✅ Get player count first
+        const playerCountResult = await pool.query(
+            `SELECT COUNT(*) FROM game_players WHERE game_id = $1`,
+            [gameId]
+        );
+        const playerCount = parseInt(playerCountResult.rows[0].count);
+        
+        // 1. SHUFFLING PHASE (5 seconds, NOT 30!)
         await pool.query(
             `UPDATE multiplayer_games 
-             SET status = 'shuffling', start_time = $1
-             WHERE id = $2`,
-            [new Date().toISOString(), gameId]
+             SET status = 'shuffling', start_time = NOW()
+             WHERE id = $1`,
+            [gameId]
         );
         
         broadcastToGame(gameId, {
             type: 'game_status',
             status: 'shuffling',
-            message: '🎮 GAME STARTING! Shuffling numbers...',
+            message: `🎮 GAME STARTING with ${playerCount} players! Shuffling numbers...`,
             countdown: GAME_CONFIG.SHUFFLE_TIME
         });
         
-        console.log(`🔢 Game ${gameId}: 30-second shuffle countdown started`);
+        console.log(`🔢 Game ${gameId}: ${GAME_CONFIG.SHUFFLE_TIME}-second shuffle countdown`);
         
         // Send countdown updates every second
         let shuffleCount = GAME_CONFIG.SHUFFLE_TIME;
@@ -1340,15 +1189,19 @@ async function startGamePlay(gameId) {
             }
         }, 1000);
         
-        // Wait for shuffle time
+        // Wait for shuffle time (5 seconds, NOT 30!)
         setTimeout(async () => {
             clearInterval(shuffleInterval);
             
             // 2. ACTIVE PHASE
             const gameEndTime = new Date(Date.now() + GAME_CONFIG.GAME_DURATION);
+            
             await pool.query(
                 `UPDATE multiplayer_games 
-                 SET status = 'active', end_time = $1, called_numbers = '[]'
+                 SET status = 'active', 
+                     end_time = $1, 
+                     called_numbers = '[]'::jsonb,
+                     current_call = NULL
                  WHERE id = $2`,
                 [gameEndTime.toISOString(), gameId]
             );
@@ -1356,17 +1209,18 @@ async function startGamePlay(gameId) {
             broadcastToGame(gameId, {
                 type: 'game_status',
                 status: 'active',
-                message: '🎮 GAME ACTIVE! Numbers will be called every 5 seconds! 🍀',
+                message: '🎮 GAME ACTIVE! Numbers will be called every 3 seconds! 🍀',
                 gameDuration: GAME_CONFIG.GAME_DURATION,
                 endTime: gameEndTime.toISOString()
             });
             
-            console.log(`🎮 Game ${gameId} now ACTIVE for 5 minutes (until ${gameEndTime.toLocaleTimeString()})`);
+            const durationSeconds = Math.floor(GAME_CONFIG.GAME_DURATION / 1000);
+            console.log(`🎮 Game ${gameId} now ACTIVE for ${durationSeconds} seconds (until ${gameEndTime.toLocaleTimeString()})`);
             
-            // 3. Start calling numbers every 5 seconds
+            // 3. Start calling numbers (every 3 seconds)
             callGameNumbers(gameId);
             
-            // 4. Auto-end timer exactly after 5 minutes
+            // 4. Auto-end timer exactly after game duration
             setTimeout(async () => {
                 const gameResult = await pool.query(
                     `SELECT status, winner_id FROM multiplayer_games WHERE id = $1`,
@@ -1374,32 +1228,30 @@ async function startGamePlay(gameId) {
                 );
                 
                 const game = gameResult.rows[0];
-                if (game.status === 'active' && !game.winner_id) {
-                    console.log(`⏰ Game ${gameId} completed 5 minutes with no winner`);
+                if (game && game.status === 'active' && !game.winner_id) {
+                    console.log(`⏰ Game ${gameId} completed ${durationSeconds} seconds with no winner`);
                     await endGameNoWinner(gameId);
                 }
             }, GAME_CONFIG.GAME_DURATION);
             
-            // 5. Send game timer updates
-            let minutesLeft = 4;
-            let secondsLeft = 59;
+            // 5. Send game timer updates (every second)
+            let timeLeft = Math.floor(GAME_CONFIG.GAME_DURATION / 1000);
             const gameTimer = setInterval(() => {
-                secondsLeft--;
-                if (secondsLeft < 0) {
-                    minutesLeft--;
-                    secondsLeft = 59;
-                }
+                timeLeft--;
+                const minutes = Math.floor(timeLeft / 60);
+                const seconds = timeLeft % 60;
                 
-                if (minutesLeft >= 0) {
+                if (timeLeft >= 0) {
                     broadcastToGame(gameId, {
                         type: 'game_timer',
-                        minutes: minutesLeft,
-                        seconds: secondsLeft,
-                        message: `Time remaining: ${minutesLeft}:${secondsLeft.toString().padStart(2, '0')}`
+                        minutes: minutes,
+                        seconds: seconds,
+                        timeLeft: timeLeft,
+                        message: `Time remaining: ${minutes}:${seconds.toString().padStart(2, '0')}`
                     });
                 }
                 
-                if (minutesLeft <= 0 && secondsLeft <= 0) {
+                if (timeLeft <= 0) {
                     clearInterval(gameTimer);
                 }
             }, 1000);
@@ -1407,8 +1259,8 @@ async function startGamePlay(gameId) {
             // Store for cleanup
             gameIntervals[gameId] = gameTimer;
             
-        }, GAME_CONFIG.SHUFFLE_TIME * 1000); // 30 seconds
-        
+        }, GAME_CONFIG.SHUFFLE_TIME * 1000); // 5 seconds shuffling
+            
     } catch (error) {
         console.error('❌ Error starting game play:', error);
     }
@@ -1629,7 +1481,7 @@ async function declareWinners(gameId, winners, prizePool) {
         // Calculate prize per winner
         const prizePerWinner = Math.floor(prizePool / winners.length);
         
-        // 1. Update database
+        // 1. Update database only (no file storage)
         await client.query(
             `UPDATE multiplayer_games 
              SET status = 'completed', 
@@ -1641,33 +1493,7 @@ async function declareWinners(gameId, winners, prizePool) {
             [winners[0].userId, JSON.stringify(winners), JSON.stringify({ prizePerWinner, totalWinners: winners.length }), gameId]
         );
         
-        // 2. Update in-memory storage (activeMultiplayerGames)
-        if (activeMultiplayerGames[gameId]) {
-            activeMultiplayerGames[gameId].status = 'completed';
-            activeMultiplayerGames[gameId].winners = winners;
-            activeMultiplayerGames[gameId].prizePerWinner = prizePerWinner;
-            activeMultiplayerGames[gameId].endTime = new Date().toISOString();
-            
-            // Mark winners in player objects
-            for (const winner of winners) {
-                if (activeMultiplayerGames[gameId].players[winner.userId]) {
-                    activeMultiplayerGames[gameId].players[winner.userId].hasBingo = true;
-                    
-                    // Mark the specific board as winner
-                    for (const board of activeMultiplayerGames[gameId].players[winner.userId].boards) {
-                        if (board.boardNumber === winner.boardNumber) {
-                            board.hasBingo = true;
-                            break;
-                        }
-                    }
-                }
-            }
-            
-            // Save to file
-            saveActiveMultiplayerGames();
-        }
-        
-        // 3. Award prizes to each winner
+        // 2. Award prizes to each winner
         for (const winner of winners) {
             const user = users[winner.userId];
             if (user) {
@@ -1716,7 +1542,7 @@ async function declareWinners(gameId, winners, prizePool) {
         await client.query('COMMIT');
         saveUsers();
         
-        // 4. Broadcast winners to all players
+        // 3. Broadcast winners to all players
         const winnerAnnouncement = winners.length > 1 ?
             `🎉 *${winners.length} WINNERS!*\n\n` +
             winners.map((w, i) => `${i+1}. ${w.username} - ${prizePerWinner} ETB`).join('\n') :
@@ -1732,7 +1558,7 @@ async function declareWinners(gameId, winners, prizePool) {
         
         console.log(`✅ Game ${gameId} completed. ${winners.length} winner(s) awarded ${prizePerWinner} ETB each.`);
         
-        // 5. Clean up after 30 seconds
+        // 4. Clean up after 30 seconds (remove WebSocket connections)
         setTimeout(() => {
             cleanupGame(gameId);
         }, 30000);
@@ -1745,11 +1571,12 @@ async function declareWinners(gameId, winners, prizePool) {
     }
 }
 
+
 async function endGameNoWinner(gameId) {
     try {
         console.log(`⏰ Game ${gameId} ended with no winner`);
         
-        // 1. Update database
+        // 1. Update database only (no file storage)
         await pool.query(
             `UPDATE multiplayer_games 
              SET status = 'completed_no_winner', end_time = NOW()
@@ -1757,14 +1584,7 @@ async function endGameNoWinner(gameId) {
             [gameId]
         );
         
-        // 2. Update in-memory storage
-        if (activeMultiplayerGames[gameId]) {
-            activeMultiplayerGames[gameId].status = 'completed_no_winner';
-            activeMultiplayerGames[gameId].endTime = new Date().toISOString();
-            saveActiveMultiplayerGames();
-        }
-        
-        // 3. Refund 80% of bets to players
+        // 2. Refund 80% of bets to players
         const playersResult = await pool.query(
             `SELECT user_id, boards FROM game_players WHERE game_id = $1`,
             [gameId]
@@ -1800,13 +1620,13 @@ async function endGameNoWinner(gameId) {
         
         saveUsers();
         
-        // 4. Broadcast to remaining players
+        // 3. Broadcast to remaining players
         broadcastToGame(gameId, {
             type: 'game_ended',
             message: `🤷 *GAME ENDED - NO WINNER*\n💰 80% refund issued to all players.`
         });
         
-        // 5. Clean up connections
+        // 4. Clean up connections
         cleanupGameConnections(gameId);
         
         console.log(`✅ Game ${gameId} ended. Total refund: ${totalRefund} ETB`);
@@ -1815,6 +1635,7 @@ async function endGameNoWinner(gameId) {
         console.error('Error ending game:', error);
     }
 }
+
 
 // Cancel a game (refund players)
 async function cancelGame(gameId) {
@@ -1865,19 +1686,10 @@ async function cancelGame(gameId) {
         
         console.log(`✅ Game ${gameId} cancelled. Total refund: ${totalRefund} ETB`);
         
-        // ✅ 1. Remove from in-memory storage
-        if (activeMultiplayerGames[gameId]) {
-            delete activeMultiplayerGames[gameId];
-            console.log(`🧹 Removed game ${gameId} from activeMultiplayerGames`);
-        }
-        
-        // ✅ 2. Save the updated state to file
-        saveActiveMultiplayerGames();
-        
-        // ✅ 3. Clean up WebSocket connections
+        // Clean up WebSocket connections
         cleanupGameConnections(gameId);
         
-        // ✅ 4. Create next game after delay
+        // Create next game after delay
         setTimeout(async () => {
             console.log(`🔄 Creating next game after cancellation...`);
             await createMultiplayerGame();
@@ -1908,12 +1720,6 @@ function cleanupGameConnections(gameId) {
 function cleanupGame(gameId) {
     // Clean WebSocket connections
     cleanupGameConnections(gameId);
-    
-    // Remove from memory if still present
-    if (activeMultiplayerGames[gameId]) {
-        delete activeMultiplayerGames[gameId];
-        saveActiveMultiplayerGames();
-    }
     
     // Clear timers
     if (gameTimers[gameId]) {
@@ -3221,6 +3027,7 @@ app.post('/api/admin/login', (req, res) => {
 });
 
 // Get system overview
+// Get system overview
 app.get('/api/admin/overview', async (req, res) => {
     try {
         const userList = Object.values(users);
@@ -3238,7 +3045,7 @@ app.get('/api/admin/overview', async (req, res) => {
         
         const instantDepositsToday = todayDeposits.filter(d => d.autoParsed === true).length;
         
-        // Get active games from database
+        // ✅ Get active games from DATABASE only
         const gamesResult = await pool.query(
             `SELECT COUNT(*) as game_count, 
                     COALESCE(SUM(player_count), 0) as total_players
@@ -3246,12 +3053,13 @@ app.get('/api/admin/overview', async (req, res) => {
                  SELECT mg.id, COUNT(gp.user_id) as player_count
                  FROM multiplayer_games mg
                  LEFT JOIN game_players gp ON mg.id = gp.game_id
-                 WHERE mg.status IN ('selecting', 'shuffling', 'active')
+                 WHERE mg.status IN ('waiting', 'shuffling', 'active')
                  GROUP BY mg.id
              ) active_games`
         );
         
-        const activeMultiplayerGames = parseInt(gamesResult.rows[0]?.game_count) || 0;
+        // ✅ Use a different variable name 
+        const activeGamesCount = parseInt(gamesResult.rows[0]?.game_count) || 0;
         const playersInGames = parseInt(gamesResult.rows[0]?.total_players) || 0;
         
         res.json({
@@ -3270,7 +3078,7 @@ app.get('/api/admin/overview', async (req, res) => {
                 gamesPlayed: games.filter(g => g.type === 'play').length,
                 totalWins: games.filter(g => g.type === 'win').length,
                 totalWinAmount: games.filter(g => g.type === 'win').reduce((sum, g) => sum + g.amount, 0),
-                activeMultiplayerGames: activeMultiplayerGames,
+                activeMultiplayerGames: activeGamesCount,  // ✅ Key name stays same for frontend compatibility
                 playersInGames: playersInGames
             },
             system: {
@@ -3281,9 +3089,11 @@ app.get('/api/admin/overview', async (req, res) => {
             }
         });
     } catch (error) {
+        console.error('Admin overview error:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
+
 
 // Get pending deposits
 app.get('/api/admin/deposits/pending', (req, res) => {
@@ -3486,35 +3296,41 @@ app.post('/api/multiplayer/join', async (req, res) => {
             return res.json({ success: false, error: `Insufficient balance. Need ${totalCost} ETB` });
         }
         
-        // Find existing waiting game
+        // ✅ Find existing waiting game from DATABASE
         let gameId = null;
-        for (const gid in activeMultiplayerGames) {
-            if (activeMultiplayerGames[gid].status === 'waiting') {
-                gameId = gid;
-                break;
-            }
+        let gameNumber = null;
+        let selectionEndTime = null;
+        
+        const activeGameResult = await pool.query(
+            `SELECT id, game_number, selection_end_time FROM multiplayer_games 
+             WHERE status = 'waiting' 
+             ORDER BY created_at ASC 
+             LIMIT 1`
+        );
+        
+        if (activeGameResult.rows.length > 0) {
+            gameId = activeGameResult.rows[0].id;
+            gameNumber = activeGameResult.rows[0].game_number;
+            selectionEndTime = activeGameResult.rows[0].selection_end_time;
+            console.log(`✅ Found existing waiting game: ${gameId}`);
         }
         
-        // If no game exists, create one
+        // ✅ If no game exists, create one in DATABASE
         if (!gameId) {
             gameId = 'GAME_' + Date.now().toString(36);
-            const gameNumber = Object.keys(activeMultiplayerGames).length + 1;
+            const nextNumberResult = await pool.query(
+                "SELECT COALESCE(MAX(game_number), 0) + 1 as next_number FROM multiplayer_games WHERE DATE(created_at) = CURRENT_DATE"
+            );
+            gameNumber = nextNumberResult.rows[0].next_number;
+            selectionEndTime = new Date(Date.now() + 25000).toISOString();
             
-            activeMultiplayerGames[gameId] = {
-                id: gameId,
-                gameNumber: gameNumber,
-                status: 'waiting',
-                players: {},
-                calledNumbers: [],
-                prizePool: 0,
-                createdAt: new Date().toISOString(),
-                selectionEndTime: new Date(Date.now() + 25000).toISOString()
-            };
+            await pool.query(
+                `INSERT INTO multiplayer_games (id, game_number, status, selection_end_time) 
+                 VALUES ($1, $2, $3, $4)`,
+                [gameId, gameNumber, 'waiting', selectionEndTime]
+            );
             console.log(`🆕 Created new game: ${gameId}`);
-            saveActiveMultiplayerGames();
         }
-        
-        const game = activeMultiplayerGames[gameId];
         
         // Generate boards
         const boards = [];
@@ -3528,34 +3344,81 @@ app.post('/api/multiplayer/join', async (req, res) => {
             });
         }
         
-        // Add player to game
-        game.players[userId] = {
-            id: userId,
-            username: user.username,
-            boards: boards,
-            markedNumbers: [],
-            hasBingo: false,
-            totalBet: totalCost,
-            joinedAt: new Date().toISOString()
-        };
+        // ✅ Add player to DATABASE
+        await pool.query(
+            `INSERT INTO game_players (game_id, user_id, boards, marked_numbers, bet_amount)
+             VALUES ($1, $2, $3, $4, $5)`,
+            [gameId, userId, JSON.stringify(boards), '[]', totalCost]
+        );
         
         // Deduct balance
         user.balance -= totalCost;
-        game.prizePool += totalCost * 0.8;
-        
         saveUsers();
-        saveActiveMultiplayerGames();
+        
+        // ✅ Update prize pool in DATABASE
+        const prizeContribution = totalCost * 0.8;
+        await pool.query(
+            `UPDATE multiplayer_games SET prize_pool = prize_pool + $1 WHERE id = $2`,
+            [prizeContribution, gameId]
+        );
+        
+        // ✅ Get updated player count from DATABASE
+        const playerCountResult = await pool.query(
+            `SELECT COUNT(*) FROM game_players WHERE game_id = $1`,
+            [gameId]
+        );
+        const playerCount = parseInt(playerCountResult.rows[0].count);
+        
+        // ✅ Update players_count in games table
+        await pool.query(
+            `UPDATE multiplayer_games SET players_count = $1 WHERE id = $2`,
+            [playerCount, gameId]
+        );
+        
+        // ✅ Get updated prize pool
+        const prizePoolResult = await pool.query(
+            `SELECT prize_pool FROM multiplayer_games WHERE id = $1`,
+            [gameId]
+        );
+        const prizePool = parseFloat(prizePoolResult.rows[0]?.prize_pool) || 0;
+        
+        // ✅ Calculate time left
+        const timeLeft = Math.max(0, Math.floor((new Date(selectionEndTime) - new Date()) / 1000));
+        
+        // ✅ Check if game should start (if enough players)
+        if (playerCount >= GAME_CONFIG.MIN_PLAYERS) {
+            const statusResult = await pool.query(
+                `SELECT status FROM multiplayer_games WHERE id = $1`,
+                [gameId]
+            );
+            
+            if (statusResult.rows[0].status === 'waiting') {
+                await pool.query(
+                    `UPDATE multiplayer_games 
+                     SET status = 'shuffling', start_time = NOW()
+                     WHERE id = $1`,
+                    [gameId]
+                );
+                
+                console.log(`🎮 Game ${gameId} starting in 5 seconds with ${playerCount} players`);
+                
+                // Trigger game start after 5 seconds
+                setTimeout(() => {
+                    startGamePlay(gameId);
+                }, 5000);
+            }
+        }
         
         console.log(`✅ ${user.username} joined game ${gameId} with ${boardCount} boards`);
         
         res.json({
             success: true,
             gameId: gameId,
-            gameNumber: game.gameNumber,
+            gameNumber: gameNumber,
             boards: boards,
-            prizePool: game.prizePool,
-            playerCount: Object.keys(game.players).length,
-            selectionTimeLeft: Math.max(0, Math.floor((new Date(game.selectionEndTime) - new Date()) / 1000))
+            prizePool: prizePool,
+            playerCount: playerCount,
+            selectionTimeLeft: timeLeft
         });
         
     } catch (error) {
@@ -3564,39 +3427,38 @@ app.post('/api/multiplayer/join', async (req, res) => {
     }
 });
 
+
 // 2. Get active multiplayer games (matches frontend call)
 app.get('/api/multiplayer/games', async (req, res) => {
     try {
         console.log('📡 GET /api/multiplayer/games - Fetching active games...');
         
-        // Get games from file-based activeMultiplayerGames
-        const games = [];
+        // ✅ Get from DATABASE only 
+        const result = await pool.query(`
+            SELECT mg.id, mg.game_number, mg.status, mg.prize_pool, mg.selection_end_time,
+                   COUNT(gp.user_id) as player_count
+            FROM multiplayer_games mg
+            LEFT JOIN game_players gp ON mg.id = gp.game_id
+            WHERE mg.status IN ('waiting', 'shuffling')
+            GROUP BY mg.id
+            ORDER BY mg.created_at ASC
+        `);
         
-        for (const gameId in activeMultiplayerGames) {
-            const game = activeMultiplayerGames[gameId];
-            // Only show games that are waiting or selecting (not started or finished)
-            if (game.status === 'waiting' || game.status === 'selecting') {
-                const playerCount = Object.keys(game.players || {}).length;
-                const timeLeft = game.selectionEndTime ? 
-                    Math.max(0, Math.floor((new Date(game.selectionEndTime) - new Date()) / 1000)) : 25;
-                
-                games.push({
-                    id: game.id,
-                    gameNumber: game.gameNumber || 1,
-                    players: playerCount,
-                    prizePool: game.prizePool || 0,
-                    status: game.status,
-                    timeLeft: timeLeft
-                });
-            }
-        }
+        const games = result.rows.map(row => ({
+            id: row.id,
+            gameNumber: row.game_number,
+            players: parseInt(row.player_count),
+            prizePool: parseFloat(row.prize_pool),
+            status: row.status,
+            timeLeft: Math.max(0, Math.floor((new Date(row.selection_end_time) - new Date()) / 1000))
+        }));
         
         console.log(`📊 Found ${games.length} active game(s)`);
         res.json({ success: true, games: games });
         
     } catch (error) {
         console.error('❌ Error getting multiplayer games:', error);
-        res.json({ success: false, games: [], error: error.message });
+        res.json({ success: false, games: [] });
     }
 });
 
@@ -3605,75 +3467,59 @@ app.get('/api/multiplayer/state/:gameId/:userId', async (req, res) => {
     try {
         const { gameId, userId } = req.params;
         
-        // Check file-based games first
-        let game = activeMultiplayerGames[gameId];
+        // ✅ Get game from DATABASE only
+        const gameResult = await pool.query(
+            `SELECT * FROM multiplayer_games WHERE id = $1`,
+            [gameId]
+        );
         
-        // If not in file, check database
-        if (!game) {
-            const dbResult = await pool.query(
-                `SELECT * FROM multiplayer_games WHERE id = $1`,
-                [gameId]
-            );
-            if (dbResult.rows.length > 0) {
-                game = dbResult.rows[0];
-                game.players = await getGamePlayersFromDB(gameId);
-            }
-        }
-        
-        if (!game) {
+        if (gameResult.rows.length === 0) {
             return res.json({ success: false, error: 'Game not found' });
         }
         
-        const player = game.players?.[userId];
-        if (!player) {
-            // Check database for player
-            const dbPlayer = await pool.query(
-                `SELECT * FROM game_players WHERE game_id = $1 AND user_id = $2`,
-                [gameId, userId]
-            );
-            if (dbPlayer.rows.length === 0) {
-                return res.json({ success: false, error: 'Not in this game' });
-            }
+        const game = gameResult.rows[0];
+        
+        // ✅ Get player from DATABASE only
+        const playerResult = await pool.query(
+            `SELECT * FROM game_players WHERE game_id = $1 AND user_id = $2`,
+            [gameId, userId]
+        );
+        
+        if (playerResult.rows.length === 0) {
+            return res.json({ success: false, error: 'Not in this game' });
         }
         
-        // Get player list
-        const playerList = [];
-        if (game.players) {
-            for (const pid in game.players) {
-                playerList.push(game.players[pid].username);
-            }
-        } else {
-            const dbPlayers = await pool.query(
-                `SELECT u.username FROM game_players gp
-                 JOIN users u ON gp.user_id = u.id
-                 WHERE gp.game_id = $1`,
-                [gameId]
-            );
-            for (const p of dbPlayers.rows) {
-                playerList.push(p.username);
-            }
-        }
+        const player = playerResult.rows[0];
+        
+        // ✅ Get all players from DATABASE with usernames
+        const playersResult = await pool.query(`
+            SELECT gp.user_id, u.username 
+            FROM game_players gp
+            JOIN users u ON gp.user_id::text = u.id::text
+            WHERE gp.game_id = $1
+        `, [gameId]);
+        
+        const playerList = playersResult.rows.map(p => p.username);
         
         res.json({
             success: true,
             game: {
                 id: game.id,
-                gameNumber: game.gameNumber,
+                gameNumber: game.game_number,
                 status: game.status,
-                calledNumbers: game.calledNumbers || game.called_numbers || [],
-                currentCall: game.currentCall || game.current_call,
-                prizePool: game.prizePool || game.prize_pool,
+                calledNumbers: game.called_numbers || [],
+                currentCall: game.current_call,
+                prizePool: parseFloat(game.prize_pool) || 0,
                 players: playerList.length,
                 playerList: playerList,
-                startTime: game.startTime || game.start_time,
-                endTime: game.endTime || game.end_time,
-                timeLeft: game.endTime ? Math.max(0, new Date(game.endTime) - new Date()) : 
-                          game.end_time ? Math.max(0, new Date(game.end_time) - new Date()) : 0
+                startTime: game.start_time,
+                endTime: game.end_time,
+                timeLeft: game.end_time ? Math.max(0, new Date(game.end_time) - new Date()) : 0
             },
             player: {
-                boards: player?.boards || (game.players?.[userId]?.boards) || [],
-                markedNumbers: player?.markedNumbers || (game.players?.[userId]?.markedNumbers) || [],
-                hasBingo: player?.hasBingo || (game.players?.[userId]?.hasBingo) || false
+                boards: JSON.parse(player.boards),
+                markedNumbers: player.marked_numbers ? JSON.parse(player.marked_numbers) : [],
+                hasBingo: player.has_bingo
             }
         });
         
@@ -3686,22 +3532,7 @@ app.get('/api/multiplayer/state/:gameId/:userId', async (req, res) => {
 // 4. Get next game start time
 app.get('/api/game/next-start', async (req, res) => {
     try {
-        let nextStartTime = null;
-        
-        // Check file-based games
-        for (const gameId in activeMultiplayerGames) {
-            const game = activeMultiplayerGames[gameId];
-            if (game.status === 'waiting' && game.selectionEndTime) {
-                const endTime = new Date(game.selectionEndTime);
-                if (endTime > new Date()) {
-                    if (!nextStartTime || endTime < nextStartTime) {
-                        nextStartTime = endTime;
-                    }
-                }
-            }
-        }
-        
-        // Check database
+        // ✅ Get from DATABASE only (no file storage)
         const dbResult = await pool.query(`
             SELECT selection_end_time FROM multiplayer_games 
             WHERE status = 'waiting' AND selection_end_time > NOW()
@@ -3710,14 +3541,8 @@ app.get('/api/game/next-start', async (req, res) => {
         `);
         
         if (dbResult.rows.length > 0) {
-            const dbEndTime = new Date(dbResult.rows[0].selection_end_time);
-            if (!nextStartTime || dbEndTime < nextStartTime) {
-                nextStartTime = dbEndTime;
-            }
-        }
-        
-        if (nextStartTime) {
-            const secondsLeft = Math.max(0, Math.floor((nextStartTime - new Date()) / 1000));
+            const endTime = new Date(dbResult.rows[0].selection_end_time);
+            const secondsLeft = Math.max(0, Math.floor((endTime - new Date()) / 1000));
             res.json({ success: true, secondsLeft: secondsLeft });
         } else {
             // Default: next game in 25 seconds
@@ -3738,7 +3563,6 @@ app.get('*', (req, res) => {
 });
 
 // ==================== SERVER KEEP-ALIVE ====================
-// ⬇️⬇️⬇️ ADD THE KEEP-ALIVE CODE HERE ⬇️⬇️⬇️
 
 // Prevent Render free tier from sleeping
 // Render free tier sleeps after 15 minutes of inactivity
@@ -3758,47 +3582,14 @@ setInterval(async () => {
     }
 }, KEEP_ALIVE_INTERVAL);
 
-// Add health check endpoint (if you don't already have one)
+// Add health check endpoint
 app.get('/api/health', (req, res) => {
     res.json({ 
         status: 'ok', 
         timestamp: new Date().toISOString(),
-        uptime: process.uptime(),
-        activeGames: Object.keys(activeMultiplayerGames).length
+        uptime: process.uptime()
     });
 });
-
-
-
-// Helper function to get game players from database
-async function getGamePlayersFromDB(gameId) {
-    try {
-        const result = await pool.query(
-            `SELECT user_id, boards, marked_numbers, has_bingo 
-             FROM game_players WHERE game_id = $1`,
-            [gameId]
-        );
-        
-        const players = {};
-        for (const row of result.rows) {
-            const user = users[row.user_id];
-            players[row.user_id] = {
-                id: row.user_id,
-                username: user?.username || 'Player',
-                boards: JSON.parse(row.boards),
-                markedNumbers: JSON.parse(row.marked_numbers || '[]'),
-                hasBingo: row.has_bingo
-            };
-        }
-        return players;
-    } catch (error) {
-        console.error('Error getting game players:', error);
-        return {};
-    }
-}
-
-
-
 
 
 // ==================== START SERVER ====================
