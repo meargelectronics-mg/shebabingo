@@ -1181,14 +1181,14 @@ async function startGamePlay(gameId) {
     try {
         console.log(`🚀 Starting game play for ${gameId}`);
         
-        // ✅ Get player count first
+        // Get player count first
         const playerCountResult = await pool.query(
             `SELECT COUNT(*) FROM game_players WHERE game_id = $1`,
             [gameId]
         );
         const playerCount = parseInt(playerCountResult.rows[0].count);
         
-        // 1. SHUFFLING PHASE (5 seconds, NOT 30!)
+        // 1. SHUFFLING PHASE (5 seconds)
         await pool.query(
             `UPDATE multiplayer_games 
              SET status = 'shuffling', start_time = NOW()
@@ -1221,75 +1221,32 @@ async function startGamePlay(gameId) {
             }
         }, 1000);
         
-        // Wait for shuffle time (5 seconds, NOT 30!)
+        // Wait for shuffle time (5 seconds)
         setTimeout(async () => {
             clearInterval(shuffleInterval);
             
             // 2. ACTIVE PHASE
-            const gameEndTime = new Date(Date.now() + GAME_CONFIG.GAME_DURATION);
-            
             await pool.query(
                 `UPDATE multiplayer_games 
                  SET status = 'active', 
-                     end_time = $1, 
                      called_numbers = '[]'::jsonb,
                      current_call = NULL
-                 WHERE id = $2`,
-                [gameEndTime.toISOString(), gameId]
+                 WHERE id = $1`,
+                [gameId]
             );
             
             broadcastToGame(gameId, {
                 type: 'game_status',
                 status: 'active',
-                message: '🎮 GAME ACTIVE! Numbers will be called every 3 seconds! 🍀',
-                gameDuration: GAME_CONFIG.GAME_DURATION,
-                endTime: gameEndTime.toISOString()
+                message: '🎮 GAME ACTIVE! Numbers will be called every 5 seconds! 🍀'
             });
             
-            const durationSeconds = Math.floor(GAME_CONFIG.GAME_DURATION / 1000);
-            console.log(`🎮 Game ${gameId} now ACTIVE for ${durationSeconds} seconds (until ${gameEndTime.toLocaleTimeString()})`);
+            console.log(`🎮 Game ${gameId} is now ACTIVE!`);
             
-            // 3. Start calling numbers (every 3 seconds)
+            // 3. Start calling numbers (will stop when winner found)
             callGameNumbers(gameId);
             
-            // 4. Auto-end timer exactly after game duration
-            setTimeout(async () => {
-                const gameResult = await pool.query(
-                    `SELECT status, winner_id FROM multiplayer_games WHERE id = $1`,
-                    [gameId]
-                );
-                
-                const game = gameResult.rows[0];
-                if (game && game.status === 'active' && !game.winner_id) {
-                    console.log(`⏰ Game ${gameId} completed ${durationSeconds} seconds with no winner`);
-                    await endGameNoWinner(gameId);
-                }
-            }, GAME_CONFIG.GAME_DURATION);
-            
-            // 5. Send game timer updates (every second)
-            let timeLeft = Math.floor(GAME_CONFIG.GAME_DURATION / 1000);
-            const gameTimer = setInterval(() => {
-                timeLeft--;
-                const minutes = Math.floor(timeLeft / 60);
-                const seconds = timeLeft % 60;
-                
-                if (timeLeft >= 0) {
-                    broadcastToGame(gameId, {
-                        type: 'game_timer',
-                        minutes: minutes,
-                        seconds: seconds,
-                        timeLeft: timeLeft,
-                        message: `Time remaining: ${minutes}:${seconds.toString().padStart(2, '0')}`
-                    });
-                }
-                
-                if (timeLeft <= 0) {
-                    clearInterval(gameTimer);
-                }
-            }, 1000);
-            
-            // Store for cleanup
-            gameIntervals[gameId] = gameTimer;
+            // ✅ REMOVED the auto-end timer - game continues until winner or max calls
             
         }, GAME_CONFIG.SHUFFLE_TIME * 1000); // 5 seconds shuffling
             
@@ -1298,86 +1255,51 @@ async function startGamePlay(gameId) {
     }
 }
 
-async function callGameNumbers(gameId) {
+async function checkForWinners(gameId) {
     try {
-        // Get game status
-        const gameResult = await pool.query(
-            `SELECT called_numbers, status, winner_id FROM multiplayer_games WHERE id = $1`,
+        const playersResult = await pool.query(
+            `SELECT user_id, boards, marked_numbers 
+             FROM game_players 
+             WHERE game_id = $1 AND has_bingo = false`,
             [gameId]
         );
         
-        if (gameResult.rows.length === 0) {
-            console.log(`❌ Game ${gameId} not found, stopping number calls`);
-            return;
-        }
+        if (playersResult.rows.length === 0) return [];
         
-        const game = gameResult.rows[0];
-        
-        // Stop if game is no longer active or already has a winner
-        if (game.status !== 'active') {
-            console.log(`⏹️ Game ${gameId} is ${game.status}, stopping number calls`);
-            return;
-        }
-        
-        if (game.winner_id) {
-            console.log(`🏆 Game ${gameId} already has a winner, stopping number calls`);
-            return;
-        }
-        
-        let calledNumbers = game.called_numbers ? JSON.parse(game.called_numbers) : [];
-        
-        // Check if we've called all numbers
-        if (calledNumbers.length >= GAME_CONFIG.MAX_CALLS) {
-            console.log(`🎯 Game ${gameId}: Called all ${GAME_CONFIG.MAX_CALLS} numbers`);
-            
-            // Check if there's a winner before ending
-            const hasWinner = await checkForWinners(gameId);
-            
-            if (!hasWinner) {
-                console.log(`⏰ No winner after ${GAME_CONFIG.MAX_CALLS} numbers, ending game`);
-                await endGameNoWinner(gameId);
-            }
-            return;
-        }
-        
-        // Generate new number
-        const newNumber = generateUniqueNumber(calledNumbers);
-        calledNumbers.push(newNumber);
-        
-        // Update database
-        await pool.query(
-            `UPDATE multiplayer_games 
-             SET called_numbers = $1, current_call = $2, last_call_time = NOW()
-             WHERE id = $3`,
-            [JSON.stringify(calledNumbers), newNumber, gameId]
+        const gameResult = await pool.query(
+            `SELECT called_numbers FROM multiplayer_games WHERE id = $1`,
+            [gameId]
         );
         
-        // Broadcast to all players
-        broadcastToGame(gameId, {
-            type: 'number_called',
-            number: newNumber,
-            calledNumbers: calledNumbers,
-            numberIndex: calledNumbers.length,
-            totalNumbers: GAME_CONFIG.MAX_CALLS,
-            nextCallIn: GAME_CONFIG.CALL_INTERVAL / 1000
+        const calledNumbers = gameResult.rows[0].called_numbers || [];
+        const calledNums = calledNumbers.map(cn => {
+            const match = cn.match(/\d+/);
+            return match ? parseInt(match[0]) : cn;
         });
         
-        console.log(`🔔 Game ${gameId}: Called ${newNumber} (${calledNumbers.length}/${GAME_CONFIG.MAX_CALLS})`);
+        const winners = [];
         
-        // Check for winners AFTER calling the number
-        const hasWinner = await checkForWinners(gameId);
-        
-        // If there's a winner, stop calling numbers
-        if (hasWinner) {
-            console.log(`🏆 Game ${gameId} has a winner! Stopping number calls.`);
-            return;
+        for (const player of playersResult.rows) {
+            const boards = JSON.parse(player.boards);
+            const markedNumbers = player.marked_numbers ? JSON.parse(player.marked_numbers) : [];
+            
+            for (const board of boards) {
+                if (checkBoardForBingo(board.boardData, markedNumbers, calledNums)) {
+                    winners.push({
+                        userId: player.user_id,
+                        boardNumber: board.boardNumber,
+                        boardId: board.boardId
+                    });
+                    break;
+                }
+            }
         }
         
-        // Schedule next call
-        setTimeout(() => callGameNumbers(gameId), GAME_CONFIG.CALL_INTERVAL);
+        return winners;
         
     } catch (error) {
-        console.error('❌ Error calling game numbers:', error);
+        console.error('Error checking winners:', error);
+        return [];
     }
 }
 
