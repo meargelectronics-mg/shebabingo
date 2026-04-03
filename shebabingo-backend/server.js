@@ -3719,7 +3719,6 @@ async function migrateDatabase() {
         console.log('🔄 Running database migrations...');
         
         // ✅ FIX: Change user_id column from INTEGER to BIGINT
-        // First drop the foreign key constraint if it exists
         try {
             await pool.query(`ALTER TABLE game_players DROP CONSTRAINT game_players_user_id_fkey`);
         } catch (e) {
@@ -3744,7 +3743,11 @@ async function migrateDatabase() {
             ADD COLUMN IF NOT EXISTS total_boards INTEGER DEFAULT 0,
             ADD COLUMN IF NOT EXISTS min_players INTEGER DEFAULT 2,
             ADD COLUMN IF NOT EXISTS max_players INTEGER DEFAULT 100,
-            ADD COLUMN IF NOT EXISTS game_mode VARCHAR(20) DEFAULT 'classic'
+            ADD COLUMN IF NOT EXISTS game_mode VARCHAR(20) DEFAULT 'classic',
+            ADD COLUMN IF NOT EXISTS players_count INTEGER DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS current_call VARCHAR(10),
+            ADD COLUMN IF NOT EXISTS winners JSONB DEFAULT '[]',
+            ADD COLUMN IF NOT EXISTS prize_distribution JSONB DEFAULT '{}'
         `);
         
         // Add missing columns to game_players
@@ -3752,7 +3755,10 @@ async function migrateDatabase() {
             ALTER TABLE game_players 
             ADD COLUMN IF NOT EXISTS board_count INTEGER DEFAULT 1,
             ADD COLUMN IF NOT EXISTS total_paid DECIMAL(10,2) DEFAULT 0,
-            ADD COLUMN IF NOT EXISTS last_active TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            ADD COLUMN IF NOT EXISTS last_active TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            ADD COLUMN IF NOT EXISTS bet_amount DECIMAL(10,2) DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS marked_numbers JSONB DEFAULT '[]',
+            ADD COLUMN IF NOT EXISTS has_bingo BOOLEAN DEFAULT FALSE
         `);
         
         console.log('✅ Database migrations completed');
