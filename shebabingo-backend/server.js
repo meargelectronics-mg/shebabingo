@@ -19,7 +19,7 @@ const server = http.createServer(app);
 // Add these near your other configuration variables (around line 50-70)
 const VERIFIER_API_URL = 'https://verifyapi.leulzenebe.pro';
 const VERIFIER_API_KEY = process.env.VERIFIER_API_KEY ; // Get from https://verify.leul.et
-const TELEBIRR_ACCOUNT = process.env.TELEBIRR_ACCOUNT || '0914834341';
+const TELEBIRR_ACCOUNT = process.env.TELEBIRR_ACCOUNT || '0945343143';
 const CBE_ACCOUNT_SUFFIX = process.env.CBE_ACCOUNT_SUFFIX || '12345678';
 const BOA_ACCOUNT = process.env.BOA_ACCOUNT || '65637448';
 
@@ -1962,8 +1962,8 @@ app.post('/telegram-webhook', async (req, res) => {
                     `✅ *Automatic processing!*\n` +
                     `❌ Do NOT send screenshots for instant processing.\n\n` +
                     `*Our Accounts:*\n` +
-                    `📱 TeleBirr: 0914834341\n` +
-                    `🏦 CBE: 1000123456789\n` +
+                    `📱 TeleBirr: 0945343143\n` +
+                    `🏦 CBE: 1000xxxxx\n` +
                     `🏛️ BOA: 65637448`,
                     {
                         inline_keyboard: [
