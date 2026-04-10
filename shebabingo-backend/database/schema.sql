@@ -177,8 +177,8 @@ CREATE TABLE IF NOT EXISTS game_settings (
 
 -- Insert default payment accounts (YOUR ACTUAL ACCOUNTS)
 INSERT INTO payment_accounts (provider, account_name, account_number, is_active) VALUES
-('telebirr', 'ShebaBingo', '0914834341', TRUE),
-('cbe', 'ShebaBingo Account', '100012234582', TRUE),
+('telebirr', 'ShebaBingo', '0945343143', TRUE),
+('cbe', 'ShebaBingo Account', '1000122xxxx', TRUE),
 ('boa', 'ShebaBingo', '65637448', TRUE)
 ON CONFLICT (provider, account_number) DO NOTHING;
 
