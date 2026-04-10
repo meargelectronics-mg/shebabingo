@@ -9,10 +9,20 @@ const { Pool } = require('pg');
 const cors = require('cors');
 const helmet = require('helmet');
 
+
 // Create Express app
 const app = express();
 // Create HTTP server
 const server = http.createServer(app);
+
+
+// Add these near your other configuration variables (around line 50-70)
+const VERIFIER_API_URL = 'https://verifyapi.leulzenebe.pro';
+const VERIFIER_API_KEY = process.env.VERIFIER_API_KEY ; // Get from https://verify.leul.et
+const TELEBIRR_ACCOUNT = process.env.TELEBIRR_ACCOUNT || '0914834341';
+const CBE_ACCOUNT_SUFFIX = process.env.CBE_ACCOUNT_SUFFIX || '12345678';
+const BOA_ACCOUNT = process.env.BOA_ACCOUNT || '65637448';
+
 // ==================== MIDDLEWARE ====================
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -1810,143 +1820,287 @@ app.post('/telegram-webhook', async (req, res) => {
         }
         
         // Handle messages
-if (update.message) {
-    const chatId = update.message.chat.id;
-    const text = update.message.text || '';
-    const userId = update.message.from.id;
-    const userIdStr = userId.toString();
-    
-    // ✅ CRITICAL FIX: Define username from Telegram
-    const username = update.message.from.username || update.message.from.first_name || 'User';
-    
-    console.log(`📝 Message from ${username} (${userIdStr}): ${text}`);
-    
-    // Initialize user if new
-    if (!users[userIdStr]) {
-        users[userIdStr] = {
-            id: userIdStr,
-            username: username,  // ✅ Now defined
-            chatId: chatId,
-            balance: 0,
-            registered: false,
-            isAgent: false,
-            agentCode: 'AG' + userIdStr.slice(-6),
-            joinDate: new Date().toISOString(),
-            lastActive: new Date().toISOString(),
-            totalDeposited: 0,
-            totalWon: 0
-        };
-        saveUsers();
-        console.log(`👤 New user registered: ${username} (${userIdStr})`);
-    }
-    
-    // Update last active time
-    users[userIdStr].lastActive = new Date().toISOString();
-    const user = users[userIdStr];
-    
-    // Handle /play command
-if (text === '/play') {
-    console.log(`🎮 /play command from user ${userId}`);
-    
-    // Check balance before allowing to play
-    if (user.balance < GAME_CONFIG.BOARD_PRICE) {
-        await sendTelegramMessage(chatId,
-            `❌ *INSUFFICIENT BALANCE*\n\n` +
-            `💰 Required: *${GAME_CONFIG.BOARD_PRICE} ETB*\n` +
-            `💵 Your balance: *${user.balance} ETB*\n\n` +
-            `💡 Use /deposit to add funds instantly!`,
-            {
-                inline_keyboard: [[
-                    { text: "💰 DEPOSIT NOW", callback_data: "deposit" }
-                ]]
+        if (update.message) {
+            const chatId = update.message.chat.id;
+            const text = update.message.text || '';
+            const userId = update.message.from.id;
+            const userIdStr = userId.toString();
+            
+            // Define username from Telegram
+            const username = update.message.from.username || update.message.from.first_name || 'User';
+            
+            console.log(`📝 Message from ${username} (${userIdStr}): ${text}`);
+            
+            // Initialize user if new
+            if (!users[userIdStr]) {
+                users[userIdStr] = {
+                    id: userIdStr,
+                    username: username,
+                    chatId: chatId,
+                    balance: 0,
+                    heldBalance: 0,
+                    registered: false,
+                    isAgent: false,
+                    agentCode: 'AG' + userIdStr.slice(-6),
+                    joinDate: new Date().toISOString(),
+                    lastActive: new Date().toISOString(),
+                    totalDeposited: 0,
+                    totalWon: 0,
+                    totalWithdrawn: 0,
+                    pendingWithdrawal: null,
+                    session: {}
+                };
+                saveUsers();
+                console.log(`👤 New user registered: ${username} (${userIdStr})`);
             }
-        );
-        return;
-    }
-    
-    // ✅ CORRECT: Open WebApp with user ID
-    await sendTelegramMessage(chatId,
-        `🎮 *SHEBA BINGO - MULTIPLAYER*\n\n` +
-        `💰 Your Balance: *${user.balance} ETB*\n` +
-        `🎲 Entry Fee: *${GAME_CONFIG.BOARD_PRICE} ETB* per board\n` +
-        `🏆 Prize Pool: 80% of all bets\n` +
-        `👥 Min Players: 2 | Max: Unlimited\n\n` +
-        `🎯 *HOW TO PLAY:*\n` +
-        `1️⃣ Select 1-3 boards\n` +
-        `2️⃣ Mark numbers as they're called\n` +
-        `3️⃣ Complete a row, column, or diagonal\n` +
-        `4️⃣ Click "CLAIM BINGO" to win!\n\n` +
-        `⏱️ Game starts in 25 seconds!\n\n` +
-        `👇 *Click PLAY to start!*`,
-        {
-            inline_keyboard: [[
-                { 
-                    text: `🎮 PLAY NOW (${user.balance} ETB)`, 
-                    web_app: { url: `${RENDER_URL}/?user=${userId}` }
+            
+            // Update last active time
+            users[userIdStr].lastActive = new Date().toISOString();
+            const user = users[userIdStr];
+            
+            // Initialize session if not exists
+            if (!user.session) user.session = {};
+            
+            // ==================== HANDLE /PLAY COMMAND ====================
+            if (text === '/play') {
+                console.log(`🎮 /play command from user ${userId}`);
+                
+                if (user.balance < GAME_CONFIG.BOARD_PRICE) {
+                    await sendTelegramMessage(chatId,
+                        `❌ *INSUFFICIENT BALANCE*\n\n` +
+                        `💰 Required: *${GAME_CONFIG.BOARD_PRICE} ETB*\n` +
+                        `💵 Your balance: *${user.balance} ETB*\n\n` +
+                        `💡 Use /deposit to add funds instantly!`,
+                        {
+                            inline_keyboard: [[
+                                { text: "💰 DEPOSIT NOW", callback_data: "deposit" }
+                            ]]
+                        }
+                    );
+                    return;
                 }
-            ]]
-        }
-    );
-}
-            
-            
-            // Handle /start command  
-if (text === '/start') {
-    if (!user.registered) {
-        // NEW USER - Show register button
-        await sendTelegramMessage(chatId, 
-            `🎮 *Welcome to SHEBA BINGO!* 🎰\n\n` +
-            `🔥 *GET 10 ETB FREE BONUS INSTANTLY!*\n\n` +
-            `✅ Register with 1 click\n` +
-            `✅ Play instantly\n` +
-            `✅ Win real money\n\n` +
-            `Click REGISTER to start:`,
-            {
-                inline_keyboard: [[
-                    { text: "📝 REGISTER NOW", callback_data: "register" }
-                ]]
+                
+                await sendTelegramMessage(chatId,
+                    `🎮 *SHEBA BINGO - MULTIPLAYER*\n\n` +
+                    `💰 Your Balance: *${user.balance} ETB*\n` +
+                    `🎲 Entry Fee: *${GAME_CONFIG.BOARD_PRICE} ETB* per board\n` +
+                    `🏆 Prize Pool: 80% of all bets\n` +
+                    `👥 Min Players: 2 | Max: Unlimited\n\n` +
+                    `🎯 *HOW TO PLAY:*\n` +
+                    `1️⃣ Select 1-3 boards\n` +
+                    `2️⃣ Mark numbers as they're called\n` +
+                    `3️⃣ Complete a row, column, or diagonal\n` +
+                    `4️⃣ Click "CLAIM BINGO" to win!\n\n` +
+                    `⏱️ Game starts in 25 seconds!\n\n` +
+                    `👇 *Click PLAY to start!*`,
+                    {
+                        inline_keyboard: [[
+                            { 
+                                text: `🎮 PLAY NOW (${user.balance} ETB)`, 
+                                web_app: { url: `${RENDER_URL}/?user=${userId}` }
+                            }
+                        ]]
+                    }
+                );
             }
-        );
-    } else {
-        // ALREADY REGISTERED - Show main menu with PLAY button
-        await sendTelegramMessage(chatId,
-            `🎮 *Welcome back to SHEBA BINGO!* 🎰\n\n` +
-            `💰 *Your Balance: ${user.balance} ETB*\n\n` +
-            `⚡ Quick Actions:`,
-            {
-                inline_keyboard: [
-                    [{ 
-                        text: `🎮 PLAY NOW (${user.balance} ETB)`, 
-                        web_app: { url: `${RENDER_URL}/?user=${userId}` }
-                    }],
-                    [
-                        { text: "💰 DEPOSIT", callback_data: "deposit" },
-                        { text: "📊 BALANCE", callback_data: "balance" }
-                    ],
-                    [
-                        { text: "📖 INSTRUCTION", callback_data: "instruction" },
-                        { text: "👥 INVITE", callback_data: "invite" }
-                    ]
-                ]
+            
+            // ==================== HANDLE /START COMMAND ====================
+            else if (text === '/start') {
+                if (!user.registered) {
+                    await sendTelegramMessage(chatId, 
+                        `🎮 *Welcome to SHEBA BINGO!* 🎰\n\n` +
+                        `🔥 *GET 10 ETB FREE BONUS INSTANTLY!*\n\n` +
+                        `✅ Register with 1 click\n` +
+                        `✅ Play instantly\n` +
+                        `✅ Win real money\n\n` +
+                        `Click REGISTER to start:`,
+                        {
+                            inline_keyboard: [[
+                                { text: "📝 REGISTER NOW", callback_data: "register" }
+                            ]]
+                        }
+                    );
+                } else {
+                    await sendTelegramMessage(chatId,
+                        `🎮 *Welcome back to SHEBA BINGO!* 🎰\n\n` +
+                        `💰 *Your Balance: ${user.balance} ETB*\n\n` +
+                        `⚡ Quick Actions:`,
+                        {
+                            inline_keyboard: [
+                                [{ 
+                                    text: `🎮 PLAY NOW (${user.balance} ETB)`, 
+                                    web_app: { url: `${RENDER_URL}/?user=${userId}` }
+                                }],
+                                [
+                                    { text: "💰 DEPOSIT", callback_data: "deposit" },
+                                    { text: "📤 WITHDRAW", callback_data: "withdraw" }
+                                ],
+                                [
+                                    { text: "📊 BALANCE", callback_data: "balance" },
+                                    { text: "📖 INSTRUCTION", callback_data: "instruction" }
+                                ],
+                                [
+                                    { text: "👥 INVITE", callback_data: "invite" },
+                                    { text: "📞 SUPPORT", callback_data: "support" }
+                                ]
+                            ]
+                        }
+                    );
+                }
             }
-        );
-    }
-}
-            // Handle photo messages (screenshots for manual deposit)
+            
+            // ==================== HANDLE /DEPOSIT COMMAND ====================
+            else if (text === '/deposit') {
+                await sendTelegramMessage(chatId,
+                    `💰 *CHOOSE PAYMENT METHOD - INSTANT DEPOSIT* 💰\n\n` +
+                    `*FOR INSTANT CREDIT (UNDER 1 MINUTE):*\n` +
+                    `1. Select your payment method below.\n` +
+                    `2. Complete the transfer.\n` +
+                    `3. **You will receive an SMS from 127 (Telebirr)**.\n` +
+                    `4. **COPY the ENTIRE SMS text** you receive.\n` +
+                    `5. **PASTE that SMS text directly here** in this chat.\n\n` +
+                    `✅ *Automatic processing!*\n` +
+                    `❌ Do NOT send screenshots for instant processing.\n\n` +
+                    `*Our Accounts:*\n` +
+                    `📱 TeleBirr: 0914834341\n` +
+                    `🏦 CBE: 1000123456789\n` +
+                    `🏛️ BOA: 65637448`,
+                    {
+                        inline_keyboard: [
+                            [{ text: "📱 TeleBirr (INSTANT)", callback_data: "telebirr_instant" }],
+                            [{ text: "🏦 CBE Birr (INSTANT)", callback_data: "cbe_instant" }],
+                            [{ text: "🏛️ Bank of Abyssinia", callback_data: "boa_instant" }],
+                            [{ text: "📸 Manual Screenshot", callback_data: "manual_deposit" }]
+                        ]
+                    }
+                );
+            }
+            
+            // ==================== HANDLE /BALANCE COMMAND ====================
+            else if (text === '/balance') {
+                await sendTelegramMessage(chatId,
+                    `💰 *YOUR BALANCE*\n\n` +
+                    `💵 Available: *${user.balance} ETB*\n` +
+                    `📊 Total Deposited: *${user.totalDeposited || 0} ETB*\n` +
+                    `🏆 Total Won: *${user.totalWon || 0} ETB*\n` +
+                    `📤 Total Withdrawn: *${user.totalWithdrawn || 0} ETB*\n\n` +
+                    `🎮 Click PLAY to start!`,
+                    {
+                        inline_keyboard: [[
+                            { 
+                                text: `🎮 PLAY NOW (${user.balance} ETB)`, 
+                                web_app: { url: `${RENDER_URL}/?user=${userId}` }
+                            }
+                        ]]
+                    }
+                );
+            }
+            
+            // ==================== HANDLE /WITHDRAW COMMAND ====================
+            else if (text === '/withdraw') {
+                if (user.balance < 50) {
+                    await sendTelegramMessage(chatId,
+                        `❌ *Minimum withdrawal is 50 ETB*\n\n` +
+                        `💰 Your balance: *${user.balance} ETB*\n\n` +
+                        `💡 Use /deposit to add funds.`
+                    );
+                    return;
+                }
+                
+                user.session.step = 'awaiting_withdraw_amount';
+                saveUsers();
+                
+                await sendTelegramMessage(chatId,
+                    `📤 *WITHDRAWAL REQUEST*\n\n` +
+                    `💰 Your balance: *${user.balance} ETB*\n` +
+                    `📝 Minimum: *50 ETB*\n` +
+                    `📞 Maximum: *50,000 ETB* per day\n\n` +
+                    `Please enter the amount you want to withdraw:`,
+                    {
+                        reply_markup: {
+                            inline_keyboard: [[
+                                { text: "🔙 Cancel", callback_data: "cancel_withdraw" }
+                            ]]
+                        }
+                    }
+                );
+            }
+            
+            // ==================== HANDLE /HELP COMMAND ====================
+            else if (text === '/help') {
+                await sendTelegramMessage(chatId,
+                    `📞 *SUPPORT & HELP*\n\n` +
+                    `*Commands:*\n` +
+                    `/start - Show main menu\n` +
+                    `/play - Start game\n` +
+                    `/deposit - Add funds (INSTANT)\n` +
+                    `/balance - Check balance\n` +
+                    `/withdraw - Withdraw money\n` +
+                    `/help - This message\n\n` +
+                    `*Support:*\n` +
+                    `👤 Admin: @ShebaBingoETBotSupport\n` +
+                    `📱 Phone: +251945343143\n` +
+                    `⏰ 24/7 Support`
+                );
+            }
+            
+            // ==================== HANDLE WITHDRAWAL AMOUNT INPUT ====================
+            else if (user.session.step === 'awaiting_withdraw_amount') {
+                const amount = parseFloat(text);
+                
+                if (isNaN(amount) || amount < 50) {
+                    await sendTelegramMessage(chatId, `❌ Invalid amount. Minimum withdrawal is 50 ETB`);
+                    return;
+                }
+                
+                if (amount > 50000) {
+                    await sendTelegramMessage(chatId, `❌ Maximum withdrawal per request is 50,000 ETB`);
+                    return;
+                }
+                
+                if (amount > user.balance) {
+                    await sendTelegramMessage(chatId, 
+                        `❌ Insufficient balance.\n\n` +
+                        `💰 Your balance: ${user.balance} ETB\n` +
+                        `📤 Requested: ${amount} ETB`
+                    );
+                    return;
+                }
+                
+                user.session.withdrawAmount = amount;
+                user.session.step = 'awaiting_withdraw_phone';
+                saveUsers();
+                
+                await sendTelegramMessage(chatId,
+                    `📞 *Please share your phone number*\n\n` +
+                    `We will send the money to this number.\n\n` +
+                    `Click the button below to share your contact:`,
+                    {
+                        reply_markup: {
+                            keyboard: [[
+                                { text: "📞 Share Phone Number", request_contact: true }
+                            ]],
+                            resize_keyboard: true,
+                            one_time_keyboard: true
+                        }
+                    }
+                );
+            }
+            
+            // ==================== HANDLE PHOTO MESSAGES (Manual Deposit) ====================
             else if (update.message.photo) {
                 const photo = update.message.photo[update.message.photo.length - 1];
                 
-                // Store manual deposit
                 const depositId = 'manual_' + Date.now().toString();
                 deposits.push({
                     id: depositId,
-                    userId: userId,
+                    userId: userIdStr,
                     username: user.username,
                     chatId: chatId,
                     fileId: photo.file_id,
                     status: 'pending_manual',
                     date: new Date().toISOString(),
-                    method: '_manual',
+                    method: 'manual_screenshot',
                     type: 'manual_screenshot'
                 });
                 saveDeposits();
@@ -1963,166 +2117,114 @@ if (text === '/start') {
                     `💰 Your current balance: *${user.balance} ETB*`
                 );
                 
-                console.log(`📸 Manual deposit from ${user.username}`);
-                
-                // Notify admin
                 await sendTelegramMessage(ADMIN_CHAT_ID,
                     `📥 *MANUAL DEPOSIT SCREENSHOT*\n\n` +
-                    `👤 User: ${user.username} (${userId})\n` +
+                    `👤 User: ${user.username} (${userIdStr})\n` +
                     `💰 Current Balance: ${user.balance} ETB\n` +
                     `🕐 Time: ${new Date().toLocaleString()}\n\n` +
                     `⚡ Review in admin panel:\n` +
                     `${RENDER_URL}/admin.html`
                 );
             }
-            // Handle text messages
-            else if (text) {
-                // Check if message looks like a transaction SMS
+            
+            // ==================== HANDLE CONTACT SHARING (Withdrawal) ====================
+            else if (update.message.contact && user.session.step === 'awaiting_withdraw_phone') {
+                const phoneNumber = update.message.contact.phone_number;
+                const amount = user.session.withdrawAmount;
+                
+                // Deduct from balance
+                user.balance -= amount;
+                user.totalWithdrawn = (user.totalWithdrawn || 0) + amount;
+                
+                // Create withdrawal record
+                const withdrawalId = 'WIT_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
+                const withdrawal = {
+                    id: withdrawalId,
+                    userId: userIdStr,
+                    username: user.username,
+                    amount: amount,
+                    phoneNumber: phoneNumber,
+                    status: 'pending',
+                    createdAt: new Date().toISOString()
+                };
+                
+                // Save to withdrawals.json
+                const WITHDRAWALS_FILE = path.join(__dirname, 'withdrawals.json');
+                let withdrawals = [];
+                if (fs.existsSync(WITHDRAWALS_FILE)) {
+                    try {
+                        withdrawals = JSON.parse(fs.readFileSync(WITHDRAWALS_FILE, 'utf8'));
+                    } catch(e) {}
+                }
+                withdrawals.push(withdrawal);
+                fs.writeFileSync(WITHDRAWALS_FILE, JSON.stringify(withdrawals, null, 2));
+                
+                // Clear session
+                user.session = {};
+                saveUsers();
+                saveDeposits();
+                
+                // Notify user
+                await sendTelegramMessage(chatId,
+                    `✅ *Withdrawal Request Submitted!*\n\n` +
+                    `💰 Amount: *${amount} ETB*\n` +
+                    `📞 Phone: *${phoneNumber}*\n` +
+                    `🆔 Request ID: *${withdrawalId}*\n\n` +
+                    `⏰ Processing time: 24-48 hours\n` +
+                    `📊 New Balance: *${user.balance} ETB*\n\n` +
+                    `You will be notified when processed.`,
+                    {
+                        reply_markup: {
+                            remove_keyboard: true,
+                            inline_keyboard: [[
+                                { text: "🏠 Main Menu", callback_data: "menu" }
+                            ]]
+                        }
+                    }
+                );
+                
+                // Notify admin
+                await sendTelegramMessage(ADMIN_CHAT_ID,
+                    `📤 *WITHDRAWAL REQUEST*\n\n` +
+                    `👤 User: ${user.username} (${userIdStr})\n` +
+                    `💰 Amount: ${amount} ETB\n` +
+                    `📞 Phone: ${phoneNumber}\n` +
+                    `🆔 ID: ${withdrawalId}\n` +
+                    `⏰ Time: ${new Date().toLocaleString()}\n` +
+                    `📊 New Balance: ${user.balance} ETB`
+                );
+            }
+            
+            // ==================== HANDLE SMS DEPOSIT ====================
+            else if (text && !text.startsWith('/')) {
                 const isTransactionSMS = (
                     (text.includes('transferred') || text.includes('sent') || text.includes('You have transferred')) &&
-                    (text.includes('ETB') || text.includes('birr') || text.includes('ETB')) &&
+                    (text.includes('ETB') || text.includes('birr')) &&
                     (text.includes('TeleBirr') || text.includes('CBE') || text.includes('transaction') || text.includes('Dear'))
                 );
                 
-                if (isTransactionSMS && !text.startsWith('/')) {
+                if (isTransactionSMS) {
                     console.log(`📨 Detected transaction SMS from ${user.username}`);
-                    await processInstantDeposit(userId, chatId, text);
+                    await processInstantDeposit(userIdStr, chatId, text);
                     return;
                 }
                 
-                // Handle commands
-                if (text.startsWith('/')) {
-                    switch(text) {
-                        case '/deposit':
-    await sendTelegramMessage(chatId,
-        `💰 *CHOOSE PAYMENT METHOD - INSTANT DEPOSIT* 💰\n\n` +
-        `*FOR INSTANT CREDIT (UNDER 1 MINUTE):*\n` +
-        `1. Select your payment method below.\n` +
-        `2. Complete the transfer.\n` +
-        `3. **You will receive an SMS from 127 (Telebirr)**.\n` +
-        `4. **COPY the ENTIRE SMS text** you receive.\n` +
-        `5. **PASTE that SMS text directly here** in this chat.\n\n` +
-        `✅ *Automatic processing!*\n` +
-        `❌ Do NOT send screenshots for instant processing.`,
-        {
-            inline_keyboard: [
-                [{ text: "📱 TeleBirr (INSTANT)", callback_data: "telebirr_instant" }],
-                [{ text: "🏦 CBE Birr (INSTANT)", callback_data: "cbe_instant" }],
-                [{ text: "🏛️ Bank of Abyssinia", callback_data: "boa_instant" }]
-                
-            ]
-        }
-    );
-    break;
-                            
-                        case '/balance':
-                            await sendTelegramMessage(chatId,
-                                `💰 *YOUR BALANCE*\n\n` +
-                                `💵 Available: *${user.balance} ETB*\n\n` +
-                                `🎮 To play: Click PLAY button`,
-                                {
-                                    inline_keyboard: [[
-                                        { 
-                                            text: `🎮 PLAY (${user.balance} ETB)`, 
-                                            web_app: { url: `${RENDER_URL}/?user=${userId}` }
-                                        },
-                                        { text: "💰 DEPOSIT (INSTANT)", callback_data: "deposit" }
-                                    ]]
-                                }
-                            );
-                            break;
-                            
-                        case '/play':
-                            if (user.balance < GAME_CONFIG.BOARD_PRICE) {
-                                await sendTelegramMessage(chatId,
-                                    `❌ *INSUFFICIENT BALANCE*\n\n` +
-                                    `💰 Required: *${GAME_CONFIG.BOARD_PRICE} ETB*\n` +
-                                    `💵 Your balance: *${user.balance} ETB*\n\n` +
-                                    `💡 Use /deposit to add funds instantly!`,
-                                    {
-                                        inline_keyboard: [[
-                                            { text: "💰 DEPOSIT NOW", callback_data: "deposit" }
-                                        ]]
-                                    }
-                                );
-                                break;
-                            }
-                            
-                            await sendTelegramMessage(chatId,
-                                `🎮 *JOIN MULTIPLAYER BINGO*\n\n` +
-                                `💰 Entry Fee: *${GAME_CONFIG.BOARD_PRICE} ETB*\n` +
-                                `🏆 Prize Pool: 80% of all bets\n` +
-                                `👥 Min Players: ${GAME_CONFIG.MIN_PLAYERS}\n\n` +
-                                `Click below to join a game:`,
-                                {
-                                    inline_keyboard: [[
-                                        { 
-                                            text: `🎮 JOIN GAME (${user.balance} ETB)`,
-                                            web_app: {url: `${RENDER_URL}/?user=${userId}&from=play_command`}
-                                        }
-                                    ]]
-                                }
-                            );
-                            break;
-                            
-                        case '/help':
-                            await sendTelegramMessage(chatId,
-                                `📞 *SUPPORT & INSTANT DEPOSIT HELP*\n\n` +
-                                `👤 Admin: @ShebaBingoAdmin\n` +
-                                `📱 Phone: +251945343143\n` +
-                                `⏰ 24/7 Support\n\n` +
-                                `💡 *For INSTANT deposits:*\n` +
-                                `• Use TeleBirr or CBE Birr\n` +
-                                `• Copy & paste SMS confirmation\n` +
-                                `• Balance updates in under 1 minute\n\n` +
-                                `📧 Contact for:\n` +
-                                `• Deposit issues\n` +
-                                `• Withdrawal help\n` +
-                                `• Game problems`
-                            );
-                            break;
-                            
-                        case '/agent_register':
-                            user.isAgent = true;
-                            saveUsers();
-                            await sendTelegramMessage(chatId,
-                                `✅ *AGENT REGISTRATION COMPLETE!*\n\n` +
-                                `Your Agent Code: *${user.agentCode}*\n` +
-                                `Commission: 10%\n\n` +
-                                `Share your code to earn commissions!`
-                            );
-                            break;
-                            
-                        default:
-                            await sendTelegramMessage(chatId,
-                                `📝 I received: ${text}\n\n` +
-                                `Use these commands:\n` +
-                                `/start - Show menu\n` +
-                                `/play - Start game\n` +
-                                `/deposit - Add funds INSTANTLY\n` +
-                                `/balance - Check balance\n` +
-                                `/help - Get help`
-                            );
-                    }
+                // Handle other text
+                if (text.toLowerCase().includes('screenshot') || text.includes('paid') || text.includes('sent money')) {
+                    await sendTelegramMessage(chatId,
+                        `📸 *For manual screenshot review:*\n\n` +
+                        `Please send the screenshot as a photo (not text).\n\n` +
+                        `💡 *For INSTANT processing:*\n` +
+                        `1. Use /deposit command\n` +
+                        `2. Select TeleBirr or CBE\n` +
+                        `3. Copy & paste the SMS confirmation`
+                    );
                 } else {
-                    // Regular text message
-                    if (text.toLowerCase().includes('screenshot') || text.includes('paid') || text.includes('sent money')) {
-                        await sendTelegramMessage(chatId,
-                            `📸 *For manual screenshot review:*\n\n` +
-                            `Please send the screenshot directly as a photo (not text).\n` +
-                            `Admin review time: 5-10 minutes.\n\n` +
-                            `💡 *For INSTANT processing (under 1 minute):*\n` +
-                            `1. Use /deposit command\n` +
-                            `2. Select TeleBirr or CBE\n` +
-                            `3. Copy & paste the SMS confirmation\n`
-                        );
-                    } else {
-                        await sendTelegramMessage(chatId,
-                            `📝 I received your message\n\n` +
-                            `Use /help to see available commands.\n` +
-                            `For instant deposits, use /deposit`
-                        );
-                    }
+                    await sendTelegramMessage(chatId,
+                        `📝 I received your message\n\n` +
+                        `Use /help to see available commands.\n` +
+                        `For instant deposits, use /deposit`
+                    );
                 }
             }
         }
@@ -2130,8 +2232,8 @@ if (text === '/start') {
     } catch (error) {
         console.error('Webhook error:', error.message);
     }
-
 });
+
 
 // ==================== CALLBACK QUERY HANDLER ====================
 async function handleCallbackQuery(callback) {
@@ -2552,180 +2654,298 @@ async function handleAdminCallback(data, callback) {
     }
 }
 
+
+
+// ==================== FRAUD PROTECTION FUNCTIONS ====================
+
+// Verify Telebirr transaction using public receipt
+async function verifyTelebirrTransaction(transactionId) {
+    try {
+        console.log(`🔍 Verifying Telebirr transaction: ${transactionId}`);
+        
+        // Method 1: Try public receipt page
+        const receiptUrl = `https://transactioninfo.ethiotelecom.et/receipt/${transactionId}`;
+        
+        try {
+            const response = await fetch(receiptUrl);
+            const html = await response.text();
+            
+            // Extract amount from receipt HTML
+            const amountMatch = html.match(/ETB\s*([\d,]+(?:\.\d{2})?)/i);
+            const amount = amountMatch ? parseFloat(amountMatch[1].replace(/,/g, '')) : null;
+            
+            // Extract payer name
+            const nameMatch = html.match(/payer[:\s]+([^<]+)/i);
+            const payerName = nameMatch ? nameMatch[1].trim() : null;
+            
+            // Extract receiver account
+            const receiverMatch = html.match(/to[:\s]+(?:account\s*)?(\d+)/i);
+            const receiverAccount = receiverMatch ? receiverMatch[1] : null;
+            
+            if (amount && amount > 0) {
+                return {
+                    verified: true,
+                    amount: amount,
+                    payerName: payerName || 'Unknown',
+                    payerPhone: null,
+                    receiverAccount: receiverAccount,
+                    transactionDate: new Date().toISOString(),
+                    receiptNumber: transactionId,
+                    status: 'completed'
+                };
+            }
+        } catch (fetchError) {
+            console.log(`⚠️ Receipt fetch failed: ${fetchError.message}`);
+        }
+        
+        // Method 2: Use Verifier API as fallback
+        if (VERIFIER_API_KEY && VERIFIER_API_KEY !== 'YOUR_API_KEY_HERE') {
+            const response = await fetch(`${VERIFIER_API_URL}/verify-telebirr`, {
+                method: 'POST',
+                headers: {
+                    'x-api-key': VERIFIER_API_KEY,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ reference: transactionId })
+            });
+            
+            const result = await response.json();
+            
+            if (result.success) {
+                return {
+                    verified: true,
+                    amount: result.settledAmount,
+                    payerName: result.payerName,
+                    payerPhone: result.payerPhone,
+                    receiverAccount: result.receiverAccount,
+                    transactionDate: result.paymentDate,
+                    receiptNumber: result.receiptNumber,
+                    status: result.transactionStatus
+                };
+            }
+        }
+        
+        return { verified: false, error: 'Could not verify transaction' };
+        
+    } catch (error) {
+        console.error('Telebirr verification error:', error);
+        return { verified: false, error: error.message };
+    }
+}
+
+// Verify CBE transaction
+async function verifyCBETransaction(reference, accountSuffix) {
+    try {
+        console.log(`🔍 Verifying CBE transaction: ${reference}`);
+        
+        if (VERIFIER_API_KEY && VERIFIER_API_KEY !== 'YOUR_API_KEY_HERE') {
+            const response = await fetch(`${VERIFIER_API_URL}/verify-cbe`, {
+                method: 'POST',
+                headers: {
+                    'x-api-key': VERIFIER_API_KEY,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ 
+                    reference: reference,
+                    accountSuffix: accountSuffix || CBE_ACCOUNT_SUFFIX
+                })
+            });
+            
+            const result = await response.json();
+            
+            if (result.success) {
+                return {
+                    verified: true,
+                    amount: result.transactionAmount,
+                    payerName: result.payerName,
+                    payerAccount: result.payerAccount,
+                    receiverAccount: result.receiverAccount,
+                    transactionDate: result.paymentDate,
+                    status: 'completed'
+                };
+            }
+        }
+        
+        return { verified: false, error: 'CBE verification not available' };
+        
+    } catch (error) {
+        console.error('CBE verification error:', error);
+        return { verified: false, error: error.message };
+    }
+}
+
+// Log fraud attempt
+async function logFraudAttempt(userId, transactionId, amount, reason) {
+    const fraudLog = {
+        id: 'FRAUD_' + Date.now(),
+        userId: userId,
+        transactionId: transactionId,
+        amount: amount,
+        reason: reason,
+        timestamp: new Date().toISOString(),
+        ip: null // Add IP if available
+    };
+    
+    // Store in fraud_logs.json
+    const FRAUD_LOGS_FILE = path.join(__dirname, 'fraud_logs.json');
+    let fraudLogs = [];
+    if (fs.existsSync(FRAUD_LOGS_FILE)) {
+        try {
+            fraudLogs = JSON.parse(fs.readFileSync(FRAUD_LOGS_FILE, 'utf8'));
+        } catch(e) {}
+    }
+    fraudLogs.push(fraudLog);
+    fs.writeFileSync(FRAUD_LOGS_FILE, JSON.stringify(fraudLogs, null, 2));
+    
+    console.log(`🚨 FRAUD ATTEMPT: User ${userId}, TXN ${transactionId}, Reason: ${reason}`);
+    
+    // Notify admin
+    await sendTelegramMessage(ADMIN_CHAT_ID,
+        `🚨 *FRAUD ATTEMPT DETECTED*\n\n` +
+        `👤 User: ${userId}\n` +
+        `🆔 Transaction: ${transactionId}\n` +
+        `💰 Amount: ${amount} ETB\n` +
+        `⚠️ Reason: ${reason}\n` +
+        `⏰ Time: ${new Date().toLocaleString()}`
+    );
+}
+
+
+
 async function processInstantDeposit(userId, chatId, smsText) {
     try {
         const user = users[userId];
-        if (!user) {
-            await sendTelegramMessage(chatId, `❌ User not found. Please use /start first.`);
-            return;
+        if (!user) return;
+
+        // Extract transaction ID and amount
+        let transactionId = extractTransactionId(smsText);
+        let amount = extractAmount(smsText);
+        
+        if (!transactionId || !amount) {
+            return sendMessage(chatId, '❌ Invalid SMS format');
         }
-
-        console.log(`🔍 Processing SMS from ${user.username}: ${smsText.substring(0, 80)}...`);
-
-        // Extract Transaction ID - Enhanced for Telebirr
-        let transactionId = null;
-        const txIdPatterns = [
-            // Primary Telebirr format - "Your transaction number is DCJ90J52HV"
-            /transaction number is ([A-Z0-9]{10,})/i,
-            
-            // From the receipt link - "receipt/DCJ90J52HV"
-            /receipt\/([A-Z0-9]{10,})/i,
-            
-            // Standard patterns
-            /transaction (?:number|id) is (\w+)/i,
-            /transaction #(\w+)/i,
-            /reference (?:number|id) (\w+)/i,
-            /reference (\w+)/i,
-            
-            // Common Ethiopian banking patterns
-            /DA17G5W\w{3}/i,
-            /DCJ[0-9A-Z]{7,}/i,
-            
-            // Match at end of line or after period
-            /([A-Z0-9]{10,})\.?\s*$/m,
-            
-            // Generic transaction ID
-            /(?:TXN|TRN|ID)[:\s]*([A-Z0-9]{10,})/i
-        ];
-
-        for (const pattern of txIdPatterns) {
-            const match = smsText.match(pattern);
-            if (match) {
-                transactionId = match[1] || match[0];
-                console.log(`📋 Found Transaction ID: ${transactionId}`);
-                break;
-            }
-        }
-
-        // Extract Amount - Enhanced for Telebirr
-        let amount = null;
-        const amountPatterns = [
-            // Primary Telebirr format - "transferred ETB 40.00"
-            /transferred ETB ([\d.]+)/i,
-            
-            // Standard formats
-            /ETB\s*(\d+(?:\.\d{2})?)/i,
-            /transferred\s*(\d+(?:\.\d{2})?)/i,
-            /(\d+(?:\.\d{2})?)\s*ETB/i,
-            /ETB (\d+(?:\.\d{2})?)/i,
-            
-            // Amount with description
-            /(?:amount|AMT|birr)[:\s]*([\d.]+)/i,
-            
-            // Fallback - find any number with decimal
-            /\b(\d+\.\d{2})\b/
-        ];
-
-        for (const pattern of amountPatterns) {
-            const match = smsText.match(pattern);
-            if (match) {
-                amount = parseFloat(match[1]);
-                console.log(`💰 Found Amount: ${amount} ETB`);
-                if (amount >= 10) break;
-            }
-        }
-
-        // Validation with better error messages
-        if (!transactionId) {
+        
+        // ✅ CRITICAL: Extract transaction date from SMS
+        const transactionDate = extractTransactionDate(smsText);
+        const now = Date.now();
+        const fiveDaysInMs = 5 * 24 * 60 * 60 * 1000;
+        
+        // ✅ Check if transaction is older than 5 days
+        if (transactionDate && (now - transactionDate) > fiveDaysInMs) {
             await sendTelegramMessage(chatId,
-                `❌ *Unable to parse message / መልእክቱ ሊታወቅ አልቻለም*\n\n` +
-                `Please copy the *complete SMS* you received from Telebirr.\n` +
-                `እባክዎ ከቴሌብር የደረሳችሁን *ሙሉ የSMS መልእክት* ይላኩ።\n\n` +
-                `Example / ምሳሌ:\n` +
-                `"Dear Mearg You have transferred ETB 40.00 ... Your transaction number is DCJ90J52HV."\n\n` +
-                `If problem persists, contact @ShebaBingoETBotSupport.`
+                `❌ *Transaction Expired*\n\n` +
+                `This transaction is from ${new Date(transactionDate).toLocaleDateString()}\n` +
+                `You have 5 days to verify deposits.\n\n` +
+                `Please make a new deposit and verify within 5 days.`
             );
             return;
         }
         
-        if (!amount || amount < 10) {
-            await sendTelegramMessage(chatId,
-                `❌ *Valid amount not found / ትክክለኛ ያልሆነ መጠን*\n\n` +
-                `Minimum deposit is *10 ETB*.\n` +
-                `Found / የተገኘ: ${amount || 'nothing / ምንም'}\n\n` +
-                `Please paste the complete SMS including the amount.\n` +
-                `እባክዎ መጠኑን የያዘ ሙሉ መልእክት ይላኩ።`
-            );
-            return;
-        }
-
         // Check for duplicate
-        const isDuplicate = deposits.some(d => 
-            d.transactionId === transactionId && d.status === 'approved'
-        );
-        
-        if (isDuplicate) {
-            await sendTelegramMessage(chatId,
-                `⚠️ *Deposit Already Processed / ክፍያው አስቀድሞ ተመዝግቧል*\n\n` +
-                `Transaction ID *${transactionId}* was already credited.\n` +
-                `If this is a mistake, contact @ShebaBingoETBotSupport.`
-            );
-            return;
+        const existing = deposits.find(d => d.transactionId === transactionId);
+        if (existing) {
+            return sendMessage(chatId, '⚠️ Transaction already processed');
         }
-
+        
         // Create deposit record
-        const depositId = `auto_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        const newDeposit = {
-            id: depositId,
+        const deposit = {
+            id: 'DEP_' + Date.now(),
             userId: userId,
-            username: user.username,
-            chatId: chatId,
-            smsText: smsText,
             transactionId: transactionId,
             amount: amount,
-            status: 'approved',
-            method: smsText.includes('TeleBirr') ? 'telebirr_auto' : 
-                    smsText.includes('CBE') ? 'cbe_auto' : 'bank_auto',
-            date: new Date().toISOString(),
-            approvedAt: new Date().toISOString(),
-            autoParsed: true,
-            processedIn: 'instant'
+            status: 'verified',
+            transactionDate: transactionDate,
+            verifiedAt: Date.now(),
+            expiresAt: transactionDate ? transactionDate + fiveDaysInMs : Date.now() + fiveDaysInMs
         };
-
-        deposits.push(newDeposit);
+        
+        deposits.push(deposit);
+        
+        // ✅ IMMEDIATELY add to balance (user can withdraw anytime)
         user.balance += amount;
-        user.totalDeposited = (user.totalDeposited || 0) + amount;
+        user.totalDeposited += amount;
         saveUsers();
         saveDeposits();
-
-        console.log(`✅ INSTANT DEPOSIT: ${user.username} +${amount} ETB via ${transactionId}`);
-
-        // ✅ UPDATED: Notify user with confirmation and ONLY PLAY NOW button
+        
         await sendTelegramMessage(chatId,
-            `✅ *Deposit successful! / ክፍያው ተሳክቷል!*\n\n` +
-            `Amount added / ተጨማሪ ገንዘብ: *${amount.toFixed(1)} ETB*\n` +
-            `Transaction / የክፍያ መለያ: *${transactionId}*\n` +
-            `New balance / አሁን ያለዎት ባላንስ: *${user.balance.toFixed(1)} ETB*\n\n` +
-            `🎮 Click PLAY to start!`,
-            {
-                reply_markup: {
-                    inline_keyboard: [[
-                        { 
-                            text: "🎮 PLAY NOW", 
-                            web_app: { url: `${RENDER_URL}/?user=${userId}` }
-                        }
-                    ]]
-                }
-            }
-        );
-
-        // Alert admin
-        await sendTelegramMessage(ADMIN_CHAT_ID,
-            `⚡ *INSTANT DEPOSIT*\n` +
-            `👤 ${user.username}\n` +
-            `💰 ${amount} ETB\n` +
-            `🆔 ${transactionId}\n` +
-            `💵 New: ${user.balance} ETB`
+            `✅ *Deposit Verified!*\n\n` +
+            `💰 Amount: ${amount} ETB\n` +
+            `🆔 Transaction: ${transactionId}\n` +
+            `📅 Transaction Date: ${new Date(transactionDate).toLocaleString()}\n` +
+            `✅ Verified within: ${Math.floor((Date.now() - transactionDate) / (1000*60*60))} hours\n\n` +
+            `💵 New Balance: ${user.balance} ETB\n\n` +
+            `🎮 Click PLAY to start!`
         );
         
     } catch (error) {
-        console.error('Error processing instant deposit:', error);
-        await sendTelegramMessage(chatId,
-            `❌ *Error Processing Deposit*\n\n` +
-            `Please contact @ShebaBingoETBotSupport`
-        );
+        console.error('Deposit error:', error);
     }
 }
+
+// Helper: Extract transaction date from SMS
+function extractTransactionDate(smsText) {
+    // Telebirr date format: "on 13/02/2026 16:12:35"
+    const patterns = [
+        /on\s+(\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\s+\d{1,2}:\d{2}:\d{2})/i,
+        /dated?\s+(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})/i,
+        /(\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\s+\d{1,2}:\d{2}:\d{2})/i
+    ];
+    
+    for (const pattern of patterns) {
+        const match = smsText.match(pattern);
+        if (match) {
+            const dateStr = match[1];
+            const parsed = new Date(dateStr);
+            if (!isNaN(parsed.getTime())) {
+                return parsed.getTime();
+            }
+        }
+    }
+    return Date.now(); // Fallback to current time
+}
+// In your withdrawal handler - NO HOLD CHECK
+async function handleWithdrawal(userId, amount) {
+    const user = users[userId];
+    
+    // ✅ Simple balance check (no hold period)
+    if (amount > user.balance) {
+        return sendMessage(chatId, `❌ Insufficient balance. You have ${user.balance} ETB`);
+    }
+    
+    if (amount < 50) {
+        return sendMessage(chatId, `❌ Minimum withdrawal is 50 ETB`);
+    }
+    
+    // Process withdrawal immediately
+    user.balance -= amount;
+    user.totalWithdrawn += amount;
+    saveUsers();
+    
+    // Create withdrawal request for admin
+    const withdrawal = {
+        id: 'WIT_' + Date.now(),
+        userId: userId,
+        amount: amount,
+        status: 'pending',
+        createdAt: Date.now()
+    };
+    
+    // Notify admin
+    await sendTelegramMessage(ADMIN_CHAT_ID,
+        `📤 *WITHDRAWAL REQUEST*\n` +
+        `👤 ${user.username}\n` +
+        `💰 ${amount} ETB\n` +
+        `📊 New Balance: ${user.balance} ETB`
+    );
+    
+    await sendTelegramMessage(chatId,
+        `✅ *Withdrawal Request Submitted*\n\n` +
+        `💰 Amount: ${amount} ETB\n` +
+        `⏰ Processed within 24 hours\n` +
+        `📊 New Balance: ${user.balance} ETB`
+    );
+}
+
 // ==================== API ENDPOINTS ====================
 // Root route
 app.get('/', (req, res) => {
